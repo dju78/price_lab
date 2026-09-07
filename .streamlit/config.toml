@@ -1,0 +1,20 @@
+[theme]
+base = "light"
+primaryColor = "#1E4D6B"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F5F7"
+textColor = "#12263A"
+font = "sans serif"
+
+[server]
+maxUploadSize = 100
+enableXsrfProtection = true
+enableCORS = false
+# The code does not change at runtime in a deployed container, so the file
+# watcher buys nothing there. On some platform and Python combinations its
+# watchdog thread has been observed to crash the whole interpreter on a
+# client disconnect, so it is switched off rather than merely relied upon.
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false
