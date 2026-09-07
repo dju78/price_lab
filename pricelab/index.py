@@ -25,12 +25,24 @@ from .config import IndexConfig
 
 
 def _matched(a: pd.Series, b: pd.Series):
-    common = a.index.intersection(b.index)
-    a, b = a[common].dropna(), b[common].dropna()
-    common = a.index.intersection(b.index)
-    a, b = a[common], b[common]
-    keep = (a > 0) & (b > 0)
-    return a[keep], b[keep]
+    """Items priced, positive, in both periods.
+
+    Indexing a Series with an Index object (`a[common]`) routes through
+    pandas' generic listlike-indexer machinery, built for the general case of
+    arbitrary, possibly-misaligned keys. That generality carries real
+    per-call overhead, and this function is called once per period per
+    category per formula: on a multi-year monthly panel run through several
+    formulae for the sensitivity check, the overhead compounds into seconds.
+    `a` and `b` already share an index in the common case (both are drawn
+    from the same category's item x period pivot), so that case is handled
+    with a plain boolean mask, which pandas executes on the underlying numpy
+    array directly; only a genuine index mismatch pays for `reindex`.
+    """
+    if not a.index.equals(b.index):
+        common = a.index.intersection(b.index)
+        a, b = a.reindex(common), b.reindex(common)
+    valid = a.notna().to_numpy() & b.notna().to_numpy() & (a.to_numpy() > 0) & (b.to_numpy() > 0)
+    return a[valid], b[valid]
 
 
 def jevons(a: pd.Series, b: pd.Series) -> float:
@@ -69,6 +81,41 @@ def laspeyres(a: pd.Series, b: pd.Series, w: pd.Series = None) -> float:
 FORMULAE = {"jevons": jevons, "dutot": dutot, "carli": carli, "laspeyres": laspeyres}
 
 
+def _formula_np(formula: str, a: np.ndarray, b: np.ndarray, w: np.ndarray = None):
+    """Numpy-array reimplementation of the formulae above, numerically
+    identical to them, for the period loop in build_index.
+
+    build_index is called once per formula in the sensitivity check and twice
+    more for chain drift, each call stepping through every period of every
+    category. `jevons`/`dutot`/`carli`/`laspeyres` above take pandas Series so
+    they read as the methodological reference and so existing callers and
+    tests keep working unchanged, but a pandas Series carries real per-call
+    construction and alignment overhead. Paid once per period per category
+    per formula, across a multi-year monthly panel, that overhead is exactly
+    the delay a user watches on upload. This does the same arithmetic on the
+    raw arrays instead, which is what the hot loop actually needs.
+    """
+    valid = np.isfinite(a) & np.isfinite(b) & (a > 0) & (b > 0)
+    am, bm = a[valid], b[valid]
+    n = int(am.size)
+    if n == 0:
+        return np.nan, n
+    if formula == "jevons":
+        return float(np.exp(np.log(bm / am).mean())), n
+    if formula == "dutot":
+        return float(bm.mean() / am.mean()), n
+    if formula == "carli":
+        return float((bm / am).mean()), n
+    if formula == "laspeyres":
+        if w is None:
+            return float(np.exp(np.log(bm / am).mean())), n
+        wm = np.nan_to_num(w[valid], nan=0.0)
+        if wm.sum() == 0:
+            return float(np.exp(np.log(bm / am).mean())), n
+        return float((wm * (bm / am)).sum() / wm.sum()), n
+    raise ValueError(f"unknown formula '{formula}'")
+
+
 def build_index(d: pd.DataFrame, cfg: IndexConfig = None,
                 price_col: str = "price_imputed") -> pd.DataFrame:
     """Chained or fixed-base index for one group.
@@ -76,32 +123,52 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig = None,
     Returns the index alongside the matched item count for each period, because
     an index built on two matched items is a different object from one built on
     six and the user needs to see which they have.
+
+    Prices are pivoted to an item x period matrix once, up front, and dropped
+    to a plain numpy array immediately: the period loop then does pure numpy
+    row lookups rather than pandas `.loc` calls. Re-filtering the long frame
+    by period inside the loop, or even indexing a pandas Series once per
+    period, is cheap in isolation but this function is called repeatedly
+    (once per formula in the sensitivity check, twice more for chain drift),
+    and on a multi-year monthly panel that per-call overhead compounds into a
+    delay the user sits through on every upload.
     """
     cfg = cfg or IndexConfig()
-    fn = FORMULAE[cfg.formula]
     periods = sorted(d["period"].unique())
-    series = {p: d.loc[d["period"] == p].set_index("item_id")[price_col] for p in periods}
-    weights = None
-    if "weight" in d.columns:
-        weights = {p: d.loc[d["period"] == p].set_index("item_id")["weight"] for p in periods}
+    pivot = d.pivot(index="period", columns="item_id", values=price_col).sort_index()
+    price_by_period = {p: row for p, row in zip(pivot.index, pivot.to_numpy(dtype=float))}
+    empty_row = np.full(pivot.shape[1], np.nan)
 
+    weight_by_period = None
+    if "weight" in d.columns:
+        wpivot = (d.pivot(index="period", columns="item_id", values="weight")
+                  .reindex(columns=pivot.columns).sort_index())
+        weight_by_period = {p: row for p, row in zip(wpivot.index, wpivot.to_numpy(dtype=float))}
+
+    def row(p):
+        return price_by_period.get(p, empty_row)
+
+    def weight_row(p):
+        return weight_by_period.get(p, empty_row) if weight_by_period is not None else None
+
+    # A category need not span the global base period (an item that launched
+    # later never has). Falling back to an all-missing row, rather than
+    # letting the lookup raise, is what lets a fixed-base comparison come back
+    # as "impossible" (a NaN level) instead of crashing the whole index build.
     base_period = pd.to_datetime(cfg.base_period) if cfg.base_period else periods[0]
     rows, level = [], cfg.base_value
 
     for i, p in enumerate(periods):
         if i == 0:
             matched = np.nan
+            insufficient = False
         else:
             prev = periods[i - 1] if cfg.chained else base_period
-            a, b = series[prev], series[p]
-            am, bm = _matched(a, b)
-            matched = len(am)
-            if matched < cfg.min_matched_items:
+            rel, matched = _formula_np(cfg.formula, row(prev), row(p),
+                                       weight_row(prev) if cfg.formula == "laspeyres" else None)
+            insufficient = matched < cfg.min_matched_items
+            if insufficient:
                 rel = np.nan            # hold the level, flagged below
-            elif cfg.formula == "laspeyres" and weights is not None:
-                rel = laspeyres(a, b, weights[prev])
-            else:
-                rel = fn(a, b)
 
             if cfg.chained:
                 level = level * rel if np.isfinite(rel) else level
@@ -109,8 +176,7 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig = None,
                 level = cfg.base_value * rel if np.isfinite(rel) else np.nan
 
         rows.append({"period": p, "index": level, "matched_items": matched,
-                     "insufficient_match": (not np.isnan(matched)) and matched < cfg.min_matched_items
-                     if not isinstance(matched, float) or np.isfinite(matched) else False})
+                     "insufficient_match": insufficient})
 
     out = pd.DataFrame(rows).set_index("period")
 

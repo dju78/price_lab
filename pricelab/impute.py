@@ -13,6 +13,8 @@ seasonal_hold  holds the index flat across an out-of-season gap, so the
                an all-seasonal treatment with no in-gap price movement.
 """
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -33,34 +35,57 @@ def class_mean(df: pd.DataFrame) -> pd.DataFrame:
     Implemented on the log scale so the imputed movement is consistent with the
     Jevons aggregation used downstream. Applied period by period so the imputed
     value can itself carry forward through a multi-period gap.
+
+    Pivoted to an item x period matrix once, and dropped to a plain numpy
+    array immediately, rather than re-filtering the long frame by period
+    inside the loop or writing into a DataFrame one row at a time. Both of
+    those are cheap-looking single calls that carry real per-call overhead
+    in pandas (block-manager housekeeping on every `.loc` write); paid once
+    per period per category with a gap, on a multi-year monthly panel, that
+    is the difference between a visible multi-second stall on upload and an
+    unnoticeable one. The cascading fill itself is plain numpy row
+    assignment, which is what a sequential, gap-carries-forward computation
+    like this actually needs.
     """
     out = df.copy().sort_values(["item_id", "period"])
     out["price_imputed"] = out["price_clean"]
 
+    fills = []
     for cat, d in out.groupby("category"):
-        periods = sorted(d["period"].unique())
-        for t0, t1 in zip(periods[:-1], periods[1:]):
-            a = d.loc[d["period"] == t0].set_index("item_id")
-            b = d.loc[d["period"] == t1].set_index("item_id")
-            # class movement from items priced in both periods
-            both = a.index.intersection(b.index)
-            rel = (b.loc[both, "price_clean"] / a.loc[both, "price_clean"]).dropna()
-            rel = rel[rel > 0]
-            if rel.empty:
-                continue
-            factor = float(np.exp(np.log(rel).mean()))
+        pivot = d.pivot(index="period", columns="item_id", values="price_clean").sort_index()
+        periods, items = pivot.index, pivot.columns
+        arr = pivot.to_numpy(dtype=float)
 
-            need = b.index[b["price_clean"].isna()]
-            prev = out.loc[(out["period"] == t0) & (out["item_id"].isin(need))] \
-                      .set_index("item_id")["price_imputed"]
-            fill = prev.dropna() * factor
-            if fill.empty:
+        positive = np.where(arr > 0, arr, np.nan)
+        with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
+            # A transition with no item priced on both sides gives an all-NaN
+            # row; nanmean's "empty slice" warning for that case is expected,
+            # not a sign of a problem, so it is silenced rather than raised.
+            warnings.filterwarnings("ignore", message="Mean of empty slice")
+            class_factor = np.nanmean(np.diff(np.log(positive), axis=0), axis=1)
+
+        filled = arr.copy()
+        for i in range(1, len(periods)):
+            factor = class_factor[i - 1]
+            if not np.isfinite(factor):
                 continue
-            mask = (out["period"] == t1) & (out["item_id"].isin(fill.index))
-            out.loc[mask, "price_imputed"] = out.loc[mask, "item_id"].map(fill)
-            out.loc[mask & out["price_clean"].isna(), "imputation"] = "class_mean"
-            d = out.loc[out["category"] == cat]
-    return out
+            prev_row = filled[i - 1]
+            fillable = np.isnan(filled[i]) & ~np.isnan(prev_row)
+            if fillable.any():
+                filled[i, fillable] = prev_row[fillable] * np.exp(factor)
+
+        fills.append(pd.DataFrame(filled, index=periods, columns=items)
+                     .reset_index()
+                     .melt(id_vars="period", var_name="item_id", value_name="_filled")
+                     .dropna(subset=["_filled"]))
+
+    imputed_long = pd.concat(fills, ignore_index=True) if fills else pd.DataFrame(
+        columns=["period", "item_id", "_filled"])
+    out = out.merge(imputed_long, on=["period", "item_id"], how="left")
+    fillable_mask = out["price_clean"].isna() & out["_filled"].notna()
+    out.loc[fillable_mask, "price_imputed"] = out.loc[fillable_mask, "_filled"]
+    out.loc[fillable_mask, "imputation"] = "class_mean"
+    return out.drop(columns=["_filled"])
 
 
 def seasonal_hold(df: pd.DataFrame) -> pd.DataFrame:
