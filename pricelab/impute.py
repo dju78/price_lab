@@ -116,5 +116,12 @@ def run_imputation(df: pd.DataFrame, cfg: ImputationConfig = None) -> pd.DataFra
         method = cfg.method_for(cat)
         if method not in METHODS:
             raise ValueError(f"unknown imputation method '{method}' for category '{cat}'")
+        if method == "class_mean" and d["item_id"].nunique() <= 1:
+            # class_mean moves an unpriced item by its peers' change; with a
+            # single item there is no peer, so it would leave every gap
+            # silently unfilled. carry_forward is the closest honest
+            # approximation available, and it always sets the imputation
+            # flag, so the audit trail never claims a fill that didn't happen.
+            method = "carry_forward"
         parts.append(METHODS[method](d))
     return pd.concat(parts).sort_values(["item_id", "period"]).reset_index(drop=True)

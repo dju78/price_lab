@@ -77,7 +77,14 @@ def classify_missing(df: pd.DataFrame, min_share: float = 0.8) -> pd.DataFrame:
         years_hit = systemic_gaps["period"].dt.year.nunique()
         total_years = d["period"].dt.year.nunique()
 
-        recurs = years_hit >= max(2, 0.6 * total_years) and len(months_hit) <= 8
+        # Recurrence across years can only be demonstrated with at least two
+        # years on hand. Below that, a systemic gap confined to a handful of
+        # calendar months is the best evidence available, and the safer
+        # reading: calling it "collection failure" instead would trigger
+        # class-mean imputation, fabricating prices for a product that may
+        # simply not be on sale yet.
+        years_needed = max(2, 0.6 * total_years) if total_years >= 2 else 1
+        recurs = years_hit >= years_needed and len(months_hit) <= 8
 
         if len(systemic) and recurs:
             mechanism = "seasonal"
@@ -177,7 +184,19 @@ def run_quality(df: pd.DataFrame, cfg: QualityConfig = None):
 
     summary = (out["flag"].value_counts().rename("count").to_frame()
                .assign(share=lambda x: (x["count"] / len(out)).round(4)))
+
+    # flag_summary counts observations *detected* as scale errors, which
+    # detect_scale_errors sets regardless of cfg.repair_scale_errors. Whether
+    # they were actually repaired (rescaled) or dropped (nulled) depends on
+    # that config flag, and callers displaying "faults repaired" need the
+    # count that reflects what actually happened, not what was found.
+    n_scale_detected = int(summary["count"].get(FLAG_SCALE_UP, 0) +
+                           summary["count"].get(FLAG_SCALE_DOWN, 0))
+    n_scale_repaired = n_scale_detected if cfg.repair_scale_errors else 0
+
     return out, {"flag_summary": summary,
+                 "scale_errors_detected": n_scale_detected,
+                 "scale_errors_repaired": n_scale_repaired,
                  "missing_mechanisms": mechanisms,
                  "residual_outliers": residuals,
                  "config": cfg}

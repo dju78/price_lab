@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from . import diagnostics as dg
+from .index import years_span, annualised_rate
 
 
 MONTHS = ["", "January", "February", "March", "April", "May", "June", "July",
@@ -67,20 +68,30 @@ def quality_findings(clean: pd.DataFrame, quality: dict, cfg) -> List[Finding]:
     scale_up = int(counts.get("scale_error_x100", 0))
     scale_dn = int(counts.get("scale_error_div100", 0))
     scale = scale_up + scale_dn
+    scale_repaired = quality["scale_errors_repaired"]
     missing = int(counts.get("missing_code", 0))
 
     if scale:
         share = scale / n
+        common = (f"{scale_up:,} values sit around one hundred times the level of their own item "
+                 f"and {scale_dn:,} sit around one hundredth of it. The multipliers cluster tightly "
+                 "rather than forming a continuous tail, which is the signature of a unit of "
+                 "measurement fault rather than genuine price volatility. Because the mechanism is "
+                 "known, the true value can be restored by rescaling.")
+        if scale_repaired == scale:
+            headline = f"{scale:,} observations ({share:.1%}) are unit errors, and they are recoverable"
+            detail = (f"{common} The observations were repaired rather than deleted. Deleting them "
+                     "would have broken the item continuity that a matched index depends on.")
+        else:
+            headline = (f"{scale:,} observations ({share:.1%}) are unit errors, and were dropped "
+                       "rather than repaired")
+            detail = (f"{common} The tool was configured to drop rather than repair, which has the "
+                     "same continuity cost deletion would: the affected periods fall out of the "
+                     "matched comparison for those items. Repairing by rescaling instead would "
+                     "have avoided that cost.")
         out.append(Finding(
-            headline=f"{scale:,} observations ({share:.1%}) are unit errors, and they are recoverable",
-            detail=(
-                f"{scale_up:,} values sit around one hundred times the level of their own item "
-                f"and {scale_dn:,} sit around one hundredth of it. The multipliers cluster tightly "
-                "rather than forming a continuous tail, which is the signature of a unit of "
-                "measurement fault rather than genuine price volatility. Because the mechanism is "
-                "known, the true value can be restored by rescaling, so the observations were "
-                "repaired rather than deleted. Deleting them would have broken the item continuity "
-                "that a matched index depends on."),
+            headline=headline,
+            detail=detail,
             evidence=f"{scale:,} of {n:,} records ({share:.1%}); "
                      f"{len(quality['residual_outliers'])} residual outliers after repair",
             kind="quality",
@@ -258,8 +269,12 @@ def structure_findings(imputed: pd.DataFrame, I: pd.DataFrame, matched: pd.DataF
 def trend_findings(I: pd.DataFrame, yoy: pd.DataFrame) -> List[Finding]:
     out = []
     cats = [c for c in I.columns if c != "All items"]
-    years = (I.index[-1] - I.index[0]).days / 365.25
-    ann = ((I.iloc[-1] / I.iloc[0]) ** (1 / years) - 1) * 100
+    years = years_span(I.index)
+    if years <= 0:
+        # A single period has no rate of change to annualise, and nothing
+        # falsifiable to say about a trend yet.
+        return out
+    ann = annualised_rate(I.iloc[-1] / I.iloc[0], years)
 
     if "All items" in I.columns:
         agg = I["All items"]
@@ -292,21 +307,25 @@ def trend_findings(I: pd.DataFrame, yoy: pd.DataFrame) -> List[Finding]:
                 kind="trend", importance=93, chart="inflation"))
 
     ranked = ann[cats].sort_values(ascending=False)
-    fastest, slowest = ranked.index[0], ranked.index[-1]
-    spread = ranked.iloc[0] - ranked.iloc[-1]
-    out.append(Finding(
-        headline=f"Category rates diverge by {spread:.1f} percentage points a year, "
-                 f"from {fastest} to {slowest}",
-        detail=(f"{fastest} runs at {ranked.iloc[0]:.1f}% a year while {slowest} runs at "
-                f"{ranked.iloc[-1]:.1f}%. Divergence of this size means the aggregate conceals "
-                "more than it reveals, and any weighting decision will move the headline "
-                "materially."),
-        evidence=" · ".join(f"{c} {v:.1f}%" for c, v in ranked.head(3).items())
-                 + f" … {slowest} {ranked.iloc[-1]:.1f}%",
-        kind="trend", importance=85,
-        table=pd.DataFrame({"Final level": I.iloc[-1][cats].round(1),
-                            "Annualised %": ranked.round(2)}).reset_index(names="Category"),
-        chart="index"))
+    if len(ranked) > 1:
+        # A divergence needs at least two categories to compare; with one,
+        # "fastest" and "slowest" are the same category and the finding
+        # would just compare it to itself.
+        fastest, slowest = ranked.index[0], ranked.index[-1]
+        spread = ranked.iloc[0] - ranked.iloc[-1]
+        out.append(Finding(
+            headline=f"Category rates diverge by {spread:.1f} percentage points a year, "
+                     f"from {fastest} to {slowest}",
+            detail=(f"{fastest} runs at {ranked.iloc[0]:.1f}% a year while {slowest} runs at "
+                    f"{ranked.iloc[-1]:.1f}%. Divergence of this size means the aggregate conceals "
+                    "more than it reveals, and any weighting decision will move the headline "
+                    "materially."),
+            evidence=" · ".join(f"{c} {v:.1f}%" for c, v in ranked.head(3).items())
+                     + f" … {slowest} {ranked.iloc[-1]:.1f}%",
+            kind="trend", importance=85,
+            table=pd.DataFrame({"Final level": I.iloc[-1][cats].round(1),
+                                "Annualised %": ranked.round(2)}).reset_index(names="Category"),
+            chart="index"))
 
     deflating = ranked[ranked < 0]
     if len(deflating):
@@ -467,20 +486,24 @@ def build_narrative(res: dict) -> Narrative:
     findings += method_findings(imputed, I, cfg)
     findings.sort(key=lambda f: -f.importance)
 
-    if "All items" in I.columns:
+    years = years_span(I.index)
+    if "All items" in I.columns and years > 0:
         agg = I["All items"]
-        years = (I.index[-1] - I.index[0]).days / 365.25
-        rate = ((agg.iloc[-1] / agg.iloc[0]) ** (1 / years) - 1) * 100
+        rate = annualised_rate(agg.iloc[-1] / agg.iloc[0], years)
         headline = (f"Prices rose {agg.iloc[-1] - 100:.0f}% over "
                     f"{years:.0f} years, {rate:.1f}% a year")
+    elif "All items" in I.columns:
+        headline = f"Prices rose {I['All items'].iloc[-1] - 100:.0f}%"
     else:
         headline = "Price analysis"
 
-    n_scale = int(quality["flag_summary"]["count"].get("scale_error_x100", 0) +
-                  quality["flag_summary"]["count"].get("scale_error_div100", 0))
+    n_scale = quality["scale_errors_detected"]
+    n_repaired = quality["scale_errors_repaired"]
+    fault_desc = (f"{n_repaired} data faults repaired" if n_repaired == n_scale
+                 else f"{n_scale} data faults detected, {n_repaired} repaired")
     subtitle = (f"{len(clean):,} observations · {clean.item_id.nunique()} items · "
                 f"{clean.category.nunique()} categories · "
                 f"{clean.period.min():%b %Y} to {clean.period.max():%b %Y} · "
-                f"{n_scale} data faults repaired")
+                f"{fault_desc}")
 
     return Narrative(findings=findings, headline=headline, subtitle=subtitle)

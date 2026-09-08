@@ -16,7 +16,8 @@ import streamlit as st
 
 from pricelab import (RunConfig, Schema, QualityConfig, ImputationConfig, IndexConfig,
                       standardise, validate, infer_schema, auto_configure, analyse,
-                      build_deck, build_docx, build_markdown, method_note)
+                      build_deck, build_docx, build_markdown, method_note,
+                      years_span, annualised_rate)
 
 st.set_page_config(page_title="PriceLab", page_icon="📈", layout="wide",
                    initial_sidebar_state="expanded")
@@ -199,22 +200,34 @@ with st.spinner("Diagnosing, cleaning, indexing and writing the findings…"):
 
 res, nar, charts = out["result"], out["narrative"], out["charts"]
 I, yoy = res["indices"], res["inflation"]
-years = (I.index[-1] - I.index[0]).days / 365.25
+years = years_span(I.index)
 
 # ----------------------------------------------------------------------
 st.markdown('<div class="pl-eyebrow">Analysis complete</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="pl-headline">{nar.headline}</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="pl-sub">{nar.subtitle}</div>', unsafe_allow_html=True)
 
+# Rebuilding the deck and report renders every chart to a PNG and assembles
+# a full .pptx/.docx: expensive enough that doing it on every script rerun
+# (Streamlit reruns top to bottom on any widget interaction, not just these
+# buttons) would make an unrelated slider tweak pay for two document builds
+# it doesn't need. Cached on the inputs that actually determine their
+# content, so they only rebuild when the analysis itself changed.
+export_key = (file_bytes, cfg.to_json(), label)
+if st.session_state.get("export_key") != export_key:
+    st.session_state["export_key"] = export_key
+    st.session_state["deck_bytes"] = build_deck(res, nar, dict(charts), label)
+    st.session_state["docx_bytes"] = build_docx(res, nar, dict(charts), label)
+
 d1, d2, d3, d4 = st.columns(4)
 with d1:
     st.download_button(
-        "Slide deck", build_deck(res, nar, dict(charts), label), f"{label} analysis.pptx",
+        "Slide deck", st.session_state["deck_bytes"], f"{label} analysis.pptx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         use_container_width=True, type="primary")
 with d2:
     st.download_button(
-        "Written report", build_docx(res, nar, dict(charts), label), f"{label} report.docx",
+        "Written report", st.session_state["docx_bytes"], f"{label} report.docx",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         use_container_width=True)
 with d3:
@@ -233,15 +246,16 @@ with tabs[0]:
     m = st.columns(4)
     if "All items" in I.columns:
         m[0].metric(f"All items, {I.index[0]:%b %Y} = 100", f"{I['All items'].iloc[-1]:.1f}")
-        m[1].metric("Average annual rate",
-                    f"{((I['All items'].iloc[-1] / 100) ** (1 / years) - 1) * 100:.1f}%")
+        rate = annualised_rate(I["All items"].iloc[-1] / 100, years)
+        m[1].metric("Average annual rate", f"{rate:.1f}%" if years > 0 else "n/a (single period)")
         s_ = yoy["All items"].dropna()
         if len(s_):
             m[2].metric("Peak rate", f"{s_.max():.1f}%", f"{s_.idxmax():%b %Y}",
                         delta_color="off")
-    q = res["quality"]["flag_summary"]["count"]
-    m[3].metric("Faults repaired",
-                f"{int(q.get('scale_error_x100', 0) + q.get('scale_error_div100', 0)):,}")
+    n_repaired = res["quality"]["scale_errors_repaired"]
+    n_detected = res["quality"]["scale_errors_detected"]
+    m[3].metric("Faults repaired" if n_repaired == n_detected else "Faults repaired / detected",
+                f"{n_repaired:,}" if n_repaired == n_detected else f"{n_repaired:,} / {n_detected:,}")
     st.markdown("")
 
     for f in nar.findings:
@@ -271,7 +285,7 @@ with tabs[1]:
         st.markdown("**Level and annualised rate**")
         st.dataframe(pd.DataFrame({
             "Final level": I.iloc[-1].round(1),
-            "Annualised %": (((I.iloc[-1] / I.iloc[0]) ** (1 / years) - 1) * 100).round(2),
+            "Annualised %": annualised_rate(I.iloc[-1] / I.iloc[0], years).round(2),
         }).sort_values("Final level", ascending=False), use_container_width=True)
     st.markdown("**Matched items behind each comparison**")
     st.caption("An index built on two matched items is a weaker statistic than one built "

@@ -39,7 +39,11 @@ def unmatched_comparison(df: pd.DataFrame, I: pd.DataFrame,
     inflation. Where they enter cheaper, it understates.
     """
     naive = df.groupby(["category", "period"])[price_col].mean().unstack(0)
-    naive = naive / naive.iloc[0] * 100
+    # A zero base-period price (a mis-recoded sentinel, say) would otherwise
+    # divide to +/-inf rather than NaN, and inf survives a plain .dropna()
+    # downstream, reaching a published finding's text and its chart.
+    base = naive.iloc[0].replace(0, np.nan)
+    naive = naive / base * 100
     cats = [c for c in I.columns if c != "All items"]
     out = pd.DataFrame({
         "matched_index": I.iloc[-1].reindex(cats),
@@ -68,6 +72,15 @@ def seasonality(I: pd.DataFrame, window: int = 13) -> pd.DataFrame:
         rows.append({"series": c,
                      "amplitude_pct": 100 * (np.exp(m.max()) - np.exp(m.min())),
                      "peak_month": int(m.idxmax()), "trough_month": int(m.idxmin())})
+    if not rows:
+        # Every series ran shorter than `window` periods (a collection under
+        # about a year old, or a single-period upload): there's no seasonal
+        # cycle to measure yet. An empty frame with no "series" column would
+        # make the caller's own set_index("series") raise; returning the
+        # right (empty) shape here is what lets seasonal_findings' existing
+        # `if not len(seas): return` handle this case as intended.
+        return pd.DataFrame(columns=["amplitude_pct", "peak_month", "trough_month"]
+                            ).rename_axis("series")
     return (pd.DataFrame(rows).set_index("series")
             .sort_values("amplitude_pct", ascending=False).round(1))
 

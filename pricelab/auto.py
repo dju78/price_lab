@@ -133,15 +133,34 @@ def auto_configure(df: pd.DataFrame, label: str = "") -> Tuple[RunConfig, List[s
                 "reads as seasonal unavailability. Held the level across the out-of-season gap "
                 "rather than imputing a price for a product that was not on sale.")
         elif r.mechanism == "collection":
-            by_cat[r.category] = "class_mean"
-            decisions.append(
-                f"{r.category}: every item is unpriced for {r.periods_affected} consecutive "
-                "periods without recurring, which reads as collection failure rather than "
-                "seasonality. Imputed by class mean so the gap moves with its priced peers.")
+            # class_mean moves an unpriced item by its peers' change; with a
+            # single item in the category there is no peer to average, so it
+            # would silently leave the gap unfilled while the audit trail
+            # claimed otherwise. carry_forward is the honest degraded choice.
+            if r.items <= 1:
+                by_cat[r.category] = "carry_forward"
+                decisions.append(
+                    f"{r.category}: every item is unpriced for {r.periods_affected} consecutive "
+                    "periods without recurring, which reads as collection failure rather than "
+                    "seasonality. Only one item is tracked in this category, so there are no "
+                    "priced peers to average against; held the last price forward instead.")
+            else:
+                by_cat[r.category] = "class_mean"
+                decisions.append(
+                    f"{r.category}: every item is unpriced for {r.periods_affected} consecutive "
+                    "periods without recurring, which reads as collection failure rather than "
+                    "seasonality. Imputed by class mean so the gap moves with its priced peers.")
         else:
-            by_cat[r.category] = "class_mean"
-            decisions.append(
-                f"{r.category}: {r.gaps:,} scattered gaps, imputed by class mean.")
+            if r.items <= 1:
+                by_cat[r.category] = "carry_forward"
+                decisions.append(
+                    f"{r.category}: {r.gaps:,} scattered gaps, held the last price forward "
+                    "(only one item is tracked in this category, so there is no peer to "
+                    "average by class mean).")
+            else:
+                by_cat[r.category] = "class_mean"
+                decisions.append(
+                    f"{r.category}: {r.gaps:,} scattered gaps, imputed by class mean.")
     cfg.imputation = ImputationConfig(default_method="none", by_category=by_cat)
 
     # Aggregation. Jevons and chaining are the defensible defaults and are not

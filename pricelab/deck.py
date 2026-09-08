@@ -18,6 +18,7 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
 from .insights import Narrative, Finding
+from .index import years_span, annualised_rate
 
 # Palette, matching charts.py
 INK = RGBColor(0x12, 0x26, 0x3A)
@@ -247,8 +248,12 @@ def slide_method(prs, res: dict, nar: Narrative):
     s = _blank(prs)
     _bg(s, prs, INK)
     cfg = res["config"]
-    q = res["quality"]["flag_summary"]["count"]
-    scale = int(q.get("scale_error_x100", 0) + q.get("scale_error_div100", 0))
+    n_repaired = res["quality"]["scale_errors_repaired"]
+    n_detected = res["quality"]["scale_errors_detected"]
+    scale_desc = (f"{n_repaired} scale errors repaired by rescaling rather than deleted"
+                 if n_repaired == n_detected else
+                 f"{n_detected} scale errors found, {n_repaired} repaired by rescaling and "
+                 f"{n_detected - n_repaired} dropped rather than repaired, as configured")
     _text(s, M, 0.6, 11, 0.8,
           [{"text": "How this was produced", "size": 32, "bold": True,
             "colour": ON_DARK, "font": HEAD_FONT}])
@@ -258,7 +263,7 @@ def slide_method(prs, res: dict, nar: Narrative):
          f"Missing sentinels recoded before calculation. Outliers judged against a "
          f"{cfg.quality.reference_window} period centred rolling median of each item's own "
          f"series, so a trending price is not mistaken for a fault. "
-         f"{scale} scale errors repaired by rescaling rather than deleted; "
+         f"{scale_desc}; "
          f"{len(res['quality']['residual_outliers'])} unexplained residuals remain."),
         ("Imputation",
          f"Default {_pretty(cfg.imputation.default_method)}. " +
@@ -311,21 +316,26 @@ def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "") -> byte
     I, yoy = res["indices"], res["inflation"]
     stats = []
     if "All items" in I.columns:
-        years = (I.index[-1] - I.index[0]).days / 365.25
+        years = years_span(I.index)
         stats.append({"value": f"{I['All items'].iloc[-1]:.0f}",
                       "label": f"All items index at {I.index[-1]:%b %Y}, "
                                f"{I.index[0]:%b %Y} = 100"})
-        stats.append({"value": f"{((I['All items'].iloc[-1] / 100) ** (1 / years) - 1) * 100:.1f}%",
-                      "label": "Average annual rate of change"})
+        if years > 0:
+            rate = annualised_rate(I["All items"].iloc[-1] / 100, years)
+            stats.append({"value": f"{rate:.1f}%",
+                          "label": "Average annual rate of change"})
         if yoy["All items"].notna().any():
             s_ = yoy["All items"].dropna()
             stats.append({"value": f"{s_.max():.1f}%", "accent": True,
                           "label": f"Peak twelve period rate, {s_.idxmax():%b %Y}"})
-    q = res["quality"]["flag_summary"]["count"]
-    scale = int(q.get("scale_error_x100", 0) + q.get("scale_error_div100", 0))
-    if scale:
-        stats.append({"value": f"{scale}", "accent": True,
-                      "label": "Data faults detected and repaired"})
+    n_repaired = res["quality"]["scale_errors_repaired"]
+    n_detected = res["quality"]["scale_errors_detected"]
+    if n_detected:
+        stats.append({"value": f"{n_repaired}" if n_repaired == n_detected
+                                else f"{n_repaired}/{n_detected}",
+                      "accent": True,
+                      "label": "Data faults detected and repaired" if n_repaired == n_detected
+                               else "Data faults repaired / detected"})
     if stats:
         slide_stat_row(prs, "The headline numbers", stats[:4],
                        "Figures are produced from the cleaned collection using a matched "

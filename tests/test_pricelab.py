@@ -14,8 +14,10 @@ import pytest
 
 from pricelab import (RunConfig, QualityConfig, IndexConfig, ImputationConfig,
                       validate, run_quality, run_imputation, build_all,
-                      jevons, dutot, carli, run_pipeline)
+                      jevons, dutot, carli, run_pipeline, build_narrative)
 from pricelab.index import build_index
+from pricelab.insights import trend_findings, quality_findings
+from pricelab.diagnostics import unmatched_comparison
 
 
 # ----------------------------------------------------------------------
@@ -128,6 +130,16 @@ def test_index_holds_level_when_no_items_match():
     assert idx.iloc[3] == pytest.approx(idx.iloc[2])
 
 
+def test_unmatched_base_period_raises_rather_than_all_nan():
+    """A base_period that matches no real period must fail loudly. Silently
+    falling back to an all-missing row would produce an all-NaN index with
+    no indication the configured value, not the data, was the problem."""
+    df = panel(n_items=2, n_periods=6)
+    cfg = IndexConfig(chained=False, base_period="2019-06-15")
+    with pytest.raises(ValueError, match="base_period"):
+        run_pipeline(df, RunConfig(index=cfg))
+
+
 # ----------------------------------------------------------------------
 # Quality
 # ----------------------------------------------------------------------
@@ -204,6 +216,34 @@ def test_collection_gap_is_classified():
     assert mech["Test"] == "collection"
 
 
+def test_seasonal_gap_under_two_years_is_not_collection():
+    """Recurrence across years can't be proven with under two years on hand,
+    but a systemic gap confined to a handful of calendar months still reads
+    as seasonal, not collection failure: the wrong call here would trigger
+    class-mean imputation and fabricate prices for an out-of-season product."""
+    df = panel(n_items=3, n_periods=18, seed=8)
+    off_season = df["period"].dt.month.isin([11, 12, 1])
+    df.loc[off_season, "price_reported"] = 0
+    clean, q = run_quality(_std(df))
+    mech = q["missing_mechanisms"].set_index("category")["mechanism"]
+    assert mech["Test"] == "seasonal"
+
+
+def test_scale_errors_repaired_reflects_config_not_just_detection():
+    """flag_summary counts detections regardless of repair_scale_errors.
+    Callers displaying "faults repaired" need a count that reflects what
+    actually happened to the data, not just what was found."""
+    df = panel(n_items=3, n_periods=24, seed=9)
+    df.loc[df.index[10], "price_reported"] *= 100
+    _, q_repaired = run_quality(_std(df), QualityConfig(repair_scale_errors=True))
+    assert q_repaired["scale_errors_detected"] == 1
+    assert q_repaired["scale_errors_repaired"] == 1
+
+    _, q_dropped = run_quality(_std(df), QualityConfig(repair_scale_errors=False))
+    assert q_dropped["scale_errors_detected"] == 1
+    assert q_dropped["scale_errors_repaired"] == 0
+
+
 # ----------------------------------------------------------------------
 # Imputation
 # ----------------------------------------------------------------------
@@ -231,6 +271,70 @@ def test_carry_forward_holds_last_price():
     clean, _ = run_quality(_std(df))
     imp = run_imputation(clean, ImputationConfig(default_method="carry_forward"))
     assert imp["price_imputed"].isna().sum() == 0
+
+
+def test_class_mean_falls_back_for_single_item_category():
+    """class_mean moves an item by its peers' change; a single-item category
+    has no peer, so it must fall back rather than silently leave the gap
+    unfilled while claiming class_mean was applied."""
+    df = panel(n_items=1, n_periods=6)
+    df.loc[df.index[3], "price_reported"] = 0
+    clean, _ = run_quality(_std(df))
+    imp = run_imputation(clean, ImputationConfig(default_method="class_mean"))
+    assert imp["price_imputed"].isna().sum() == 0
+    assert imp.loc[imp["price_clean"].isna(), "imputation"].eq("carry_forward").all()
+
+
+# ----------------------------------------------------------------------
+# Insights and diagnostics
+# ----------------------------------------------------------------------
+def test_single_period_data_does_not_crash_the_narrative():
+    """A single-period upload has no span to annualise. That must degrade to
+    no rate/no divergence finding, not a ZeroDivisionError."""
+    periods = pd.date_range("2021-01-01", periods=1, freq="MS")
+    rows = [
+        {"period": periods[0], "category": "C", "item_id": "a", "item_name": "a", "price_reported": 1.00},
+        {"period": periods[0], "category": "C", "item_id": "b", "item_name": "b", "price_reported": 2.00},
+    ]
+    res = run_pipeline(_std(pd.DataFrame(rows)))
+    nar = build_narrative(res)  # must not raise
+    assert nar.headline
+
+
+def test_single_category_has_no_divergence_finding():
+    """A "diverges from X to X" finding comparing one category to itself is
+    not falsifiable and must be suppressed, not published."""
+    df = panel(n_items=3, n_periods=24, category="OnlyCategory")
+    res = run_pipeline(df)
+    findings = trend_findings(res["indices"], res["inflation"])
+    assert not any("diverge" in f.headline for f in findings)
+
+
+def test_quality_finding_does_not_claim_repair_when_dropped():
+    """The headline finding must not say scale errors were "repaired" when
+    the tool was configured to drop them instead."""
+    df = panel(n_items=3, n_periods=24, seed=9)
+    df.loc[df.index[10], "price_reported"] *= 100
+    cfg = QualityConfig(repair_scale_errors=False)
+    clean, q = run_quality(_std(df), cfg)
+    findings = quality_findings(clean, q, RunConfig(quality=cfg))
+    scale_finding = next(f for f in findings if "unit error" in f.headline)
+    assert "recoverable" not in scale_finding.headline
+    assert "dropped" in scale_finding.headline
+
+
+def test_unmatched_comparison_handles_zero_base_price():
+    """A zero base-period price must produce NaN, not inf: inf survives a
+    plain .dropna() and would otherwise reach a published finding and chart."""
+    periods = pd.date_range("2021-01-01", periods=2, freq="MS")
+    rows = [
+        {"period": periods[0], "category": "Zero", "item_id": "a", "price_imputed": 0.0},
+        {"period": periods[1], "category": "Zero", "item_id": "a", "price_imputed": 5.0},
+    ]
+    I = pd.DataFrame({"Zero": [100.0, 110.0]}, index=periods)
+    out = unmatched_comparison(pd.DataFrame(rows), I)
+    assert np.isfinite(out["naive_mean_price"].dropna().to_numpy()).all()
+    assert not np.isinf(out["naive_mean_price"]).any()
 
 
 # ----------------------------------------------------------------------

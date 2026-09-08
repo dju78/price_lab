@@ -156,6 +156,11 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig = None,
     # letting the lookup raise, is what lets a fixed-base comparison come back
     # as "impossible" (a NaN level) instead of crashing the whole index build.
     base_period = pd.to_datetime(cfg.base_period) if cfg.base_period else periods[0]
+    if cfg.base_period and base_period not in price_by_period:
+        raise ValueError(
+            f"base_period {cfg.base_period!r} does not match any period present in the data "
+            f"(available range: {periods[0]:%Y-%m-%d} to {periods[-1]:%Y-%m-%d}). Without a match "
+            "the whole index would silently come back as all-NaN, which is worse than failing loudly.")
     rows, level = [], cfg.base_value
 
     for i, p in enumerate(periods):
@@ -209,3 +214,20 @@ def build_all(df: pd.DataFrame, cfg: IndexConfig = None,
 
 def year_on_year(I: pd.DataFrame, periods_per_year: int = 12) -> pd.DataFrame:
     return (I / I.shift(periods_per_year) - 1) * 100
+
+
+def years_span(index: pd.DatetimeIndex) -> float:
+    """Span of a period index, in years."""
+    return (index[-1] - index[0]).days / 365.25
+
+
+def annualised_rate(level_ratio, years: float):
+    """Percentage rate implied by a level ratio over a span in years.
+
+    Returns NaN rather than raising when the span is too short to annualise
+    (a single-period collection has no rate to report), so callers degrade to
+    "not available" instead of crashing on ZeroDivisionError.
+    """
+    if not years or years <= 0:
+        return level_ratio * np.nan
+    return (level_ratio ** (1 / years) - 1) * 100
