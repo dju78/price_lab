@@ -1,5 +1,8 @@
 # PriceLab
 
+**[Live demo →](https://pricequalitylab.streamlit.app/)** — upload your own file, or download
+[`supermarket_price_collection.xlsx`](supermarket_price_collection.xlsx) from this repo and use that.
+
 Upload a price collection. Get a defensible index, the findings written out, and a
 slide deck and report you can send on.
 
@@ -74,7 +77,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 42 tests
+make test        # 50 tests
 ```
 
 The index tests assert axiomatic properties rather than fixed expected numbers. A
@@ -91,7 +94,11 @@ imputation moving a gap by its peers' change, structural validation failures,
 configuration round tripping, schema inference from unconventional column names,
 automatic treatment selection, deck and report validity, speaker notes present, the
 method note stating its limitations, and a clean file producing a clean report rather
-than invented problems.
+than invented problems. A later pass added edge cases a normal run never exercises:
+a single-period upload, a single-category upload, gap seasonality with under two years
+of history, a single-item category with no peer to impute from, a misconfigured
+base period, and a zero base price in the sensitivity diagnostics — each added after
+being found to silently produce a wrong number rather than an honest one.
 
 ## Test dataset
 
@@ -143,7 +150,7 @@ pricelab/
   charts.py       one chart factory serving both the screen and the exports
   deck.py         automatic slide deck, structured by what was actually found
   report.py       Word and Markdown report, plus the method note
-tests/            42 tests
+tests/            50 tests
 scripts/          generate_synthetic_data.py, the test fixture, not the product
 app.py            Streamlit interface, no analytical logic
 Dockerfile        tests run during the build, so a broken image cannot ship
