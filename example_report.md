@@ -1,10 +1,10 @@
 # Prices rose 36% over 11 years, 2.8% a year
 
-*Supermarket collection*
+*supermarket_price_collection*
 
 6,600 observations · 87 items · 10 categories · Jan 2015 to Dec 2025 · 230 data faults repaired
 
-Produced 07 September 2026 by PriceLab.
+Produced 08 September 2026 by PriceLab.
 
 ## Summary
 
@@ -46,7 +46,7 @@ Prices fall at 1.0% a year over the full period, against a rising aggregate. A c
 
 ### 230 observations (3.5%) are unit errors, and they are recoverable
 
-117 values sit around one hundred times the level of their own item and 113 sit around one hundredth of it. The multipliers cluster tightly rather than forming a continuous tail, which is the signature of a unit of measurement fault rather than genuine price volatility. Because the mechanism is known, the true value can be restored by rescaling, so the observations were repaired rather than deleted. Deleting them would have broken the item continuity that a matched index depends on.
+117 values sit around one hundred times the level of their own item and 113 sit around one hundredth of it. The multipliers cluster tightly rather than forming a continuous tail, which is the signature of a unit of measurement fault rather than genuine price volatility. Because the mechanism is known, the true value can be restored by rescaling. The observations were repaired rather than deleted. Deleting them would have broken the item continuity that a matched index depends on.
 
 *Evidence: 230 of 6,600 records (3.5%); 0 residual outliers after repair*
 
