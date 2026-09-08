@@ -114,7 +114,18 @@ def landing():
 # ----------------------------------------------------------------------
 st.sidebar.markdown("### PriceLab")
 st.sidebar.caption("Price collection to index, findings and deck.")
-upload = st.sidebar.file_uploader("Price collection", type=["xlsx", "xlsm", "csv"])
+
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
+upload = st.sidebar.file_uploader(
+    "Price collection", type=["xlsx", "xlsm", "csv"],
+    key=f"uploader_{st.session_state.uploader_key}")
+
+if upload is not None:
+    if st.sidebar.button("Clear data", use_container_width=True):
+        st.session_state.uploader_key += 1
+        st.rerun()
 
 if upload is None:
     landing()
