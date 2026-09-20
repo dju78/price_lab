@@ -17,8 +17,8 @@ from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
-from .insights import Narrative, Finding
-from .index import years_span, annualised_rate
+from ..engine.insights import Narrative, Finding
+from ..engine.index import years_span, annualised_rate
 
 # Palette, matching charts.py
 INK = RGBColor(0x12, 0x26, 0x3A)

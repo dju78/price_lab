@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import List
 import pandas as pd
 
-from .config import Schema
+from ..core.config import Schema
 
 
 @dataclass

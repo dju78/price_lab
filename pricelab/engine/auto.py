@@ -13,7 +13,7 @@ returned with the reason, so the user can see it on screen and override it.
 from typing import Tuple, List
 import pandas as pd
 
-from .config import RunConfig, Schema, QualityConfig, ImputationConfig, IndexConfig
+from ..core.config import RunConfig, Schema, QualityConfig, ImputationConfig, IndexConfig
 from .quality import run_quality, recode_missing, classify_missing
 
 
@@ -187,9 +187,9 @@ def analyse(df: pd.DataFrame, label: str = "", config: RunConfig = None):
     Returns everything the interface and the exports need: the pipeline result,
     the written narrative, the charts, and the decisions taken along the way.
     """
-    from . import run_pipeline
+    from .. import run_pipeline
     from .insights import build_narrative
-    from .charts import build_all_charts
+    from ..reporting.charts import build_all_charts
 
     if config is None:
         config, decisions = auto_configure(df, label)

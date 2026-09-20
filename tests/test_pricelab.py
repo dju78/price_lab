@@ -15,9 +15,9 @@ import pytest
 from pricelab import (RunConfig, QualityConfig, IndexConfig, ImputationConfig,
                       validate, run_quality, run_imputation, build_all,
                       jevons, dutot, carli, run_pipeline, build_narrative)
-from pricelab.index import build_index
-from pricelab.insights import trend_findings, quality_findings
-from pricelab.diagnostics import unmatched_comparison
+from pricelab.engine.index import build_index
+from pricelab.engine.insights import trend_findings, quality_findings
+from pricelab.engine.diagnostics import unmatched_comparison
 
 
 # ----------------------------------------------------------------------

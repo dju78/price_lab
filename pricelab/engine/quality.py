@@ -13,7 +13,7 @@ Two principles, both defensible to a panel:
 import numpy as np
 import pandas as pd
 
-from .config import QualityConfig
+from ..core.config import QualityConfig
 
 
 FLAG_NONE = "none"

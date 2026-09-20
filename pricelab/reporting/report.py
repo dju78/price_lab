@@ -13,7 +13,7 @@ from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-from .insights import Narrative
+from ..engine.insights import Narrative
 from .deck import _pretty
 
 INK = RGBColor(0x12, 0x26, 0x3A)

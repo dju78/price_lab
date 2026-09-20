@@ -18,7 +18,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from .config import ImputationConfig
+from ..core.config import ImputationConfig
 
 
 def carry_forward(df: pd.DataFrame) -> pd.DataFrame:

@@ -21,7 +21,7 @@ the comparison, so item replacement cannot be mistaken for price change.
 import numpy as np
 import pandas as pd
 
-from .config import IndexConfig
+from ..core.config import IndexConfig
 
 
 def _matched(a: pd.Series, b: pd.Series):

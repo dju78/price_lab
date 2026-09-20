@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
-from . import diagnostics as dg
+from ..engine import diagnostics as dg
 
 # Palette. Deep navy dominates, amber is the single sharp accent reserved for
 # whatever the chart is actually about.

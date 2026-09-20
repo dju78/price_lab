@@ -138,23 +138,38 @@ configuration changes.
 
 ```
 pricelab/
-  config.py       configuration objects; the unit of reproducibility
-  ingest.py       column mapping and structural validation
-  quality.py      sentinel recoding, mechanism classification, fault repair
-  impute.py       none | carry_forward | class_mean | seasonal_hold
-  index.py        jevons | dutot | carli | laspeyres, matched, chained or fixed
-  diagnostics.py  formula sensitivity, chain drift, unmatched comparison,
-                  seasonality, churn
-  auto.py         schema inference and self-configuration from the diagnosis
-  insights.py     the interpretation layer: ranked findings in plain English
-  charts.py       one chart factory serving both the screen and the exports
-  deck.py         automatic slide deck, structured by what was actually found
-  report.py       Word and Markdown report, plus the method note
+  core/
+    config.py         configuration objects; the unit of reproducibility
+  data/
+    upload.py          column mapping and structural validation
+  engine/
+    quality.py         sentinel recoding, mechanism classification, fault repair
+    imputation.py       none | carry_forward | class_mean | seasonal_hold
+    index.py            jevons | dutot | carli | laspeyres, matched, chained or fixed
+    diagnostics.py      formula sensitivity, chain drift, unmatched comparison,
+                        seasonality, churn
+    auto.py             schema inference and self-configuration from the diagnosis
+    insights.py         the interpretation layer: ranked findings in plain English
+  reporting/
+    charts.py           one chart factory serving both the screen and the exports
+    deck.py             automatic slide deck, structured by what was actually found
+    report.py           Word and Markdown report, plus the method note
 tests/            50 tests
 scripts/          generate_synthetic_data.py, the test fixture, not the product
 app.py            Streamlit interface, no analytical logic
 Dockerfile        tests run during the build, so a broken image cannot ship
+docs/backlog.md   the phased plan for growing this into a governed,
+                  multi-domain index platform
 ```
+
+The package is organised into four subpackages so it can grow without losing
+the original discipline: `engine/` is pure calculation with no Streamlit
+import, `data/` is everything about getting a collection in, `core/` is
+cross-cutting concerns (today just configuration; a run registry, an audit
+log and access control land here next), and `reporting/` is everything a
+finished analysis turns into for someone else to read. `pricelab/__init__.py`
+re-exports the public surface, so nothing outside the package needs to know
+which subpackage a function actually lives in.
 
 ## Known limitations
 

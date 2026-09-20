@@ -8,7 +8,7 @@ between asserting a method is right and demonstrating it.
 import numpy as np
 import pandas as pd
 
-from .config import IndexConfig
+from ..core.config import IndexConfig
 from .index import build_all
 
 
