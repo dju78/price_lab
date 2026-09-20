@@ -15,12 +15,39 @@ decision it took, and writes the method note that makes the result auditable.
 ## Run
 
 ```bash
-make install && make run          # local
-make docker                       # container, runs the tests during build
+make install                                # dependencies, editable install
+python scripts/create_user.py \
+    --username admin --role administrator   # first account; prompts for a password
+make run                                    # local
+make compose                                # container, runs lint/type-check/tests during build
 ```
 
-Then open `http://localhost:8501` and upload an Excel or CSV file with one row per
-item per period.
+Then open `http://localhost:8501`, sign in, and upload an Excel or CSV file with one
+row per item per period on the Ingest page. There is no self-registration: every
+account is created with `scripts/create_user.py`, against one of four roles
+(`administrator`, `compiler`, `analyst`, `viewer`) — see [Access](#access) below.
+
+A local run creates `pricelab.db` (SQLite) at the repository root the first time it
+starts; `make compose` persists the same file in a named Docker volume instead. Set
+`PRICELAB_DATABASE_URL` to point either at a different SQLite file or at PostgreSQL
+in production — every query goes through SQLAlchemy, so that is the entire migration.
+
+## Access
+
+Four roles, enforced from inside each page's own code, not by hiding a sidebar
+entry: `administrator` and `compiler` can use Ingest, Quality, Imputation and Index
+build (compiling a run); `analyst` additionally reaches Findings and Diagnostics
+(interpreting one); `viewer` reaches only Reports, which is also where a compiled
+run gets registered and, by an administrator, approved. Every login, logout, data
+load, configuration change, calculation run, quality or imputation override, and
+export is written to an append-only, hash-chained audit log in the database —
+`core.audit.verify_chain()` detects a tampered or deleted record and names where the
+chain breaks.
+
+An analyst or viewer with no run of their own to look at can load a previously
+*approved* run instead: `core.registry.reproduce()` re-executes it from its stored
+input data and configuration, so what they see is provably the same figure that was
+signed off, not a re-upload of a possibly different file.
 
 ## What it does, in order
 
@@ -77,7 +104,9 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 50 tests
+make test        # 126 tests
+make lint        # ruff
+make typecheck   # mypy strict, scoped to core/ and engine/
 ```
 
 The index tests assert axiomatic properties rather than fixed expected numbers. A
@@ -139,9 +168,17 @@ configuration changes.
 ```
 pricelab/
   core/
-    config.py         configuration objects; the unit of reproducibility
+    config.py         RunConfig (pydantic) and Settings, the units of reproducibility
+    models.py         pydantic domain schemas and the DataFrame column-contract check
+    security.py       RBAC, authentication, export sanitisation, the restricted
+                       formula evaluator, small-cell suppression
+    db.py             SQLAlchemy engine, session factory, declarative base
+    audit.py          append-only, hash-chained audit log
+    registry.py       index run registry: register, approve, correct, reproduce
+    cache.py          bounded, content-hash-keyed analysis result cache
   data/
     upload.py          column mapping and structural validation
+    classification.py  COICOP 2018 divisions, seeded reference data
   engine/
     quality.py         sentinel recoding, mechanism classification, fault repair
     imputation.py       none | carry_forward | class_mean | seasonal_hold
@@ -154,10 +191,19 @@ pricelab/
     charts.py           one chart factory serving both the screen and the exports
     deck.py             automatic slide deck, structured by what was actually found
     report.py           Word and Markdown report, plus the method note
-tests/            50 tests
-scripts/          generate_synthetic_data.py, the test fixture, not the product
-app.py            Streamlit interface, no analytical logic
-Dockerfile        tests run during the build, so a broken image cannot ship
+pages/            one module per lifecycle stage; app.py wires them into
+                  role-filtered st.navigation
+  ingest.py, quality.py, imputation.py, index_build.py, findings.py,
+  diagnostics.py, reports.py, common.py (shared session-state helpers)
+migrations/       Alembic; one revision covering users, sessions, audit events,
+                  index runs and the classification tree
+tests/            126 tests
+scripts/
+  generate_synthetic_data.py   the test fixture, not the product
+  create_user.py               bootstraps a login (no self-registration)
+app.py            auth gate, shared chrome, page registry; no analytical logic
+Dockerfile        lint, type-check and tests all run during the build
+docker-compose.yml the container plus a named volume for the SQLite file
 docs/backlog.md   the phased plan for growing this into a governed,
                   multi-domain index platform
 ```
@@ -165,11 +211,20 @@ docs/backlog.md   the phased plan for growing this into a governed,
 The package is organised into four subpackages so it can grow without losing
 the original discipline: `engine/` is pure calculation with no Streamlit
 import, `data/` is everything about getting a collection in, `core/` is
-cross-cutting concerns (today just configuration; a run registry, an audit
-log and access control land here next), and `reporting/` is everything a
-finished analysis turns into for someone else to read. `pricelab/__init__.py`
+cross-cutting governance (configuration, security, persistence, the audit
+log and the run registry), and `reporting/` is everything a finished
+analysis turns into for someone else to read. `pricelab/__init__.py`
 re-exports the public surface, so nothing outside the package needs to know
 which subpackage a function actually lives in.
+
+`app.py` itself holds no page content any more: it is the authentication
+gate, the shared sidebar chrome, and the `st.navigation` registry that wires
+`pages/*.py` together. Each page's `render()` is wrapped in
+`core.security.require_role`, checked from inside the function body on
+every call, so a page refuses an unpermitted role exactly the same way
+whether it was reached through the sidebar or called directly — the sidebar
+menu itself only *hides* an entry a role cannot use, as a convenience on
+top of that, never as the actual control.
 
 ## Known limitations
 
@@ -179,6 +234,17 @@ weight column is supplied, in which case the aggregate is equally weighted and
 indicative. Seasonal treatment is limited to holding the level across an out-of-season
 gap; a counter-seasonal fixed weight approach is not implemented. Mechanism
 classification is a proposal for a human to confirm, not a determination.
+
+Only the thirteen top-level COICOP 2018 divisions are seeded as classification
+reference data; deeper groups and classes are not, rather than transcribed
+without a verified source (see `data/classification.py`). Small-cell secondary
+suppression (`core.security.suppress_with_secondary`) handles one published total
+per group; a hierarchy with several overlapping totals over the same cells would
+need a cascading solver this does not implement. User accounts are provisioned with
+`scripts/create_user.py`; there is no in-app user-management page yet. Multilateral
+methods, hedonic quality adjustment, deflation, spatial comparison, asset and trade
+indices, forecasting and PostgreSQL/OIDC are all out of scope for the current phase
+— see `docs/backlog.md` for what is planned and what is deliberately deferred.
 
 The Docker image pins `python:3.12-slim`, the version the test suite and the
 interface were verified against. A very new CPython (3.14, at the time of

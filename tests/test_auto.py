@@ -5,12 +5,20 @@ analysis and usable outputs without being asked anything.
 """
 
 import io
+
 import numpy as np
 import pandas as pd
-import pytest
 
-from pricelab import (infer_schema, auto_configure, analyse, standardise,
-                      build_deck, build_docx, build_markdown, method_note)
+from pricelab import (
+    analyse,
+    auto_configure,
+    build_deck,
+    build_docx,
+    build_markdown,
+    infer_schema,
+    method_note,
+    standardise,
+)
 
 
 def collection(n_items=4, n_periods=36, seed=0, category="Bread"):

@@ -3,3 +3,8 @@ __pycache__/
 .pytest_cache/
 .venv/
 *.egg-info/
+*.db
+*.db-journal
+.env
+.mypy_cache/
+.ruff_cache/

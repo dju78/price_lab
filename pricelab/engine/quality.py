@@ -10,11 +10,12 @@ Two principles, both defensible to a panel:
    was done and why, so any decision can be inspected, disputed and reversed.
 """
 
+from typing import Any, cast
+
 import numpy as np
 import pandas as pd
 
 from ..core.config import QualityConfig
-
 
 FLAG_NONE = "none"
 FLAG_MISSING = "missing_code"
@@ -130,7 +131,11 @@ def detect_scale_errors(df: pd.DataFrame, cfg: QualityConfig) -> pd.DataFrame:
     out["reference"] = ref
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        dev = np.log10(out["price"] / out["reference"])
+        # numpy's own stubs type a ufunc applied to a Series as returning a
+        # bare ndarray, since they know nothing of pandas' __array_ufunc__
+        # override; at runtime np.log10 on a Series returns a Series, which
+        # is what .between() below needs.
+        dev = cast(pd.Series, np.log10(out["price"] / out["reference"]))
     out["log10_deviation"] = dev
 
     too_high = dev.between(cfg.scale_log10_low, cfg.scale_log10_high)
@@ -168,11 +173,13 @@ def residual_check(df: pd.DataFrame, cfg: QualityConfig) -> pd.DataFrame:
         lambda s: local_reference(s, cfg.reference_window, cfg.min_reference_periods))
     ref = ref.fillna(df.groupby("item_id")["price_clean"].transform("median"))
     with np.errstate(divide="ignore", invalid="ignore"):
-        resid = np.log10(df["price_clean"] / ref).abs()
+        resid = cast(pd.Series, np.log10(df["price_clean"] / ref)).abs()
     return df.loc[resid > cfg.residual_tolerance].assign(residual=resid[resid > cfg.residual_tolerance])
 
 
-def run_quality(df: pd.DataFrame, cfg: QualityConfig = None):
+def run_quality(
+    df: pd.DataFrame, cfg: QualityConfig | None = None
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Full quality pass. Returns the cleaned frame plus everything needed to
     justify it."""
     cfg = cfg or QualityConfig()

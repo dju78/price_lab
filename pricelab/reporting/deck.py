@@ -10,15 +10,14 @@ is a single Python deployment with no Node runtime.
 """
 
 import io
-from typing import List
 
 from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.util import Inches, Pt
 
-from ..engine.insights import Narrative, Finding
-from ..engine.index import years_span, annualised_rate
+from ..engine.index import annualised_rate, years_span
+from ..engine.insights import Finding, Narrative
 
 # Palette, matching charts.py
 INK = RGBColor(0x12, 0x26, 0x3A)
@@ -199,7 +198,7 @@ def slide_finding(prs, f: Finding, chart_png: bytes = None, eyebrow: str = ""):
     return s
 
 
-def slide_stat_row(prs, title: str, stats: List[dict], caption: str = ""):
+def slide_stat_row(prs, title: str, stats: list[dict], caption: str = ""):
     """Large number callouts. stats: [{value, label}]."""
     s = _blank(prs)
     _text(s, M, 0.55, 11, 0.8,

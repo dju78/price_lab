@@ -1,0 +1,103 @@
+[project]
+name = "pricelab"
+version = "0.2.0"
+description = "Price collection to defensible index, findings and deck."
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "openpyxl>=3.1",
+    "matplotlib>=3.7",
+    "python-pptx>=1.0",
+    "python-docx>=1.1",
+    "streamlit>=1.36",
+    "tabulate>=0.9",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "argon2-cffi>=23.1",
+    "pyarrow>=14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+    "pandas-stubs",
+    "types-tabulate",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pricelab*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# E501 (line length) is enforced by formatting choices already made in the
+# existing modules' long, deliberately explanatory docstrings; ruff's line
+# length check is kept but comments/docstrings that predate this tooling are
+# left as authored rather than mechanically rewrapped.
+# E741 (ambiguous variable name) flags `I`, used throughout this codebase
+# (engine/index.py, every page, the pre-Phase-1 tests) as the deliberate,
+# consistent name for an index-number DataFrame, matching the notation the
+# CPI Manual itself uses. That is a house style choice, not an accident.
+ignore = ["E501", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# The package facade: every name imported here is re-exported for callers
+# outside the package (app.py, pages/, tests/), which is by definition an
+# "unused" import from ruff's point of view. run_pipeline is defined
+# between two import blocks so it can call the earlier ones and be called
+# by the later ones, which is what triggers E402.
+"pricelab/__init__.py" = ["F401", "E402"]
+# scripts/generate_synthetic_data.py: `cuts` is genuinely unused, but it is
+# computed by drawing from `rng`, and deleting the assignment would consume
+# one fewer random draw from that generator -- silently changing every
+# subsequent random value the rest of the script produces, and with it the
+# already-committed supermarket_price_collection.xlsx fixture on the next
+# regeneration. Not a defensible thing to change in a governance-only phase.
+"scripts/generate_synthetic_data.py" = ["F841"]
+
+[tool.mypy]
+# Matches the Docker image's python:3.12-slim, the version this project
+# actually deploys under (see README's "Known limitations"), not the
+# looser ">=3.11" `requires-python` floor. numpy's own bundled stubs use
+# 3.12-only syntax (PEP 695 `type` statements) that mypy cannot parse at
+# all under an older target.
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+strict = true
+# core/registry.py's deferred `from .. import run_pipeline` (and similar
+# local imports elsewhere in core/engine) pull the top-level package, and
+# through it reporting/ and data/, into mypy's import graph. Without this,
+# mypy reports errors found in those followed-but-out-of-scope modules too,
+# even though `files` below never asked it to check them. "silent" still
+# uses their inferred types for the files that do matter, it just stops
+# treating problems in files outside this scope as this scope's problem.
+follow_imports = "silent"
+
+# The Phase 1 spec asks for mypy strict "over core/ and engine/" -- the
+# governance and calculation modules -- not the whole application. `files`
+# makes that the literal scope of a bare `mypy` invocation (what CI runs),
+# rather than relying on every contributor to remember to pass a path.
+# app.py, pages/, data/, reporting/ and scripts/ lean on Streamlit,
+# python-pptx and python-docx APIs with incomplete or absent stubs, where
+# chasing strict compliance across them would mean type: ignore theatre
+# rather than real safety; they keep their own test coverage instead.
+files = ["pricelab/core", "pricelab/engine"]

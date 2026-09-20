@@ -6,7 +6,7 @@ because the person fixing them is usually not the person running the code.
 """
 
 from dataclasses import dataclass, field
-from typing import List
+
 import pandas as pd
 
 from ..core.config import Schema
@@ -15,8 +15,8 @@ from ..core.config import Schema
 @dataclass
 class ValidationReport:
     passed: bool = True
-    errors: List[str] = field(default_factory=list)      # block the run
-    warnings: List[str] = field(default_factory=list)    # worth a human look
+    errors: list[str] = field(default_factory=list)      # block the run
+    warnings: list[str] = field(default_factory=list)    # worth a human look
     facts: dict = field(default_factory=dict)            # descriptive profile
 
     def error(self, msg: str):

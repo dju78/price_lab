@@ -12,8 +12,8 @@ from ..core.config import IndexConfig
 from .index import build_all
 
 
-def method_sensitivity(df: pd.DataFrame, cfg: IndexConfig = None,
-                       formulae=("jevons", "dutot", "carli"),
+def method_sensitivity(df: pd.DataFrame, cfg: IndexConfig | None = None,
+                       formulae: tuple[str, ...] = ("jevons", "dutot", "carli"),
                        price_col: str = "price_imputed") -> pd.DataFrame:
     """Final index level under each elementary formula, same cleaned data.
 
@@ -85,7 +85,7 @@ def seasonality(I: pd.DataFrame, window: int = 13) -> pd.DataFrame:
             .sort_values("amplitude_pct", ascending=False).round(1))
 
 
-def churn(df: pd.DataFrame, price_col: str = "price_clean") -> pd.DataFrame:
+def churn(df: pd.DataFrame, price_col: str = "price_clean") -> tuple[pd.DataFrame, pd.DataFrame]:
     """Item lifespans and, more usefully, the price level at which replacements
     enter relative to those already in the sample."""
     d = df.dropna(subset=[price_col])
@@ -105,7 +105,7 @@ def churn(df: pd.DataFrame, price_col: str = "price_clean") -> pd.DataFrame:
     return summary.fillna(0), life
 
 
-def chain_drift(df: pd.DataFrame, cfg: IndexConfig = None,
+def chain_drift(df: pd.DataFrame, cfg: IndexConfig | None = None,
                 price_col: str = "price_imputed") -> pd.DataFrame:
     """Chained level against the direct fixed-base level at the final period.
 

@@ -10,8 +10,7 @@ from datetime import date
 
 import pandas as pd
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Inches, Pt, RGBColor
 
 from ..engine.insights import Narrative
 from .deck import _pretty

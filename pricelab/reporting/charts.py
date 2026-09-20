@@ -6,9 +6,10 @@ the user approved on screen, which is the whole point of an export.
 """
 
 import io
-import numpy as np
-import pandas as pd
+
 import matplotlib
+import pandas as pd
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure

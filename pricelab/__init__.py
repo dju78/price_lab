@@ -4,13 +4,22 @@ Built around one idea: every number it produces can be traced back to a
 recorded configuration and an inspectable set of flagged observations.
 """
 
-from .core.config import RunConfig, Schema, QualityConfig, ImputationConfig, IndexConfig
-from .data.upload import read_price_data, standardise, validate, ValidationReport
-from .engine.quality import run_quality
-from .engine.imputation import run_imputation
-from .engine.index import (build_index, build_all, year_on_year, jevons, dutot, carli, laspeyres,
-                    years_span, annualised_rate)
+from .core.config import ImputationConfig, IndexConfig, QualityConfig, RunConfig, Schema
+from .data.upload import ValidationReport, read_price_data, standardise, validate
 from .engine import diagnostics
+from .engine.imputation import run_imputation
+from .engine.index import (
+    annualised_rate,
+    build_all,
+    build_index,
+    carli,
+    dutot,
+    jevons,
+    laspeyres,
+    year_on_year,
+    years_span,
+)
+from .engine.quality import run_quality
 
 __version__ = "0.1.0"
 
@@ -43,8 +52,8 @@ def run_pipeline(df, config: RunConfig = None):
         "config": config,
     }
 
-from .engine.insights import build_narrative, Narrative, Finding
+from .engine.auto import analyse, auto_configure, infer_schema
+from .engine.insights import Finding, Narrative, build_narrative
 from .reporting.charts import build_all_charts, to_png
 from .reporting.deck import build_deck
 from .reporting.report import build_docx, build_markdown, method_note
-from .engine.auto import auto_configure, infer_schema, analyse

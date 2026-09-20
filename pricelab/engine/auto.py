@@ -10,11 +10,13 @@ find them. And it does not hide what it chose: every automatic decision is
 returned with the reason, so the user can see it on screen and override it.
 """
 
-from typing import Tuple, List
+
+from typing import Any
+
 import pandas as pd
 
-from ..core.config import RunConfig, Schema, QualityConfig, ImputationConfig, IndexConfig
-from .quality import run_quality, recode_missing, classify_missing
+from ..core.config import ImputationConfig, IndexConfig, RunConfig, Schema
+from .quality import classify_missing, recode_missing
 
 
 def infer_schema(df: pd.DataFrame) -> Schema:
@@ -26,7 +28,7 @@ def infer_schema(df: pd.DataFrame) -> Schema:
     cols = list(df.columns)
     lower = {c.lower().strip(): c for c in cols}
 
-    def find(*keys, exclude=()):
+    def find(*keys: str, exclude: tuple[str, ...] = ()) -> str | None:
         for k in keys:
             for lc, orig in lower.items():
                 if any(x in lc for x in exclude):
@@ -80,13 +82,13 @@ def infer_schema(df: pd.DataFrame) -> Schema:
                   weight=find("weight", "expenditure"))
 
 
-def auto_configure(df: pd.DataFrame, label: str = "") -> Tuple[RunConfig, List[str]]:
+def auto_configure(df: pd.DataFrame, label: str = "") -> tuple[RunConfig, list[str]]:
     """Run a diagnostic pass and select treatments from what it finds.
 
     Returns the configuration and a plain-English list of the decisions taken,
     which the app shows to the user rather than applying them invisibly.
     """
-    decisions = []
+    decisions: list[str] = []
     cfg = RunConfig(label=label or "Uploaded collection")
 
     # Sentinel detection. Zero is near-universal as a missing code, but only
@@ -122,45 +124,54 @@ def auto_configure(df: pd.DataFrame, label: str = "") -> Tuple[RunConfig, List[s
             "a fault.")
 
     # Diagnose gaps, then choose imputation per category from the mechanism.
+    #
+    # Iterated as typed dict records rather than `mech.itertuples()`:
+    # itertuples() cannot know any column's dtype ahead of time, so mypy
+    # infers each attribute as a large Union of every type a DataFrame cell
+    # could ever hold, and a comparison like `r.items <= 1` fails to type
+    # check against that Union even though the column is always int at
+    # runtime. `to_dict(orient="records")` gives the same values in the
+    # same order with every field typed simply as `Any`.
     probe = recode_missing(df, cfg.quality)
     mech = classify_missing(probe)
-    by_cat = {}
-    for r in mech.itertuples():
-        if r.mechanism == "seasonal":
-            by_cat[r.category] = "seasonal_hold"
+    by_cat: dict[str, str] = {}
+    for row in mech.to_dict(orient="records"):
+        category, mechanism = row["category"], row["mechanism"]
+        if mechanism == "seasonal":
+            by_cat[category] = "seasonal_hold"
             decisions.append(
-                f"{r.category}: gaps recur in the same calendar months across years, so this "
+                f"{category}: gaps recur in the same calendar months across years, so this "
                 "reads as seasonal unavailability. Held the level across the out-of-season gap "
                 "rather than imputing a price for a product that was not on sale.")
-        elif r.mechanism == "collection":
+        elif mechanism == "collection":
             # class_mean moves an unpriced item by its peers' change; with a
             # single item in the category there is no peer to average, so it
             # would silently leave the gap unfilled while the audit trail
             # claimed otherwise. carry_forward is the honest degraded choice.
-            if r.items <= 1:
-                by_cat[r.category] = "carry_forward"
+            if row["items"] <= 1:
+                by_cat[category] = "carry_forward"
                 decisions.append(
-                    f"{r.category}: every item is unpriced for {r.periods_affected} consecutive "
+                    f"{category}: every item is unpriced for {row['periods_affected']} consecutive "
                     "periods without recurring, which reads as collection failure rather than "
                     "seasonality. Only one item is tracked in this category, so there are no "
                     "priced peers to average against; held the last price forward instead.")
             else:
-                by_cat[r.category] = "class_mean"
+                by_cat[category] = "class_mean"
                 decisions.append(
-                    f"{r.category}: every item is unpriced for {r.periods_affected} consecutive "
+                    f"{category}: every item is unpriced for {row['periods_affected']} consecutive "
                     "periods without recurring, which reads as collection failure rather than "
                     "seasonality. Imputed by class mean so the gap moves with its priced peers.")
         else:
-            if r.items <= 1:
-                by_cat[r.category] = "carry_forward"
+            if row["items"] <= 1:
+                by_cat[category] = "carry_forward"
                 decisions.append(
-                    f"{r.category}: {r.gaps:,} scattered gaps, held the last price forward "
+                    f"{category}: {row['gaps']:,} scattered gaps, held the last price forward "
                     "(only one item is tracked in this category, so there is no peer to "
                     "average by class mean).")
             else:
-                by_cat[r.category] = "class_mean"
+                by_cat[category] = "class_mean"
                 decisions.append(
-                    f"{r.category}: {r.gaps:,} scattered gaps, imputed by class mean.")
+                    f"{category}: {row['gaps']:,} scattered gaps, imputed by class mean.")
     cfg.imputation = ImputationConfig(default_method="none", by_category=by_cat)
 
     # Aggregation. Jevons and chaining are the defensible defaults and are not
@@ -181,16 +192,17 @@ def auto_configure(df: pd.DataFrame, label: str = "") -> Tuple[RunConfig, List[s
     return cfg, decisions
 
 
-def analyse(df: pd.DataFrame, label: str = "", config: RunConfig = None):
+def analyse(df: pd.DataFrame, label: str = "", config: RunConfig | None = None) -> dict[str, Any]:
     """Upload to finished analysis in one call.
 
     Returns everything the interface and the exports need: the pipeline result,
     the written narrative, the charts, and the decisions taken along the way.
     """
     from .. import run_pipeline
-    from .insights import build_narrative
     from ..reporting.charts import build_all_charts
+    from .insights import build_narrative
 
+    decisions: list[str]
     if config is None:
         config, decisions = auto_configure(df, label)
     else:

@@ -14,6 +14,7 @@ seasonal_hold  holds the index flat across an out-of-season gap, so the
 """
 
 import warnings
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -51,7 +52,7 @@ def class_mean(df: pd.DataFrame) -> pd.DataFrame:
     out["price_imputed"] = out["price_clean"]
 
     fills = []
-    for cat, d in out.groupby("category"):
+    for _cat, d in out.groupby("category"):
         pivot = d.pivot(index="period", columns="item_id", values="price_clean").sort_index()
         periods, items = pivot.index, pivot.columns
         arr = pivot.to_numpy(dtype=float)
@@ -107,12 +108,16 @@ METHODS = {"none": none, "carry_forward": carry_forward,
            "class_mean": class_mean, "seasonal_hold": seasonal_hold}
 
 
-def run_imputation(df: pd.DataFrame, cfg: ImputationConfig = None) -> pd.DataFrame:
+def run_imputation(df: pd.DataFrame, cfg: ImputationConfig | None = None) -> pd.DataFrame:
     cfg = cfg or ImputationConfig()
     df = df.copy()
     df["imputation"] = ""
     parts = []
-    for cat, d in df.groupby("category"):
+    for group_key, d in df.groupby("category"):
+        # "category" is always string-typed in every DataFrame this runs on;
+        # the cast records that, since pandas' groupby stub cannot know a
+        # column's dtype ahead of time.
+        cat = cast(str, group_key)
         method = cfg.method_for(cat)
         if method not in METHODS:
             raise ValueError(f"unknown imputation method '{method}' for category '{cat}'")

@@ -17,18 +17,54 @@ re-exports the same public names, so `app.py` needed no changes. All 50
 existing tests pass unchanged; import paths in `tests/test_pricelab.py`
 were updated to the new module locations.
 
-## Phase 1 - Foundation and governance
+## Phase 1 - Foundation and governance (done)
 
-Pydantic models for the objects already implied by `core/config.py` and by
-the flag/imputation columns already threaded through `engine/`; role-based
-access control (administrator, compiler, analyst, viewer) with a server-side
-`require_role` check; an append-only, hash-chained audit log persisted to
-SQLite; a run registry that hashes input data plus the full parameter set so
-a published figure can be reproduced byte for byte; CSV export sanitisation
-against spreadsheet formula injection (the gap noted in the Phase 0 audit at
-`app.py`'s cleaned-data and flagged-observations downloads); `pyproject.toml`
-with ruff and mypy strict; multi-page `st.navigation` routing in place of the
-current single-page `app.py`.
+Delivered: pydantic domain schemas (`core/models.py`) plus a DataFrame
+column-contract check that samples rows rather than re-validating a whole
+panel; `RunConfig` migrated from dataclasses to pydantic v2 with a
+`schema_version` field and a migration path, round-trip tested against a
+config JSON in the pre-Phase-1 dataclass shape; a `Settings` object separate
+from `RunConfig`, sourced from `PRICELAB_`-prefixed environment variables;
+role-based access control (administrator, compiler, analyst, viewer) via
+`core.security.require_role`, checked from inside each page's own function
+body and unit-tested by calling a decorated function directly under a
+mismatched role; username/password authentication with Argon2 hashing and an
+idle-timeout session token, structured behind an `AuthProvider` protocol so
+OIDC can be a second implementation later; CSV export sanitisation
+(`core.security.safe_csv`) covering both cell values and column/row index
+labels (a pivoted export turns a category name into a header cell too),
+wired into every download in `pages/`; a restricted arithmetic formula
+evaluator built ahead of Phase 3's need for one, rejecting everything but
+numeric literals, arithmetic operators, whitelisted names and whitelisted
+function calls; small-cell suppression with primary and secondary
+(complementary) suppression for the single-published-total case; an
+append-only, hash-chained audit log (`core/audit.py`) with `verify_chain()`;
+a run registry (`core/registry.py`) hashing input data and the full
+parameter set, recording the git commit and a library-version fingerprint,
+supporting `approve_run`/`correct_run` (new vintage, mandatory reason,
+original left untouched) and `reproduce()`; a bounded, content-hash-keyed
+analysis cache (`core/cache.py`) replacing the previous unbounded
+`st.cache_resource`, which never holds a matplotlib Figure; upload size and
+extension checks enforced before `getvalue()` reads the file into memory;
+SQLAlchemy models, one Alembic migration covering users, sessions, audit
+events, index runs and the classification tree, seeded with the thirteen
+COICOP 2018 divisions; `app.py` converted to an authenticated,
+role-filtered `st.navigation` with the original single-page flow's content
+moved (not rewritten) into `pages/ingest|quality|imputation|index_build|
+findings|diagnostics|reports.py`; `pyproject.toml` replacing
+`requirements.txt`, with ruff and mypy strict scoped to `core/` and
+`engine/` at zero errors, pre-commit hooks, and CI running lint, type
+check and the full suite.
+
+Scope decisions worth knowing about: role gating puts Ingest/Quality/
+Imputation/Index build behind compiler+administrator, adds analyst to
+Findings/Diagnostics, and opens Reports to every role including viewer, so
+an analyst or viewer with nothing of their own compiled can load a
+previously approved run there via the registry instead. Only the top-level
+COICOP divisions are seeded, not the full tree (see README's Known
+limitations). There is no in-app user-management page; accounts are
+provisioned with `scripts/create_user.py`. Secondary suppression handles one
+published total per group, not a cascading multi-total solver.
 
 ## Phase 2 - Data layer
 
@@ -62,9 +98,8 @@ and impact report the master specification calls for.
 
 Extend the existing PPTX/DOCX builders (`reporting/deck.py`,
 `reporting/report.py`) with a PDF bulletin and run-identifier/vintage/code-
-version stamping on every export; close the disclosure-control gap (small-
-cell suppression) before any client-uploaded internal data reaches this
-platform.
+version stamping on every export, now that `core/registry.py` actually has
+that information to stamp with.
 
 ## Deferred (not in the agreed scope; revisit if asked)
 
@@ -75,4 +110,6 @@ not a reviewable queue); revision vintages and bootstrap/variance uncertainty;
 decomposition (contributions, core inflation measures, base effects,
 diffusion); deflation, real values, PPP and spatial price levels; asset,
 trade and construction indices; forecasting and scenario tooling; PostgreSQL
-and OIDC (would require hosting beyond Streamlit Community Cloud).
+and OIDC (would require hosting beyond Streamlit Community Cloud); an in-app
+user-management page; the full COICOP 2018 tree below division level; a
+cascading (multi-total) secondary-suppression solver.

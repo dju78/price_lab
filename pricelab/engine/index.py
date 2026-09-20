@@ -18,13 +18,15 @@ Matching is applied before any formula: only items priced in both periods enter
 the comparison, so item replacement cannot be mistaken for price change.
 """
 
+from typing import cast, overload
+
 import numpy as np
 import pandas as pd
 
 from ..core.config import IndexConfig
 
 
-def _matched(a: pd.Series, b: pd.Series):
+def _matched(a: pd.Series, b: pd.Series) -> tuple[pd.Series, pd.Series]:
     """Items priced, positive, in both periods.
 
     Indexing a Series with an Index object (`a[common]`) routes through
@@ -66,7 +68,7 @@ def carli(a: pd.Series, b: pd.Series) -> float:
     return float((b / a).mean())
 
 
-def laspeyres(a: pd.Series, b: pd.Series, w: pd.Series = None) -> float:
+def laspeyres(a: pd.Series, b: pd.Series, w: pd.Series | None = None) -> float:
     a, b = _matched(a, b)
     if len(a) == 0:
         return np.nan
@@ -81,7 +83,9 @@ def laspeyres(a: pd.Series, b: pd.Series, w: pd.Series = None) -> float:
 FORMULAE = {"jevons": jevons, "dutot": dutot, "carli": carli, "laspeyres": laspeyres}
 
 
-def _formula_np(formula: str, a: np.ndarray, b: np.ndarray, w: np.ndarray = None):
+def _formula_np(
+    formula: str, a: np.ndarray, b: np.ndarray, w: np.ndarray | None = None
+) -> tuple[float, int]:
     """Numpy-array reimplementation of the formulae above, numerically
     identical to them, for the period loop in build_index.
 
@@ -116,7 +120,7 @@ def _formula_np(formula: str, a: np.ndarray, b: np.ndarray, w: np.ndarray = None
     raise ValueError(f"unknown formula '{formula}'")
 
 
-def build_index(d: pd.DataFrame, cfg: IndexConfig = None,
+def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
                 price_col: str = "price_imputed") -> pd.DataFrame:
     """Chained or fixed-base index for one group.
 
@@ -134,21 +138,27 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig = None,
     delay the user sits through on every upload.
     """
     cfg = cfg or IndexConfig()
-    periods = sorted(d["period"].unique())
+    # pandas' own stubs cannot know a column's dtype ahead of time, so
+    # `.unique()` on a datetime64 column types as a broad Union rather than
+    # pd.Timestamp; verified empirically that a datetime64 Series' `.unique()`,
+    # once sorted, yields exactly pd.Timestamp at runtime, matching
+    # `pivot.index`'s elements below, which is what the cast records.
+    periods = cast(list[pd.Timestamp], sorted(d["period"].unique()))
     pivot = d.pivot(index="period", columns="item_id", values=price_col).sort_index()
-    price_by_period = {p: row for p, row in zip(pivot.index, pivot.to_numpy(dtype=float))}
+    price_by_period = {p: row for p, row in zip(pivot.index, pivot.to_numpy(dtype=float), strict=True)}
     empty_row = np.full(pivot.shape[1], np.nan)
 
-    weight_by_period = None
+    weight_by_period: dict[pd.Timestamp, np.ndarray] | None = None
     if "weight" in d.columns:
         wpivot = (d.pivot(index="period", columns="item_id", values="weight")
                   .reindex(columns=pivot.columns).sort_index())
-        weight_by_period = {p: row for p, row in zip(wpivot.index, wpivot.to_numpy(dtype=float))}
+        weight_by_period = {
+            p: row for p, row in zip(wpivot.index, wpivot.to_numpy(dtype=float), strict=True)}
 
-    def row(p):
+    def row(p: pd.Timestamp) -> np.ndarray:
         return price_by_period.get(p, empty_row)
 
-    def weight_row(p):
+    def weight_row(p: pd.Timestamp) -> np.ndarray | None:
         return weight_by_period.get(p, empty_row) if weight_by_period is not None else None
 
     # A category need not span the global base period (an item that launched
@@ -186,13 +196,16 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig = None,
     out = pd.DataFrame(rows).set_index("period")
 
     # rebase so the chosen base period reads exactly base_value
-    if cfg.chained and base_period in out.index and np.isfinite(out.loc[base_period, "index"]):
-        out["index"] = out["index"] / out.loc[base_period, "index"] * cfg.base_value
+    if cfg.chained and base_period in out.index:
+        base_level = cast(float, out.loc[base_period, "index"])
+        if np.isfinite(base_level):
+            out["index"] = out["index"] / base_level * cfg.base_value
     return out
 
 
-def build_all(df: pd.DataFrame, cfg: IndexConfig = None,
-              price_col: str = "price_imputed", group: str = "category"):
+def build_all(df: pd.DataFrame, cfg: IndexConfig | None = None,
+              price_col: str = "price_imputed", group: str = "category"
+              ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Index per group, plus an equally weighted aggregate.
 
     The aggregate is a geometric mean of the group indices. With no expenditure
@@ -200,8 +213,14 @@ def build_all(df: pd.DataFrame, cfg: IndexConfig = None,
     than implying an authority it does not have.
     """
     cfg = cfg or IndexConfig()
-    idx, matched = {}, {}
-    for g, d in df.groupby(group):
+    idx: dict[str, pd.Series] = {}
+    matched: dict[str, pd.Series] = {}
+    for group_key, d in df.groupby(group):
+        # `group` (the "category" column, by default) is always string-typed
+        # in every DataFrame this runs on; the cast records that, since
+        # pandas' groupby stub cannot know a column's dtype ahead of time
+        # and so types its key as a broad, dtype-agnostic Union.
+        g = cast(str, group_key)
         r = build_index(d, cfg, price_col)
         idx[g] = r["index"]
         matched[g] = r["matched_items"]
@@ -221,8 +240,18 @@ def years_span(index: pd.DatetimeIndex) -> float:
     return (index[-1] - index[0]).days / 365.25
 
 
-def annualised_rate(level_ratio, years: float):
+@overload
+def annualised_rate(level_ratio: float, years: float) -> float: ...
+@overload
+def annualised_rate(level_ratio: pd.Series, years: float) -> pd.Series: ...
+def annualised_rate(level_ratio: float | pd.Series, years: float) -> float | pd.Series:
     """Percentage rate implied by a level ratio over a span in years.
+
+    Takes and returns either a single ratio or a Series of them (one per
+    category, as the Index build page's level table does in one call rather
+    than looping), since the arithmetic below is identical either way; the
+    two @overload signatures above let a caller's static type follow
+    whichever one it actually passed in.
 
     Returns NaN rather than raising when the span is too short to annualise
     (a single-period collection has no rate to report), so callers degrade to

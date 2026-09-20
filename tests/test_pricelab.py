@@ -12,12 +12,22 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pricelab import (RunConfig, QualityConfig, IndexConfig, ImputationConfig,
-                      validate, run_quality, run_imputation, build_all,
-                      jevons, dutot, carli, run_pipeline, build_narrative)
-from pricelab.engine.index import build_index
-from pricelab.engine.insights import trend_findings, quality_findings
+from pricelab import (
+    ImputationConfig,
+    IndexConfig,
+    QualityConfig,
+    RunConfig,
+    build_narrative,
+    carli,
+    dutot,
+    jevons,
+    run_imputation,
+    run_pipeline,
+    run_quality,
+    validate,
+)
 from pricelab.engine.diagnostics import unmatched_comparison
+from pricelab.engine.insights import quality_findings, trend_findings
 
 
 # ----------------------------------------------------------------------

@@ -1,0 +1,25 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+        stages: [manual]  # this codebase's formatting predates ruff format; lint only, don't reformat on commit
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (core/ and engine/)
+        entry: mypy
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: pytest
+        name: pytest (full suite)
+        entry: pytest
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]  # fast enough for pre-push; commit-time stays quick

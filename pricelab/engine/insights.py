@@ -17,13 +17,14 @@ Design rules:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, cast
+
 import numpy as np
 import pandas as pd
 
+from ..core.config import RunConfig
 from . import diagnostics as dg
-from .index import years_span, annualised_rate
-
+from .index import annualised_rate, years_span
 
 MONTHS = ["", "January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December"]
@@ -37,20 +38,20 @@ class Finding:
     kind: str = "general"               # quality | structure | trend | seasonal | method
     importance: float = 0.0             # ranking score, higher first
     action: str = ""                    # what a user should do about it
-    table: Optional[pd.DataFrame] = None
-    chart: Optional[str] = None         # key into the chart registry
+    table: pd.DataFrame | None = None
+    chart: str | None = None         # key into the chart registry
 
 
 @dataclass
 class Narrative:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     headline: str = ""
     subtitle: str = ""
 
-    def by_kind(self, kind: str) -> List[Finding]:
+    def by_kind(self, kind: str) -> list[Finding]:
         return [f for f in self.findings if f.kind == kind]
 
-    def top(self, n: int = 5) -> List[Finding]:
+    def top(self, n: int = 5) -> list[Finding]:
         return sorted(self.findings, key=lambda f: -f.importance)[:n]
 
 
@@ -61,8 +62,8 @@ def _pct(x: float) -> str:
 # ----------------------------------------------------------------------
 # Quality findings
 # ----------------------------------------------------------------------
-def quality_findings(clean: pd.DataFrame, quality: dict, cfg) -> List[Finding]:
-    out = []
+def quality_findings(clean: pd.DataFrame, quality: dict[str, Any], cfg: RunConfig) -> list[Finding]:
+    out: list[Finding] = []
     n = len(clean)
     counts = quality["flag_summary"]["count"]
     scale_up = int(counts.get("scale_error_x100", 0))
@@ -178,7 +179,7 @@ def quality_findings(clean: pd.DataFrame, quality: dict, cfg) -> List[Finding]:
 # ----------------------------------------------------------------------
 # Structure findings
 # ----------------------------------------------------------------------
-def structure_findings(imputed: pd.DataFrame, I: pd.DataFrame, matched: pd.DataFrame) -> List[Finding]:
+def structure_findings(imputed: pd.DataFrame, I: pd.DataFrame, matched: pd.DataFrame) -> list[Finding]:
     out = []
     summary, life = dg.churn(imputed)
 
@@ -266,10 +267,14 @@ def structure_findings(imputed: pd.DataFrame, I: pd.DataFrame, matched: pd.DataF
 # ----------------------------------------------------------------------
 # Trend findings
 # ----------------------------------------------------------------------
-def trend_findings(I: pd.DataFrame, yoy: pd.DataFrame) -> List[Finding]:
-    out = []
+def trend_findings(I: pd.DataFrame, yoy: pd.DataFrame) -> list[Finding]:
+    out: list[Finding] = []
     cats = [c for c in I.columns if c != "All items"]
-    years = years_span(I.index)
+    # I.index is always a period DatetimeIndex in every frame this runs on
+    # (engine.index.build_index sets it via `.set_index("period")` on an
+    # already-datetime64 column); years_span needs that guarantee, which a
+    # DataFrame's generic `.index` type cannot carry statically.
+    years = years_span(cast(pd.DatetimeIndex, I.index))
     if years <= 0:
         # A single period has no rate of change to annualise, and nothing
         # falsifiable to say about a trend yet.
@@ -344,8 +349,10 @@ def trend_findings(I: pd.DataFrame, yoy: pd.DataFrame) -> List[Finding]:
 # ----------------------------------------------------------------------
 # Seasonal findings
 # ----------------------------------------------------------------------
-def seasonal_findings(I: pd.DataFrame, quality: dict, threshold: float = 10.0) -> List[Finding]:
-    out = []
+def seasonal_findings(
+    I: pd.DataFrame, quality: dict[str, Any], threshold: float = 10.0
+) -> list[Finding]:
+    out: list[Finding] = []
     seas = dg.seasonality(I)
     if not len(seas):
         return out
@@ -393,7 +400,7 @@ def seasonal_findings(I: pd.DataFrame, quality: dict, threshold: float = 10.0) -
 # ----------------------------------------------------------------------
 # Method findings
 # ----------------------------------------------------------------------
-def method_findings(imputed: pd.DataFrame, I: pd.DataFrame, cfg) -> List[Finding]:
+def method_findings(imputed: pd.DataFrame, I: pd.DataFrame, cfg: RunConfig) -> list[Finding]:
     out = []
 
     comp = dg.unmatched_comparison(imputed, I).dropna()
@@ -424,8 +431,8 @@ def method_findings(imputed: pd.DataFrame, I: pd.DataFrame, cfg) -> List[Finding
 
     sens = dg.method_sensitivity(imputed, cfg.index)
     if "max_spread" in sens.columns and len(sens):
-        spread = sens.loc["All items", "max_spread"] if "All items" in sens.index \
-            else sens["max_spread"].max()
+        spread = cast(float, sens.loc["All items", "max_spread"] if "All items" in sens.index
+                     else sens["max_spread"].max())
         cur = cfg.index.formula
         out.append(Finding(
             headline=f"The choice of elementary formula moves the result by up to "
@@ -455,10 +462,14 @@ def method_findings(imputed: pd.DataFrame, I: pd.DataFrame, cfg) -> List[Finding
             kind="method", importance=77, table=drift.reset_index(names="Category"),
             action="Accept chaining and monitor drift where the category is strongly seasonal."))
     else:
-        worst = drift["drift_pp"].abs().idxmax()
-        if abs(drift.loc[worst, "drift_pp"]) > 3:
+        # idxmax() types as generically Hashable, since pandas cannot know a
+        # DataFrame's index dtype ahead of time; drift's index is always the
+        # category names chain_drift built it from, i.e. always str.
+        worst = cast(str, drift["drift_pp"].abs().idxmax())
+        worst_drift_pp = cast(float, drift.loc[worst, "drift_pp"])
+        if abs(worst_drift_pp) > 3:
             out.append(Finding(
-                headline=f"Chaining introduces {drift.loc[worst, 'drift_pp']:+.1f} points of "
+                headline=f"Chaining introduces {worst_drift_pp:+.1f} points of "
                          f"drift in {worst}",
                 detail="The chained level differs from a direct fixed base comparison by more "
                        "than three points, which in a seasonal series usually means the chain is "
@@ -472,7 +483,7 @@ def method_findings(imputed: pd.DataFrame, I: pd.DataFrame, cfg) -> List[Finding
 # ----------------------------------------------------------------------
 # Assembly
 # ----------------------------------------------------------------------
-def build_narrative(res: dict) -> Narrative:
+def build_narrative(res: dict[str, Any]) -> Narrative:
     """Turn a pipeline result into a ranked, written narrative."""
     cfg = res["config"]
     clean, quality = res["clean"], res["quality"]
