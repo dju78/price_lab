@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: The current config schema version. Bump this, and add a branch to
@@ -104,15 +104,37 @@ class IndexConfig(BaseModel):
     index_reference_period: str | None = None
     """ISO date of the period the published series is rebased to read
     `base_value`. A presentational choice, changeable by rebasing without
-    recomputing anything: used by `engine.index.build_index`'s rebasing
-    step for a chained index; defaults to the first period present when
-    unset. Has no effect on a fixed-base (non-chained) index, which already
-    reads `base_value` at `price_reference_period` by construction."""
+    recomputing anything: applied by `engine.index.build_index` as a final
+    rescaling step, identically whether the series was built chained or
+    fixed-base, so it need not equal `price_reference_period`; defaults to
+    the first period present when unset."""
 
     base_value: float = 100.0
     """Index level assigned to the index reference period."""
     min_matched_items: int = 2
     """Below this many matched items, the index holds its level and flags insufficiency."""
+
+    @model_validator(mode="after")
+    def _weight_reference_not_after_price_reference(self) -> IndexConfig:
+        """A Lowe or Young index (Phase 3) draws its weights or quantities
+        from `weight_reference_period` and compares prices at
+        `price_reference_period`; a weight reference after the price
+        reference would mean weighting the comparison by a basket that, at
+        the price reference period, did not exist yet to observe. Compared
+        as plain ISO date strings (no datetime parsing dependency here):
+        valid because zero-padded YYYY-MM-DD sorts identically whether
+        compared lexicographically or chronologically. `base_period` is
+        read as the fallback price reference, matching how
+        `engine.index.build_index` itself resolves it.
+        """
+        price_ref = self.price_reference_period or self.base_period
+        if self.weight_reference_period and price_ref and self.weight_reference_period > price_ref:
+            raise ValueError(
+                f"weight_reference_period ({self.weight_reference_period!r}) is after "
+                f"price_reference_period ({price_ref!r}). The weights or quantities a "
+                "fixed-basket index draws on must come from no later than the period "
+                "prices are compared against.")
+        return self
 
 
 class ImputationConfig(BaseModel):

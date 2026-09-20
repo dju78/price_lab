@@ -4,9 +4,13 @@ vintage IS a registered run, not a distinct kind of record), and the
 classification tree, seeded with the thirteen COICOP 2018 divisions.
 
 index_runs' price_reference_period / weight_reference_period /
-index_reference_period columns were added to this same migration rather
-than a second one: this revision has no production data behind it yet, so
-there is nothing a later migration would need to ALTER around.
+index_reference_period columns were added directly to this migration on
+the reasoning that this revision had no production data behind it yet.
+That turned out to be the wrong call in general (see 0002, which repairs
+any database that had already applied this migration before that edit)
+even though it is harmless for a database migrating for the first time.
+Once a migration exists in a shared history, add a new one instead of
+editing this kind of thing into it again.
 
 Revision ID: 0001
 Revises:

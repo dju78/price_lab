@@ -100,15 +100,69 @@ instead, rather than only testing that the `require_role` decorator raises;
 and upload validation (`pages.ingest.validate_upload`) is a pure, directly
 tested function checked before `getvalue()` is ever called.
 
-Known follow-up, not done in this patch: `reporting/charts.py`'s
-`index_chart` and `reporting/deck.py`'s stat callout still label the y-axis
-as "{I.index[0]:%b %Y} = 100" unconditionally, which is only accurate
-because nothing in the interface yet sets `index_reference_period` to
-anything other than the default. `pages/findings.py`'s equivalent metric
-was fixed to read the actual configured reference period; the chart/deck
-builders would need `cfg` threaded through `build_all_charts` to do the
-same, which is a larger, lower-risk-to-defer change since no reachable
-code path can trigger the inaccuracy today.
+## Phase 1 patch addendum - both branches, migration safety, remaining gaps (done)
+
+Six corrections to the patch above, all in the same "no new index
+mathematics" spirit:
+
+1. **Rebasing now applies to both compilation methods, not only chained.**
+   `build_index` previously gated its rebase-to-`index_reference_period`
+   step on `cfg.chained`, so a fixed-base index silently had its index
+   reference period forced to equal its price reference period -- the
+   `base_period` conflation surviving in one branch after the rest of it
+   was split out. Rebasing is now an unconditional final step applied to
+   whichever series was produced. For the default case (both references
+   defaulting to the same period) this is a proven no-op; a fixed-base
+   index can now genuinely be compiled against one period and published
+   reading 100 at a different one (`tests/test_reference_periods.py`).
+   Noted in passing, not fixed here (out of this addendum's scope): a
+   pre-existing quirk in `build_index`'s fixed-base branch hardcodes the
+   very first period's level to `base_value` regardless of
+   `price_reference_period`, correct only when the price reference
+   happens to be the series' first period (true of every case reachable
+   through the interface today). Worth fixing alongside Lowe/Young in
+   Phase 3, when `price_reference_period` first becomes independently
+   user-set.
+2. **Migration safety.** Editing 0001 in place, as the previous patch did,
+   left any database that had already applied the pre-edit 0001 with
+   `alembic_version` recording "0001" while lacking the three new columns
+   -- and Alembic tracks revisions by ID, not content, so it would never
+   re-run 0001 to notice. Chose the additive-migration fix over a
+   startup schema check: migration 0002 inspects the live `index_runs`
+   table and adds only whichever of the three columns is actually
+   missing, so it is a no-op against a database created fresh from the
+   edited 0001 and a real repair against one that ran the original.
+   `tests/test_migrations.py` proves both paths, including that an
+   existing row survives the healing.
+3. **Parameter hash coverage: was already correct.** Both
+   `core.registry.register_run`'s content hash and
+   `core.cache.content_key` are computed from `RunConfig.to_json()`,
+   which serialises every real field including the three reference
+   periods; nothing needed fixing. Tests added anyway
+   (`tests/test_reference_periods.py`) to keep it that way against a
+   future field gaining `exclude=True` by mistake.
+4. **`weight_reference_period` after `price_reference_period` is now
+   rejected**, not merely carried: a pydantic validator on `IndexConfig`
+   raises rather than warns, on the reasoning that there is no legitimate
+   case for it (a fixed-basket index's weights cannot come from later
+   than the prices they weight) and a warning is easy to miss outside an
+   interactive session.
+5. **Upconversion audit coverage extended to the interface layer.**
+   `core.registry.reproduce` already logged `LEGACY_CONFIG_UPCONVERTED`;
+   `pages.common.load_registered_run` now wraps it so the one interface
+   path that can load a legacy config also surfaces the fact to the
+   person on screen (`st.warning`), not only to the audit log, and is
+   itself directly tested rather than only the lower-level registry
+   function.
+6. **The deck/chart label bug is now a Phase 3 entry condition, not a
+   backlog line.** `tests/test_deferred_deck_label.py` is a `strict=True`
+   xfail: it fails today, documenting that `reporting/charts.py`'s
+   `index_chart` and `reporting/deck.py`'s stat callout hardcode their
+   "= 100" label to the series' first period rather than
+   `index_reference_period`. `strict=True` means an accidental pass (the
+   label happening to look right without actually being fixed) fails the
+   suite. Delete the marker in the same commit that fixes it -- the deck
+   is the client-facing artefact.
 
 ## Phase 3 - Core engine extension
 

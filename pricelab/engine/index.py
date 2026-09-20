@@ -207,15 +207,20 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
 
     out = pd.DataFrame(rows).set_index("period")
 
-    # The index reference period is the presentational choice of which
-    # period the published series reads base_value at -- a rebasing, not a
-    # recomputation. Only meaningful for a chained index: a fixed-base
-    # index already reads base_value at price_ref by construction, and
-    # rebasing it to a different period would silently change what
-    # price_ref means, which is not what this field is for.
+    # Rebasing: a presentational rescaling of the finished series to read
+    # base_value at the index reference period, applied identically
+    # regardless of which method (chained or fixed-base) produced the
+    # series. This is deliberately independent of `cfg.chained`: a fixed-
+    # base index is not naturally at base_value at the index reference
+    # period unless that period happens to equal the price reference
+    # period, and forcing the two to coincide (by only ever rebasing the
+    # chained branch) was the base_period conflation surviving in this one
+    # branch after the rest of it was split out. Multiplying every level by
+    # the same constant changes the level, never the ratio between any two
+    # periods, so no period-on-period movement is affected by this step.
     index_ref_setting = cfg.index_reference_period or cfg.base_period
     index_ref = pd.to_datetime(index_ref_setting) if index_ref_setting else periods[0]
-    if cfg.chained and index_ref in out.index:
+    if index_ref in out.index:
         base_level = cast(float, out.loc[index_ref, "index"])
         if np.isfinite(base_level):
             out["index"] = out["index"] / base_level * cfg.base_value

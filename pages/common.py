@@ -52,6 +52,25 @@ def has_active_analysis() -> bool:
     return get_active_analysis() is not None
 
 
+def load_registered_run(run_id: str, actor: str) -> tuple[dict[str, Any], bool]:
+    """Reproduce a registered run and report whether loading it just
+    upconverted a legacy (pre-reference-period-split) config.
+
+    `core.registry.reproduce` already writes the LEGACY_CONFIG_UPCONVERTED
+    audit event itself (it has the session and the actor); this is a thin,
+    directly testable wrapper so the interface layer that calls it -- the
+    only place in the app a legacy config can be loaded from -- can also
+    surface the fact to whoever is looking at the screen, rather than an
+    automatic reinterpretation of an old run's parameters being visible
+    only to someone who later goes looking in the audit log.
+    """
+    with db.session_scope() as s:
+        result = reproduce(s, run_id, actor=actor)
+    config = result.get("config")
+    upconverted = bool(getattr(config, "legacy_upconverted", False))
+    return result, upconverted
+
+
 def load_approved_run_picker(empty_message: str = "No approved run is available yet.") -> None:
     """Let a page with no fresh analysis of its own load a previously
     approved, registered run instead. Used by pages an analyst or viewer
@@ -73,8 +92,13 @@ def load_approved_run_picker(empty_message: str = "No approved run is available 
     choice = st.selectbox("Load an approved run", list(options.keys()))
     if st.button("Load this run"):
         run_id = options[choice]
-        with db.session_scope() as s:
-            result = reproduce(s, run_id, actor=current_username())
+        result, upconverted = load_registered_run(run_id, current_username())
+        if upconverted:
+            st.warning(
+                f"Run {run_id} was registered under a configuration format that predates "
+                "the price/weight/index reference period split. Its parameters were "
+                "upgraded automatically on load, and this has been recorded in the "
+                "audit log.")
 
         from pricelab.engine.insights import build_narrative
 
