@@ -42,6 +42,7 @@ CALCULATION_RUN = "calculation_run"
 QUALITY_OVERRIDE = "quality_override"
 IMPUTATION_OVERRIDE = "imputation_override"
 EXPORT = "export"
+LEGACY_CONFIG_UPCONVERTED = "legacy_config_upconverted"
 
 
 class AuditEventORM(Base):

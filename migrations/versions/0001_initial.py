@@ -3,6 +3,11 @@ runs linked by supersedes_run_id/vintage rather than a separate table -- a
 vintage IS a registered run, not a distinct kind of record), and the
 classification tree, seeded with the thirteen COICOP 2018 divisions.
 
+index_runs' price_reference_period / weight_reference_period /
+index_reference_period columns were added to this same migration rather
+than a second one: this revision has no production data behind it yet, so
+there is nothing a later migration would need to ALTER around.
+
 Revision ID: 0001
 Revises:
 Create Date: 2026-09-20
@@ -68,6 +73,9 @@ def upgrade() -> None:
         sa.Column("correction_reason", sa.String(), nullable=True),
         sa.Column("supersedes_run_id", sa.String(length=32), nullable=True),
         sa.Column("input_parquet", sa.LargeBinary(), nullable=False),
+        sa.Column("price_reference_period", sa.String(length=32), nullable=True),
+        sa.Column("weight_reference_period", sa.String(length=32), nullable=True),
+        sa.Column("index_reference_period", sa.String(length=32), nullable=True),
     )
 
     classification_nodes = op.create_table(

@@ -161,16 +161,28 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
     def weight_row(p: pd.Timestamp) -> np.ndarray | None:
         return weight_by_period.get(p, empty_row) if weight_by_period is not None else None
 
-    # A category need not span the global base period (an item that launched
-    # later never has). Falling back to an all-missing row, rather than
-    # letting the lookup raise, is what lets a fixed-base comparison come back
-    # as "impossible" (a NaN level) instead of crashing the whole index build.
-    base_period = pd.to_datetime(cfg.base_period) if cfg.base_period else periods[0]
-    if cfg.base_period and base_period not in price_by_period:
+    # The price reference period is the denominator of every price relative
+    # in a fixed-base (non-chained) comparison; it has no bearing on a
+    # chained index, where each link compares only to its immediate
+    # predecessor. `price_reference_period` is the current name for this;
+    # `base_period` is read as a fallback so a config that predates the
+    # split (or was built without going through RunConfig.from_dict's
+    # upconversion, e.g. constructed directly) still behaves exactly as it
+    # always did.
+    price_ref_setting = cfg.price_reference_period or cfg.base_period
+    price_ref = pd.to_datetime(price_ref_setting) if price_ref_setting else periods[0]
+    if price_ref_setting and price_ref not in price_by_period:
+        # Name whichever field the caller actually set: a config built
+        # before the three-period split (or constructed directly rather
+        # than through RunConfig.from_dict's upconversion) set base_period,
+        # and the error should say so rather than naming a field the
+        # caller never touched.
+        source = "price_reference_period" if cfg.price_reference_period else "base_period"
         raise ValueError(
-            f"base_period {cfg.base_period!r} does not match any period present in the data "
-            f"(available range: {periods[0]:%Y-%m-%d} to {periods[-1]:%Y-%m-%d}). Without a match "
-            "the whole index would silently come back as all-NaN, which is worse than failing loudly.")
+            f"{source} {price_ref_setting!r} does not match any period present "
+            f"in the data (available range: {periods[0]:%Y-%m-%d} to {periods[-1]:%Y-%m-%d}). "
+            "Without a match the whole index would silently come back as all-NaN, which is "
+            "worse than failing loudly.")
     rows, level = [], cfg.base_value
 
     for i, p in enumerate(periods):
@@ -178,7 +190,7 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
             matched = np.nan
             insufficient = False
         else:
-            prev = periods[i - 1] if cfg.chained else base_period
+            prev = periods[i - 1] if cfg.chained else price_ref
             rel, matched = _formula_np(cfg.formula, row(prev), row(p),
                                        weight_row(prev) if cfg.formula == "laspeyres" else None)
             insufficient = matched < cfg.min_matched_items
@@ -195,9 +207,16 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
 
     out = pd.DataFrame(rows).set_index("period")
 
-    # rebase so the chosen base period reads exactly base_value
-    if cfg.chained and base_period in out.index:
-        base_level = cast(float, out.loc[base_period, "index"])
+    # The index reference period is the presentational choice of which
+    # period the published series reads base_value at -- a rebasing, not a
+    # recomputation. Only meaningful for a chained index: a fixed-base
+    # index already reads base_value at price_ref by construction, and
+    # rebasing it to a different period would silently change what
+    # price_ref means, which is not what this field is for.
+    index_ref_setting = cfg.index_reference_period or cfg.base_period
+    index_ref = pd.to_datetime(index_ref_setting) if index_ref_setting else periods[0]
+    if cfg.chained and index_ref in out.index:
+        base_level = cast(float, out.loc[index_ref, "index"])
         if np.isfinite(base_level):
             out["index"] = out["index"] / base_level * cfg.base_value
     return out

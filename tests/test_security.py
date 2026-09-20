@@ -11,6 +11,7 @@ from pricelab.core.security import (
     AccessDenied,
     FormulaError,
     PasswordAuthProvider,
+    SuppressionCoverageError,
     UserORM,
     create_session,
     create_user,
@@ -338,3 +339,31 @@ def test_two_cell_group_suppresses_both_when_one_is_below_threshold():
     df = pd.DataFrame({"group": ["A", "A"], "value": [10.0, 20.0], "n": [1, 10]})
     out = suppress_with_secondary(df, "group", "value", "n", min_count=3)
     assert out["suppressed"].all()
+
+
+def test_more_than_one_grouping_dimension_is_refused_not_silently_run_once():
+    """Passing two grouping dimensions means the same cells contribute to
+    two published totals (e.g. a category total and a region total). This
+    single-level implementation cannot certify protection across both, so
+    it must refuse loudly rather than quietly protecting against only the
+    first one and reporting success."""
+    df = pd.DataFrame({
+        "category": ["A", "A", "A"],
+        "region": ["N", "N", "N"],
+        "value": [10.0, 20.0, 30.0],
+        "n": [1, 10, 10],
+    })
+    with pytest.raises(SuppressionCoverageError, match="more than one"):
+        suppress_with_secondary(df, ["category", "region"], "value", "n", min_count=3)
+
+
+def test_a_single_element_sequence_still_works_like_a_bare_string():
+    df = pd.DataFrame({"group": ["A", "A", "A"], "value": [10.0, 20.0, 30.0], "n": [1, 10, 10]})
+    out = suppress_with_secondary(df, ["group"], "value", "n", min_count=3)
+    assert out["suppressed"].sum() == 2
+
+
+def test_empty_grouping_sequence_is_refused():
+    df = pd.DataFrame({"group": ["A"], "value": [10.0], "n": [10]})
+    with pytest.raises(SuppressionCoverageError):
+        suppress_with_secondary(df, [], "value", "n", min_count=3)

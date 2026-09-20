@@ -380,8 +380,27 @@ def suppress_small_cells(
     return out
 
 
+class SuppressionCoverageError(ValueError):
+    """Raised when secondary suppression is asked to protect cells that
+    contribute to more than one published total.
+
+    This implementation only certifies protection against recovery from a
+    *single* total per group. Cells shared by several overlapping totals
+    (a category total and a national total, say, or a category-by-region
+    cross-tabulation) need a cascading linear-programming solver to
+    guarantee no combination of the published totals recovers a suppressed
+    value, and this is not that solver. Silently running the single-total
+    pass in that situation would report success while leaving a real
+    disclosure risk unaddressed, which is worse than refusing outright.
+    """
+
+
 def suppress_with_secondary(
-    df: pd.DataFrame, group_col: str, value_col: str, count_col: str, min_count: int | None = None
+    df: pd.DataFrame,
+    group_col: str | Sequence[str],
+    value_col: str,
+    count_col: str,
+    min_count: int | None = None,
 ) -> pd.DataFrame:
     """Primary suppression plus secondary (complementary) suppression.
 
@@ -392,12 +411,29 @@ def suppress_with_secondary(
     such group, so at least two values are unknown and the primary
     suppression can no longer be recovered by subtraction.
 
-    This handles the single-total, single-level case. A hierarchy with
-    several overlapping published totals over the same cells needs a
-    cascading linear-programming solver to guarantee no combination of
-    published totals recovers a suppressed cell; that is out of scope for
-    this phase and is noted as such in docs/backlog.md.
+    This handles the single-total, single-level case: `group_col` names
+    the one grouping dimension whose total is in scope. Passing more than
+    one grouping dimension -- meaning the same cells contribute to more
+    than one published total -- raises `SuppressionCoverageError` rather
+    than running an incomplete pass over just the first one; see that
+    error's docstring and docs/backlog.md.
     """
+    if not isinstance(group_col, str):
+        group_cols = list(group_col)
+        if len(group_cols) > 1:
+            raise SuppressionCoverageError(
+                f"secondary suppression was asked to protect against more than one "
+                f"published total ({group_cols!r}); this implementation only "
+                "guarantees protection for a single total per group and cannot "
+                "certify that suppressed cells are unrecoverable across overlapping "
+                "totals. Suppressed cells here may be recoverable by combining "
+                "totals. Call this once per grouping dimension and treat each "
+                "result as provisional, or implement the cascading solver "
+                "docs/backlog.md describes before publishing.")
+        if not group_cols:
+            raise SuppressionCoverageError("group_col must name at least one grouping dimension")
+        group_col = group_cols[0]
+
     out = suppress_small_cells(df, count_col, [value_col], min_count)
     out["secondary_suppressed"] = False
     for _, idx in out.groupby(group_col).groups.items():

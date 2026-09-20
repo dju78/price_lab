@@ -38,6 +38,10 @@ def test_migration_upgrades_head_cleanly_and_seeds_coicop(tmp_path, monkeypatch)
         codes = {row[0] for row in conn.execute(text("select code from classification_nodes"))}
         assert codes == {f"{i:02d}" for i in range(1, 14)}
 
+    index_run_columns = {c["name"] for c in inspector.get_columns("index_runs")}
+    assert {"price_reference_period", "weight_reference_period",
+            "index_reference_period"} <= index_run_columns
+
     get_settings.cache_clear()
 
 

@@ -34,6 +34,32 @@ from pricelab.core.security import require_role
 
 from . import common
 
+#: Kept in sync with the `st.file_uploader(type=[...])` call in `render`
+#: below; also enforced explicitly in `validate_upload` because the widget's
+#: own `type=` restriction is a client-side filter on the picker dialog, not
+#: a guarantee about what the server actually receives.
+ALLOWED_UPLOAD_EXTENSIONS = (".xlsx", ".xlsm", ".csv")
+
+
+def validate_upload(name: str, size_bytes: int, max_mb: float) -> str | None:
+    """Check an upload's name and size before a single byte of it is read.
+
+    Returns an error message if the upload should be rejected, or None if
+    it is acceptable. Deliberately takes plain values rather than a
+    Streamlit `UploadedFile`, so it is testable without driving the actual
+    file-upload widget, and deliberately never touches `.getvalue()`: the
+    whole point is to decide before the file's bytes are pulled into memory.
+    """
+    if not name.lower().endswith(ALLOWED_UPLOAD_EXTENSIONS):
+        return (f"'{name}' is not one of the accepted file types "
+                f"({', '.join(ALLOWED_UPLOAD_EXTENSIONS)}).")
+    size_mb = size_bytes / (1024 * 1024)
+    if size_mb > max_mb:
+        return (f"This file is {size_mb:.1f} MB, which is over the {max_mb:.0f} MB limit "
+                "configured for this deployment. Upload a smaller extract, or ask an "
+                "administrator to raise PRICELAB_UPLOAD_MAX_MB.")
+    return None
+
 
 @st.cache_data(show_spinner=False)
 def _read_upload(file_bytes: bytes, name: str, sheet: object) -> pd.DataFrame:
@@ -118,13 +144,9 @@ def render() -> None:
         return
 
     settings = get_settings()
-    upload_size_mb = upload.size / (1024 * 1024)
-    if upload_size_mb > settings.upload_max_mb:
-        st.error(
-            f"This file is {upload_size_mb:.1f} MB, which is over the "
-            f"{settings.upload_max_mb:.0f} MB limit configured for this deployment. "
-            "Upload a smaller extract, or ask an administrator to raise "
-            "PRICELAB_UPLOAD_MAX_MB.")
+    upload_error = validate_upload(upload.name, upload.size, settings.upload_max_mb)
+    if upload_error:
+        st.error(upload_error)
         return
 
     file_bytes = upload.getvalue()

@@ -26,9 +26,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #: `_migrate`, whenever a field is renamed or its meaning changes in a way
 #: that an old saved config JSON would otherwise misinterpret. A JSON file
 #: with no "schema_version" key at all predates this field entirely and is
-#: treated as version "1", which is also today's version, so every config
-#: this tool has ever written keeps loading unchanged.
-CURRENT_SCHEMA_VERSION = "1"
+#: treated as version "1".
+#:
+#: Version "2" (this one) splits the single `base_period` into three
+#: distinct concepts a price index actually has: `price_reference_period`
+#: (the denominator of every price relative), `weight_reference_period`
+#: (where the weights or quantities come from -- deliberately earlier than
+#: the price reference for a Lowe or Young index), and
+#: `index_reference_period` (the presentational choice of which period the
+#: published series reads 100 at). `base_period` remains as a deprecated
+#: alias; see `_migrate`.
+CURRENT_SCHEMA_VERSION = "2"
 
 
 class Schema(BaseModel):
@@ -71,10 +79,38 @@ class IndexConfig(BaseModel):
     """Elementary or aggregate formula: jevons | dutot | carli | laspeyres."""
     chained: bool = True
     """Chain period-on-period links rather than compare every period to one fixed base."""
+
     base_period: str | None = None
-    """ISO date of the index reference period; defaults to the first period present."""
+    """Deprecated alias carried for backward compatibility only: a config
+    saved before schema_version 2 used this one field for what are, in a
+    real index, three distinct periods. Read `price_reference_period` and
+    `index_reference_period` instead; a legacy config loaded through
+    `RunConfig.from_dict` has both populated from this field automatically
+    (see `_migrate`). New code should not set this field."""
+
+    price_reference_period: str | None = None
+    """ISO date of the period whose prices are the denominator of every
+    price relative. Used directly by `engine.index.build_index` for a
+    fixed-base (non-chained) comparison; defaults to the first period
+    present when unset. Has no effect on a chained index, where each link
+    compares only to the immediately preceding period."""
+
+    weight_reference_period: str | None = None
+    """ISO date of the period the expenditure weights or quantities are
+    drawn from. Deliberately earlier than `price_reference_period` for a
+    Lowe or Young index. Carried and displayed only in this phase: no
+    formula implemented yet reads it (Lowe and Young are Phase 3)."""
+
+    index_reference_period: str | None = None
+    """ISO date of the period the published series is rebased to read
+    `base_value`. A presentational choice, changeable by rebasing without
+    recomputing anything: used by `engine.index.build_index`'s rebasing
+    step for a chained index; defaults to the first period present when
+    unset. Has no effect on a fixed-base (non-chained) index, which already
+    reads `base_value` at `price_reference_period` by construction."""
+
     base_value: float = 100.0
-    """Index level assigned to the base period."""
+    """Index level assigned to the index reference period."""
     min_matched_items: int = 2
     """Below this many matched items, the index holds its level and flags insufficiency."""
 
@@ -109,29 +145,64 @@ class RunConfig(BaseModel):
     index: IndexConfig = Field(default_factory=IndexConfig)
     label: str = "unnamed run"
 
+    legacy_upconverted: bool = Field(default=False, exclude=True)
+    """True if this instance was built by `from_dict` from a config saved
+    before schema_version 2, whose single `base_period` was just split into
+    three fields (see `_migrate`). A fact about *how this instance was
+    loaded*, not a durable setting, so it is excluded from `to_json()`: a
+    freshly re-saved copy of an upconverted config is not itself legacy.
+    Callers with access to an audit session (`core.registry.reproduce` is
+    the one that matters today) log this rather than upconverting silently.
+    """
+
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.model_dump(by_alias=True, mode="json"), indent=indent)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> RunConfig:
-        return cls.model_validate(_migrate(dict(d)))
+        data, upconverted = _migrate(dict(d))
+        cfg = cls.model_validate(data)
+        cfg.legacy_upconverted = upconverted
+        return cfg
 
 
-def _migrate(data: dict[str, Any]) -> dict[str, Any]:
+def _migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """Upgrade a config dict of any past schema_version to the current shape.
 
+    Returns the upgraded dict and whether an actual upconversion happened
+    (as opposed to the dict already being current), so `from_dict` can flag
+    the resulting `RunConfig` for its caller to log if it has somewhere to
+    log it to.
+
     A dict with no "schema_version" key predates the field and is version
-    "1", which is also `CURRENT_SCHEMA_VERSION`, so it passes through
-    unchanged. When a future version is introduced, add a branch here rather
-    than changing what old JSON means: a run registered under an old config
-    must go on meaning exactly what it meant when it was registered.
+    "1". Versions "1" upgrade to "2" by populating the three reference
+    period fields from the deprecated `base_period`, which is what every
+    saved config meant before those fields existed: a fixed-base index used
+    it as the price reference, a chained one used it to rebase, and nothing
+    distinguished a weight reference because nothing needed one yet. When a
+    future version is introduced, add a further branch here rather than
+    changing what old JSON means: a run registered under an old config must
+    go on meaning exactly what it meant when it was registered.
     """
     version = data.get("schema_version", "1")
-    if version == CURRENT_SCHEMA_VERSION:
-        data.setdefault("schema_version", CURRENT_SCHEMA_VERSION)
-        return data
-    raise ValueError(
-        f"unknown config schema_version {version!r}; no migration path is registered for it")
+    upconverted = False
+
+    if version == "1":
+        index_data = dict(data.get("index") or {})
+        base = index_data.get("base_period")
+        if base is not None:
+            for field in ("price_reference_period", "weight_reference_period",
+                          "index_reference_period"):
+                index_data.setdefault(field, base)
+        data["index"] = index_data
+        version = "2"
+        upconverted = True
+
+    if version != CURRENT_SCHEMA_VERSION:
+        raise ValueError(
+            f"unknown config schema_version {version!r}; no migration path is registered for it")
+    data["schema_version"] = CURRENT_SCHEMA_VERSION
+    return data, upconverted
 
 
 def _default_database_url() -> str:

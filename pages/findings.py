@@ -5,6 +5,7 @@ not the same activity as compiling one, so it carries a wider audience."""
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from pricelab import annualised_rate, build_all_charts, years_span
@@ -37,7 +38,15 @@ def render() -> None:
 
     m = st.columns(4)
     if "All items" in I.columns:
-        m[0].metric(f"All items, {I.index[0]:%b %Y} = 100", f"{I['All items'].iloc[-1]:.1f}")
+        # The metric's "= 100" period is the index reference period, not
+        # necessarily the series' first period: they coincide by default,
+        # but a run that set index_reference_period explicitly rebases to
+        # a different one, and this label must say which actually applies.
+        idx_cfg = res["config"].index
+        index_ref_setting = idx_cfg.index_reference_period or idx_cfg.base_period
+        index_ref_label = (f"{pd.Timestamp(index_ref_setting):%b %Y}" if index_ref_setting
+                           else f"{I.index[0]:%b %Y}")
+        m[0].metric(f"All items, {index_ref_label} = 100", f"{I['All items'].iloc[-1]:.1f}")
         rate = annualised_rate(I["All items"].iloc[-1] / 100, years)
         m[1].metric("Average annual rate", f"{rate:.1f}%" if years > 0 else "n/a (single period)")
         s_ = yoy["All items"].dropna()

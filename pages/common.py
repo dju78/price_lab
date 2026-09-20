@@ -74,7 +74,7 @@ def load_approved_run_picker(empty_message: str = "No approved run is available 
     if st.button("Load this run"):
         run_id = options[choice]
         with db.session_scope() as s:
-            result = reproduce(s, run_id)
+            result = reproduce(s, run_id, actor=current_username())
 
         from pricelab.engine.insights import build_narrative
 

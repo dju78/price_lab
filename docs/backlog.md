@@ -76,15 +76,49 @@ cleaned layer with a replayable transformation log, so the cleaned data can
 always be regenerated from source rather than only being an in-memory
 DataFrame.
 
+## Phase 1 patch - reference periods, test gaps, suppression guard (done)
+
+`IndexConfig` now has `price_reference_period`, `weight_reference_period`
+and `index_reference_period`, replacing the single, conflated `base_period`
+(kept as a deprecated alias). `engine.index.build_index` reads
+`price_reference_period` for a fixed-base comparison's denominator and
+`index_reference_period` for a chained index's rebasing step; only these
+two change any actual computed value, and only when explicitly set, so
+every existing run's output is unchanged. `weight_reference_period` is
+carried and displayed but read by no formula yet -- Lowe and Young are
+still Phase 3. A legacy (schema_version 1) config upconverts its three
+fields from `base_period` on load and is flagged (`RunConfig.
+legacy_upconverted`); `core.registry.reproduce` logs that upconversion to
+the audit trail rather than reinterpreting an old run's parameters
+silently. `IndexRunORM` gained matching columns in migration 0001 itself
+(no production data existed yet to need a second migration for). Also:
+`core.security.suppress_with_secondary` now refuses (`SuppressionCoverageError`)
+rather than silently running an incomplete pass when asked to protect more
+than one grouping dimension at once; an AppTest-driven test proves a viewer
+session has no route to a compiler-only page at all, landing on Reports
+instead, rather than only testing that the `require_role` decorator raises;
+and upload validation (`pages.ingest.validate_upload`) is a pure, directly
+tested function checked before `getvalue()` is ever called.
+
+Known follow-up, not done in this patch: `reporting/charts.py`'s
+`index_chart` and `reporting/deck.py`'s stat callout still label the y-axis
+as "{I.index[0]:%b %Y} = 100" unconditionally, which is only accurate
+because nothing in the interface yet sets `index_reference_period` to
+anything other than the default. `pages/findings.py`'s equivalent metric
+was fixed to read the actual configured reference period; the chart/deck
+builders would need `cfg` threaded through `build_all_charts` to do the
+same, which is a larger, lower-risk-to-defer change since no reachable
+code path can trigger the inaccuracy today.
+
 ## Phase 3 - Core engine extension
 
-Fix the conflation of price-reference, weight-reference and index-reference
-periods in `engine/index.py`'s single `base_period`; add Paasche, Fisher,
-Tornqvist, Walsh, Marshall-Edgeworth, Lowe and Young to the existing
-Jevons/Dutot/Carli/Laspeyres set; add the harmonic mean and CSWD elementary
-formulae; add the Appendix 2 golden-value and axiom property tests (time
-reversal, factor reversal, additivity) alongside the existing axiomatic test
-style in `tests/test_pricelab.py`.
+Add Paasche, Fisher, Tornqvist, Walsh, Marshall-Edgeworth, Lowe and Young to
+the existing Jevons/Dutot/Carli/Laspeyres set -- Lowe and Young are now
+expressible now that the reference-period split exists (see the patch
+above) but are not yet implemented; add the harmonic mean and CSWD
+elementary formulae; add the Appendix 2 golden-value and axiom property
+tests (time reversal, factor reversal, additivity) alongside the existing
+axiomatic test style in `tests/test_pricelab.py`.
 
 ## Phase 4 - Quality adjustment and hedonics
 

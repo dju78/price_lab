@@ -28,6 +28,23 @@ def render() -> None:
     I = res["indices"]
     years = years_span(I.index)
 
+    idx_cfg = res["config"].index
+    first_period_label = f"{I.index[0]:%b %Y} (the first period present, the engine's default)"
+    price_ref = idx_cfg.price_reference_period or idx_cfg.base_period or first_period_label
+    index_ref = idx_cfg.index_reference_period or idx_cfg.base_period or first_period_label
+    weight_ref = idx_cfg.weight_reference_period or "not set (no formula run here uses one yet)"
+    with st.expander("Reference periods", expanded=False):
+        st.caption("A price index has three of these, easy to conflate and expensive to get "
+                   "wrong. This run's:")
+        st.markdown(
+            f"- **Price reference period** — the denominator of every price relative: "
+            f"**{price_ref}**. Only affects a fixed-base (non-chained) comparison.\n"
+            f"- **Weight reference period** — where the expenditure weights or quantities "
+            f"are drawn from: **{weight_ref}**.\n"
+            f"- **Index reference period** — the period this series is rebased to read "
+            f"{idx_cfg.base_value:g}: **{index_ref}**. A presentational choice, not a "
+            "recomputation. Only affects a chained comparison.")
+
     st.pyplot(charts["index"], use_container_width=True)
     c1, c2 = st.columns([3, 2])
     with c1:

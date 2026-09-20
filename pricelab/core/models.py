@@ -130,6 +130,17 @@ class IndexSeries(BaseModel):
     """NaN for the base period, which has no prior period to match against."""
     insufficient_match: bool = False
 
+    price_reference_period: datetime | None = None
+    """The period whose prices are the denominator of every relative in this
+    series. Carried alongside the series for display and audit; does not
+    change how any row above was computed."""
+    weight_reference_period: datetime | None = None
+    """The period the weights or quantities were drawn from. Not read by any
+    formula implemented yet (Lowe and Young are Phase 3); carried so a
+    future reader knows what a run intended even before that lands."""
+    index_reference_period: datetime | None = None
+    """The period this series is rebased to read `base_value` at."""
+
 
 class IndexRun(BaseModel):
     """Registry entry for one calculation run; see core/registry.py."""
@@ -145,6 +156,14 @@ class IndexRun(BaseModel):
     approved: bool = False
     vintage: int = Field(default=1, ge=1)
     correction_reason: str | None = None
+
+    price_reference_period: str | None = None
+    weight_reference_period: str | None = None
+    index_reference_period: str | None = None
+    """The three reference periods `IndexConfig` recorded for this run, as
+    ISO date strings exactly as configured (possibly None, if the run never
+    set them and relied on the engine's own default). See
+    `core.config.IndexConfig` for what each means."""
 
 
 class AuditEvent(BaseModel):

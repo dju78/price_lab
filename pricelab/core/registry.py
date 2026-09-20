@@ -34,6 +34,7 @@ import pandas as pd
 from sqlalchemy import Boolean, Integer, LargeBinary, String
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from . import audit
 from .config import RunConfig
 from .db import Base
 
@@ -57,6 +58,9 @@ class IndexRunORM(Base):
     correction_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     supersedes_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     input_parquet: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    price_reference_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    weight_reference_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    index_reference_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 def _code_version() -> str:
@@ -121,6 +125,12 @@ def register_run(session: Session, df: pd.DataFrame, config: RunConfig, label: s
         approved=False,
         vintage=1,
         input_parquet=buf.getvalue(),
+        # Recorded exactly as configured, including None when the run never
+        # set one: that is itself the honest record (it means the engine's
+        # own default applied), not something to synthesise a value for.
+        price_reference_period=config.index.price_reference_period,
+        weight_reference_period=config.index.weight_reference_period,
+        index_reference_period=config.index.index_reference_period,
     )
     session.add(run)
     session.flush()
@@ -163,7 +173,7 @@ def correct_run(
     return new_run
 
 
-def reproduce(session: Session, run_id: str) -> dict[str, Any]:
+def reproduce(session: Session, run_id: str, actor: str = "system") -> dict[str, Any]:
     """Re-execute a registered run from exactly its stored input and
     configuration, returning what `pricelab.run_pipeline` returns live.
 
@@ -172,11 +182,23 @@ def reproduce(session: Session, run_id: str) -> dict[str, Any]:
     built, so importing the top-level package back from inside `core` at
     module scope would be circular. By the time anything actually calls
     `reproduce`, `import pricelab` has already completed.
+
+    A run registered before the price/weight/index reference period split
+    (schema_version 1) has its stored config upconverted on load by
+    `RunConfig.from_dict`; when that happens here, it is logged to the
+    audit trail rather than left as a silent reinterpretation of what an
+    old run's parameters meant. `actor` names who triggered the
+    reproduction, for that log entry; callers with a signed-in user should
+    pass its username rather than accepting the "system" default.
     """
     from .. import run_pipeline
 
     run = session.query(IndexRunORM).filter_by(run_id=run_id).one()
     df = pd.read_parquet(io.BytesIO(run.input_parquet))
     config = RunConfig.from_dict(json.loads(run.config_json))
+    if config.legacy_upconverted:
+        audit.record_event(
+            session, actor, audit.LEGACY_CONFIG_UPCONVERTED, f"run {run_id}",
+            {"upgraded_to_schema_version": config.schema_version})
     result: dict[str, Any] = run_pipeline(df, config)
     return result
