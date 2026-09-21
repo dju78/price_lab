@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from dbtarget import database_url
 from pypdf import PdfReader
 
 from pricelab import analyse, auto_configure, infer_schema, run_pipeline, standardise
@@ -31,7 +32,7 @@ FIXTURE = REPO_ROOT / "supermarket_price_collection.xlsx"
 @pytest.fixture()
 def deployment(tmp_path, monkeypatch):
     """A fresh database and an empty Parquet store, like a new install."""
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'e2e.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "e2e.db"))
     monkeypatch.setenv("PRICELAB_STORE_DIR", str(tmp_path / "store"))
     get_settings.cache_clear()
     db.reset_db_state()

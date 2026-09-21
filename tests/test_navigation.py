@@ -14,6 +14,7 @@ rather than crashing or leaking compiler-only content.
 from pathlib import Path
 
 import pytest
+from dbtarget import database_url
 from streamlit.testing.v1 import AppTest
 
 from pricelab.core import db
@@ -27,7 +28,7 @@ APP_PATH = str(REPO_ROOT / "app.py")
 
 @pytest.fixture()
 def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'nav_test.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "nav_test.db"))
     get_settings.cache_clear()
     db.reset_db_state()
     db.init_db()

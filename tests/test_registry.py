@@ -5,6 +5,7 @@ import json
 
 import pandas as pd
 import pytest
+from dbtarget import database_url
 
 from pricelab.core import audit, db, registry
 from pricelab.core.config import IndexConfig, RunConfig, get_settings
@@ -12,7 +13,7 @@ from pricelab.core.config import IndexConfig, RunConfig, get_settings
 
 @pytest.fixture()
 def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'registry_test.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "registry_test.db"))
     get_settings.cache_clear()
     db.reset_db_state()
     db.init_db()

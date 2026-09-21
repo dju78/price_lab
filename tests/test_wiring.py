@@ -27,6 +27,7 @@ import pytest
 import requests
 import responses
 import streamlit
+from dbtarget import database_url
 from streamlit.testing.v1 import AppTest
 
 from pricelab.core import audit, db
@@ -49,7 +50,7 @@ class FakeUpload:
 
 @pytest.fixture()
 def deployment(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'wiring.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "wiring.db"))
     monkeypatch.setenv("PRICELAB_STORE_DIR", str(tmp_path / "store"))
     get_settings.cache_clear()
     db.reset_db_state()

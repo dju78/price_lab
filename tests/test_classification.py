@@ -11,6 +11,7 @@ proven with fake data rather than a fabricated "real" one.
 from pathlib import Path
 
 import pytest
+from dbtarget import database_url
 
 from pricelab.core import db
 from pricelab.core.config import get_settings
@@ -26,7 +27,7 @@ from pricelab.data.classification import (
 
 @pytest.fixture()
 def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'classification_test.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "classification_test.db"))
     get_settings.cache_clear()
     db.reset_db_state()
     db.init_db()

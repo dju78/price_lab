@@ -1,27 +1,64 @@
 services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: pricelab
+      POSTGRES_PASSWORD: ${PRICELAB_DB_PASSWORD:-pricelab}
+      POSTGRES_DB: pricelab
+    volumes:
+      - pricelab-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pricelab -d pricelab"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   pricelab:
     build: .
     ports:
       - "8501:8501"
     environment:
-      # Override any of these to point at a real deployment's values;
-      # PRICELAB_DATABASE_URL here already matches the Dockerfile's VOLUME,
-      # so the default works with no configuration at all.
+      # The production database named in the specification. Every query
+      # goes through SQLAlchemy, so the same image runs against the SQLite
+      # default outside compose (set PRICELAB_DATABASE_URL to
+      # sqlite:////data/pricelab.db to do that here too).
       PRICELAB_ENVIRONMENT: production
-      PRICELAB_DATABASE_URL: sqlite:////data/pricelab.db
+      PRICELAB_DATABASE_URL: postgresql+psycopg://pricelab:${PRICELAB_DB_PASSWORD:-pricelab}@postgres:5432/pricelab
       PRICELAB_STORE_DIR: /data/store
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Migrate to head, then serve. `alembic upgrade head` is idempotent and
+    # is what makes the readiness probe's migration check pass.
+    command: >
+      sh -c "alembic upgrade head &&
+             streamlit run app.py --server.address=0.0.0.0"
     volumes:
-      # Named volume, not a bind mount: the audit log, the run registry and
-      # user accounts live in this SQLite file, and it must survive
-      # `docker compose down` the same way a real deployment's database
-      # would, rather than resetting on every rebuild.
+      # The Parquet store (raw layers, receipts, cleaned layers, logs) lives
+      # here; the database lives in the postgres service's own volume.
       - pricelab-data:/data
     healthcheck:
       test: ["CMD", "python", "-m", "pricelab.core.health", "--ready"]
       interval: 30s
       timeout: 10s
-      start_period: 30s
+      start_period: 40s
       retries: 3
+
+  # Runs the full test suite against the PostgreSQL service and exits:
+  #   docker compose run --rm tests
+  tests:
+    build: .
+    profiles: ["test"]
+    environment:
+      PRICELAB_TEST_DATABASE_URL: postgresql+psycopg://pricelab:${PRICELAB_DB_PASSWORD:-pricelab}@postgres:5432/pricelab_test
+      PGPASSWORD: ${PRICELAB_DB_PASSWORD:-pricelab}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "python -c \"import psycopg; c = psycopg.connect('postgresql://pricelab:${PRICELAB_DB_PASSWORD:-pricelab}@postgres:5432/pricelab', autocommit=True); c.execute('CREATE DATABASE pricelab_test')\" 2>/dev/null;
+             python -m pytest tests/ -q"
 
 volumes:
   pricelab-data:
+  pricelab-postgres:

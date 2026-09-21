@@ -8,6 +8,7 @@ index_reference_period actually change what gets computed.
 
 import pandas as pd
 import pytest
+from dbtarget import database_url
 from pydantic import ValidationError
 
 from pricelab.core.config import IndexConfig
@@ -179,7 +180,7 @@ def test_defaulting_is_unchanged_when_no_reference_period_is_set_at_all():
 # (e.g. an `exclude=True` added to one of these fields by mistake).
 # ---------------------------------------------------------------------
 def test_registry_hash_differs_when_only_index_reference_period_differs(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'hash_test.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "hash_test.db"))
     from pricelab.core import db, registry
     from pricelab.core.config import RunConfig, get_settings
     get_settings.cache_clear()
@@ -277,7 +278,7 @@ def test_interface_level_load_of_a_legacy_run_is_audited(tmp_path, monkeypatch):
     from pricelab.core import audit, db, registry
     from pricelab.core.config import RunConfig, get_settings
 
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'interface_audit.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "interface_audit.db"))
     get_settings.cache_clear()
     db.reset_db_state()
     db.init_db()
@@ -328,7 +329,7 @@ def test_interface_level_load_of_a_current_run_is_not_flagged_upconverted(tmp_pa
     from pricelab.core import db, registry
     from pricelab.core.config import RunConfig, get_settings
 
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'interface_audit2.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "interface_audit2.db"))
     get_settings.cache_clear()
     db.reset_db_state()
     db.init_db()

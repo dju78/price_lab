@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 import requests
 import responses
+from dbtarget import database_url
 
 from pricelab.core import audit, db
 from pricelab.core.cache import BoundedCache
@@ -52,7 +53,7 @@ def no_sleep():
 
 @pytest.fixture()
 def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'connectors_test.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "connectors_test.db"))
     get_settings.cache_clear()
     db.reset_db_state()
     db.init_db()

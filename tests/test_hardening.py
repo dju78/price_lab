@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 import requests
 import responses
+from dbtarget import OVERRIDE, database_url, postgres_only
 from sqlalchemy import text
 from streamlit.testing.v1 import AppTest
 
@@ -35,7 +36,7 @@ APP_PATH = str(REPO_ROOT / "app.py")
 
 @pytest.fixture()
 def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'hardening.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "hardening.db"))
     monkeypatch.setenv("PRICELAB_STORE_DIR", str(tmp_path / "store"))
     get_settings.cache_clear()
     db.reset_db_state()
@@ -143,6 +144,30 @@ def test_a_runaway_sqlite_statement_is_aborted_at_the_timeout(tmp_path, monkeypa
         assert time.monotonic() - started < 5.0
         with db.get_engine().connect() as conn:
             assert conn.execute(text("select 1")).scalar() == 1   # the connection survives
+    finally:
+        db.reset_db_state()
+        get_settings.cache_clear()
+
+
+def test_a_runaway_postgresql_statement_is_aborted_by_statement_timeout(monkeypatch):
+    """The production path: `statement_timeout` set per connection at
+    connect time, through the pooled engine."""
+    postgres_only()
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", OVERRIDE)
+    monkeypatch.setenv("PRICELAB_DB_STATEMENT_TIMEOUT_MS", "200")
+    monkeypatch.setenv("PRICELAB_DB_POOL_SIZE", "2")
+    get_settings.cache_clear()
+    db.reset_db_state()
+    try:
+        engine = db.get_engine()
+        assert engine.pool.size() == 2
+        started = time.monotonic()
+        with pytest.raises(Exception, match="statement timeout"), engine.connect() as conn:
+            conn.execute(text("select pg_sleep(5)")).scalar()
+        assert time.monotonic() - started < 5.0
+        with engine.connect() as conn:
+            assert conn.execute(text("select 1")).scalar() == 1
+            assert conn.execute(text("show statement_timeout")).scalar() == "200ms"
     finally:
         db.reset_db_state()
         get_settings.cache_clear()

@@ -29,6 +29,8 @@ dependencies = [
     "scipy>=1.11",
     "reportlab>=4.0",
     "lxml>=5.0",
+    # PostgreSQL driver; the SQLite default needs nothing beyond the stdlib.
+    "psycopg[binary]>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -58,6 +60,7 @@ include = ["pricelab*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 
 [tool.ruff]
 line-length = 100

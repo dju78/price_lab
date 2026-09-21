@@ -5,29 +5,30 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from dbtarget import database_url, is_sqlite
 from sqlalchemy import create_engine, inspect, text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _alembic_config(db_path: Path) -> Config:
+def _alembic_config(url: str) -> Config:
     cfg = Config(str(REPO_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(REPO_ROOT / "migrations"))
-    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    cfg.set_main_option("sqlalchemy.url", url)
     return cfg
 
 
 def test_migration_upgrades_head_cleanly_and_seeds_coicop(tmp_path, monkeypatch):
-    db_path = tmp_path / "migration_test.db"
+    url = database_url(tmp_path, "migration_test.db")
     # env.py reads the URL from Settings, which is env-driven; point it at
-    # the same throwaway file so both paths agree on where to migrate.
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{db_path}")
+    # the same database so both paths agree on where to migrate.
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", url)
     from pricelab.core.config import get_settings
     get_settings.cache_clear()
 
-    command.upgrade(_alembic_config(db_path), "head")
+    command.upgrade(_alembic_config(url), "head")
 
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(url)
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
     assert {"users", "sessions", "audit_events", "index_runs", "classification_nodes",
@@ -78,16 +79,21 @@ def test_0002_heals_a_database_that_already_applied_the_pre_edit_0001(tmp_path, 
     without erroring and without losing the existing row -- rather than
     the schema staying silently stale until some future query hits a bare
     OperationalError naming a column nobody expected to be missing."""
-    db_path = tmp_path / "pre_edit_0001.db"
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{db_path}")
+    url = database_url(tmp_path, "pre_edit_0001.db")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", url)
     from pricelab.core.config import get_settings
     get_settings.cache_clear()
 
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(url)
+    # The pre-edit shape of 0001, in each backend's own dialect: SQLite's
+    # AUTOINCREMENT/BLOB and PostgreSQL's SERIAL/BYTEA say the same thing.
+    serial = "INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite(url) else "SERIAL PRIMARY KEY"
+    blob = "BLOB" if is_sqlite(url) else "BYTEA"
+    false = "0" if is_sqlite(url) else "FALSE"
     with engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(text(f"""
             CREATE TABLE index_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {serial},
                 run_id VARCHAR(32) NOT NULL UNIQUE,
                 input_hash VARCHAR(64) NOT NULL,
                 content_hash VARCHAR(64) NOT NULL,
@@ -96,26 +102,26 @@ def test_0002_heals_a_database_that_already_applied_the_pre_edit_0001(tmp_path, 
                 environment_fingerprint TEXT NOT NULL,
                 label VARCHAR(255) NOT NULL,
                 created_at VARCHAR(32) NOT NULL,
-                approved BOOLEAN NOT NULL DEFAULT 0,
+                approved BOOLEAN NOT NULL DEFAULT {false},
                 vintage INTEGER NOT NULL DEFAULT 1,
                 correction_reason TEXT,
                 supersedes_run_id VARCHAR(32),
-                input_parquet BLOB NOT NULL
+                input_parquet {blob} NOT NULL
             )
         """))
         conn.execute(text("""
             INSERT INTO index_runs (run_id, input_hash, content_hash, config_json,
                 code_version, environment_fingerprint, label, created_at, input_parquet)
             VALUES ('abc123', 'hash1', 'hash2', '{}', 'v1', 'env1', 'old run',
-                    '2025-01-01', X'00')
-        """))
+                    '2025-01-01', :blob)
+        """), {"blob": b"\x00"})
         # A real database that ran 0001 (any shape of it) also has this
         # table, seeded with the 13 divisions; 0003 must find it and add
         # the rest of the tree to it, not assume it is starting from
         # nothing.
-        conn.execute(text("""
+        conn.execute(text(f"""
             CREATE TABLE classification_nodes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {serial},
                 scheme VARCHAR(32) NOT NULL DEFAULT 'COICOP2018',
                 code VARCHAR(32) NOT NULL,
                 label VARCHAR(255) NOT NULL,
@@ -128,7 +134,7 @@ def test_0002_heals_a_database_that_already_applied_the_pre_edit_0001(tmp_path, 
             VALUES ('COICOP2018', '01', 'Food and non-alcoholic beverages', 0, NULL)
         """))
 
-    cfg = _alembic_config(db_path)
+    cfg = _alembic_config(url)
     command.stamp(cfg, "0001")  # record that the pre-edit shape of 0001 already ran
 
     command.upgrade(cfg, "head")  # must not raise, and must add the missing columns
@@ -158,16 +164,16 @@ def test_0002_heals_a_database_that_already_applied_the_pre_edit_0001(tmp_path, 
 
 
 def test_migration_downgrade_removes_every_table(tmp_path, monkeypatch):
-    db_path = tmp_path / "migration_downgrade_test.db"
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{db_path}")
+    url = database_url(tmp_path, "migration_downgrade_test.db")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", url)
     from pricelab.core.config import get_settings
     get_settings.cache_clear()
 
-    cfg = _alembic_config(db_path)
+    cfg = _alembic_config(url)
     command.upgrade(cfg, "head")
     command.downgrade(cfg, "base")
 
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(url)
     inspector = inspect(engine)
     tables = set(inspector.get_table_names()) - {"alembic_version"}
     assert tables == set()

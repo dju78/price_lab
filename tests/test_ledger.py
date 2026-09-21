@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from dbtarget import database_url
 from streamlit.testing.v1 import AppTest
 
 from pricelab.core import db, ledger
@@ -22,7 +23,7 @@ APP_PATH = str(REPO_ROOT / "app.py")
 
 @pytest.fixture()
 def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'ledger_test.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "ledger_test.db"))
     get_settings.cache_clear()
     db.reset_db_state()
     db.init_db()

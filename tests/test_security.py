@@ -3,6 +3,7 @@ the restricted formula evaluator, and disclosure control."""
 
 import pandas as pd
 import pytest
+from dbtarget import database_url
 
 from pricelab.core import db
 from pricelab.core.config import get_settings
@@ -74,7 +75,7 @@ def test_require_role_needs_at_least_one_role():
 # ---------------------------------------------------------------------
 @pytest.fixture()
 def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'security_test.db'}")
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "security_test.db"))
     get_settings.cache_clear()
     db.reset_db_state()
     db.init_db()

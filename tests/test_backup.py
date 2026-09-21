@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from dbtarget import sqlite_only
 
 from pricelab import analyse, auto_configure, infer_schema, standardise
 from pricelab.core import backup as bk
@@ -25,6 +26,8 @@ FIXTURE = REPO_ROOT / "supermarket_price_collection.xlsx"
 
 @pytest.fixture()
 def deployment(tmp_path, monkeypatch):
+    sqlite_only("the file-level backup snapshots SQLite; PostgreSQL deployments use pg_dump "
+                "(core.backup says so rather than pretending)")
     monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{tmp_path / 'live.db'}")
     monkeypatch.setenv("PRICELAB_STORE_DIR", str(tmp_path / "store"))
     get_settings.cache_clear()
