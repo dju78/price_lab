@@ -437,6 +437,50 @@ against; PDF pages were checked by text extraction, not rendered (no
 poppler on this machine). 551 tests; engine/ coverage 95%; ruff and mypy
 strict at zero.
 
+## Phase 10.5 - Wiring audit and production verification (done, 2026-09-21)
+
+A static reachability analysis from the pages (plus manual checks) over
+every module in core/, engine/, data/ and reporting/ found the rest of the
+store.py class -- tested libraries the product never called -- and each was
+wired with a page-level AppTest test (tests/test_wiring.py): data.loaders
+behind Ingest (encoding, delimiter, header-row inference, Parquet/JSON,
+memory cap); the three reference periods, which had no control anywhere in
+the interface; models.validate_frame as the boundary and stage contract;
+non-critical validation findings, never displayed, and conformity, never
+checked; the weighted aggregate, contributions and tree roll-up; the
+Lowe/Young price-updating report; custom aggregate formulae; response
+rates; the thresholded chain-drift diagnostic; the hedonic imputation
+variant and characteristics-price index; registry corrections; an Audit
+page (chain verification, export identification, run reproduction and
+replay); a Sources page for the eight connectors with their cache,
+stale-if-error degradation and audit events. Dead code removed: six
+pydantic mirrors never instantiated, a dead re-export. Found on the way:
+numeric-looking category codes were read as integers and failed the
+contract.
+
+PostgreSQL: tests/dbtarget.py runs every database fixture against
+PRICELAB_TEST_DATABASE_URL when set; against a local PostgreSQL 15 the
+whole suite passed with no test behaving differently (only the
+SQLite-only backup tests skip, by design). docker-compose now runs
+PostgreSQL by default with a `tests` profile; CI runs both backends.
+
+Rendered the bulletin to images (pypdfium2, local only) and fixed what
+text extraction could not see: a legend over the data, greyscale-
+indistinguishable lines, repeated tick labels, a table over the margin
+and wrapping mid-word, a notice separated from its table, a duplicated
+paragraph, orphaned headings, clipped provenance values.
+
+Cold start on a clean checkout forced these corrections into the
+administrator guide: activate the environment (or prefix commands);
+`python -m pip`, not a `pip` executable; a short checkout path on Windows
+(pyarrow's headers exceed the path limit); the password prompt needs a
+terminal, so `--password-stdin` was added for unattended provisioning;
+Streamlit's first-run email prompt blocked `streamlit run` until the
+repository config made the server headless; a restore needs everything
+holding the database stopped, probe server included, and the scripts now
+refuse with a message rather than a traceback; `backup.py` refuses
+PostgreSQL outright (the guide had said it still copied the store).
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
 Multilateral methods (GEKS, TPD, Geary-Khamis) for scanner/transaction data;

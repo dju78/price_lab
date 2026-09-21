@@ -7,6 +7,10 @@ textColor = "#12263A"
 font = "sans serif"
 
 [server]
+# A server application: no browser auto-open and, on a fresh machine, no
+# interactive onboarding prompt on first start (it blocked `streamlit run`
+# in the cold-start walkthrough until answered). Open the printed URL.
+headless = true
 maxUploadSize = 100
 enableXsrfProtection = true
 enableCORS = false

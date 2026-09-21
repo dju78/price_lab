@@ -22,7 +22,10 @@ make run                                    # local
 make compose                                # container, runs lint/type-check/tests during build
 ```
 
-Then open `http://localhost:8501`, sign in, and upload an Excel or CSV file with one
+(`make` targets assume an activated virtual environment and a `make` tool;
+on Windows, or for a deployment, follow the step-by-step commands in
+[docs/admin_guide.md](docs/admin_guide.md), which were walked end to end on a
+clean checkout.) Then open `http://localhost:8501`, sign in, and upload an Excel or CSV file with one
 row per item per period on the Ingest page. There is no self-registration: every
 account is created with `scripts/create_user.py`, against one of four roles
 (`administrator`, `compiler`, `analyst`, `viewer`) — see [Access](#access) below.
@@ -104,7 +107,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 551 tests
+make test        # 568 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/ and data/
 ```
@@ -250,7 +253,7 @@ migrations/       Alembic; six revisions covering users, sessions, audit events,
                   index runs (with the registered headline and data vintage),
                   the classification tree, validation overrides, column
                   mappings and the quality adjustment ledger
-tests/            551 tests
+tests/            568 tests
 scripts/
   generate_synthetic_data.py   the test fixture, not the product
   create_user.py               bootstraps a login (no self-registration)

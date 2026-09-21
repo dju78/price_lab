@@ -368,3 +368,27 @@ def test_empty_grouping_sequence_is_refused():
     df = pd.DataFrame({"group": ["A"], "value": [10.0], "n": [10]})
     with pytest.raises(SuppressionCoverageError):
         suppress_with_secondary(df, [], "value", "n", min_count=3)
+
+
+def test_create_user_script_provisions_unattended_from_stdin(fresh_db):
+    """The cold-start walkthrough found `getpass` hangs on a piped password
+    on Windows (it reads the console directly), which made unattended
+    provisioning impossible; `--password-stdin` is the path for that."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "create_user.py"
+    env = {**os.environ, "PRICELAB_DATABASE_URL": get_settings().database_url}
+    out = subprocess.run([sys.executable, str(script), "--username", "ops", "--role", "viewer",
+                          "--password-stdin"], input="ops-password-1\n", capture_output=True,
+                         text=True, env=env)
+    assert out.returncode == 0, out.stderr
+    assert "Created user 'ops'" in out.stdout
+    short = subprocess.run([sys.executable, str(script), "--username", "ops2", "--role", "viewer",
+                            "--password-stdin"], input="short\n", capture_output=True, text=True,
+                           env=env)
+    assert short.returncode == 1 and "at least 8" in short.stderr
+    with db.session_scope() as s:
+        assert PasswordAuthProvider().authenticate(s, "ops", "ops-password-1") is not None

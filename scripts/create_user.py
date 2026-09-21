@@ -7,7 +7,11 @@ administrator, and again for anyone else who needs an account.
     python scripts/create_user.py --username admin --role administrator
 
 Prompts for the password rather than taking it as an argument, so it never
-ends up in shell history or a process listing.
+ends up in shell history or a process listing. For unattended provisioning
+(a container's first start, a configuration-management run) pass
+--password-stdin and pipe the password in on standard input:
+
+    echo "$ADMIN_PASSWORD" | python scripts/create_user.py --username admin         --role administrator --password-stdin
 """
 
 from __future__ import annotations
@@ -28,10 +32,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--username", required=True)
     parser.add_argument("--role", required=True, choices=[r.value for r in Role])
+    parser.add_argument("--password-stdin", action="store_true",
+                        help="read the password from standard input (first line) instead of "
+                             "prompting; for unattended provisioning")
     args = parser.parse_args()
 
-    password = getpass.getpass("Password: ")
-    confirm = getpass.getpass("Confirm password: ")
+    if args.password_stdin:
+        password = confirm = sys.stdin.readline().rstrip(chr(13) + chr(10))
+    else:
+        password = getpass.getpass("Password: ")
+        confirm = getpass.getpass("Confirm password: ")
     if password != confirm:
         print("Passwords did not match.", file=sys.stderr)
         return 1

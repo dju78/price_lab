@@ -8,12 +8,15 @@ release a bulletin, and then audit your own release back to a single quote.
 ## 0. Set up (5 minutes)
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+python -m venv .venv
+source .venv/bin/activate          # Windows (PowerShell): .venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
 alembic upgrade head
 python scripts/create_user.py --username admin --role administrator
-streamlit run app.py
+streamlit run app.py               # then open http://localhost:8501
 ```
 
+(On Windows, clone to a short path first; see the administrator guide.)
 Sign in as `admin`. (An administrator can do everything below; in practice a
 compiler compiles and an administrator approves.)
 

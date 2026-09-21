@@ -1,7 +1,7 @@
 .PHONY: install lint typecheck test run docker compose clean migrate
 
 install:
-	pip install -e ".[dev]"
+	python -m pip install -e ".[dev]"
 
 lint:
 	ruff check .

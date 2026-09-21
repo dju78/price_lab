@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pricelab.core.backup import restore  # noqa: E402
+from pricelab.core.backup import BackupError, restore  # noqa: E402
 
 
 def main() -> int:
@@ -23,7 +23,17 @@ def main() -> int:
     parser.add_argument("backup_dir")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    result = restore(args.backup_dir, overwrite=args.overwrite)
+    try:
+        result = restore(args.backup_dir, overwrite=args.overwrite)
+    except BackupError as exc:
+        print(f"Restore refused: {exc}", file=sys.stderr)
+        return 1
+    except PermissionError as exc:
+        print(f"Restore failed: the database file is open in another process ({exc}). Stop the "
+              "application, and anything else that opened the database -- a probe server "
+              "started with `--serve`, a shell with the file open -- then retry.",
+              file=sys.stderr)
+        return 1
     print(json.dumps({k: v for k, v in result.items() if k != "manifest"}, indent=2))
     return 0
 

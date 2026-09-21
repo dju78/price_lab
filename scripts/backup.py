@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pricelab.core.backup import backup  # noqa: E402
+from pricelab.core.backup import BackupError, backup  # noqa: E402
 
 
 def main() -> int:
@@ -24,7 +24,11 @@ def main() -> int:
     parser.add_argument("--to", default="backups", help="directory to create the backup under")
     args = parser.parse_args()
     dest = Path(args.to) / datetime.now(UTC).strftime("pricelab-%Y%m%dT%H%M%SZ")
-    manifest = backup(dest)
+    try:
+        manifest = backup(dest)
+    except BackupError as exc:
+        print(f"Backup refused: {exc}", file=sys.stderr)
+        return 1
     print(json.dumps({"backup": str(dest), "files": len(manifest["files"])}, indent=2))
     return 0
 
