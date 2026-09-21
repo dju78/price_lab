@@ -31,7 +31,16 @@ def test_migration_upgrades_head_cleanly_and_seeds_coicop(tmp_path, monkeypatch)
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
     assert {"users", "sessions", "audit_events", "index_runs", "classification_nodes",
-            "validation_overrides", "column_mappings"} <= tables
+            "validation_overrides", "column_mappings", "quality_adjustments"} <= tables
+
+    # 0005 (Phase 4): the quality adjustment ledger's approval record.
+    qa_columns = {c["name"] for c in inspector.get_columns("quality_adjustments")}
+    assert qa_columns == {
+        "id", "content_hash", "category", "old_item", "new_item", "period", "method",
+        "quality_ratio", "parameters_json", "justification", "approved_by", "approved_at",
+        "withdrawn_at", "withdrawn_by", "withdrawal_reason"}
+    assert any(ix["column_names"] == ["content_hash"]
+               for ix in inspector.get_indexes("quality_adjustments"))
 
     mapping_columns = {c["name"] for c in inspector.get_columns("column_mappings")}
     assert mapping_columns == {"id", "file_hash", "schema_json", "confirmed_by", "confirmed_at"}

@@ -19,6 +19,8 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyarrow>=14.0",
     "requests>=2.31",
+    "statsmodels>=0.14",
+    "scipy>=1.11",
 ]
 
 [project.optional-dependencies]

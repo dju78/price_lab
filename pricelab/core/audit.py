@@ -47,6 +47,8 @@ EXTERNAL_FETCH_SUCCESS = "external_fetch_success"
 EXTERNAL_FETCH_FAILURE = "external_fetch_failure"
 VALIDATION_OVERRIDE = "validation_override"
 MAPPING_CONFIRMED = "mapping_confirmed"
+QUALITY_ADJUSTMENT_APPROVED = "quality_adjustment_approved"
+QUALITY_ADJUSTMENT_WITHDRAWN = "quality_adjustment_withdrawn"
 
 
 class AuditEventORM(Base):

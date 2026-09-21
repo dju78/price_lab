@@ -24,6 +24,7 @@ import pages.imputation
 import pages.index_build
 import pages.ingest
 import pages.quality
+import pages.quality_adjustment
 import pages.reports
 from pages import common
 from pricelab.core import audit, db
@@ -159,6 +160,7 @@ _PAGE_SPECS = [
     (pages.ingest.render, "Ingest", "📥", "ingest"),
     (pages.quality.render, "Quality", "🧪", "quality"),
     (pages.imputation.render, "Imputation", "🧩", "imputation"),
+    (pages.quality_adjustment.render, "Quality adjustment", "🔁", "quality-adjustment"),
     (pages.index_build.render, "Index build", "📈", "index-build"),
     (pages.findings.render, "Findings", "🗒️", "findings"),
     (pages.diagnostics.render, "Diagnostics", "🔎", "diagnostics"),

@@ -28,7 +28,8 @@ IMPUTATION_METHODS = ["none", "class_mean", "carry_forward", "seasonal_hold",
 INDEX_FORMULAS = ["jevons", "dutot", "carli", "laspeyres", "custom"]
 
 LIFECYCLE_STAGES = (
-    "Ingest", "Quality", "Imputation", "Index build", "Findings", "Diagnostics", "Reports")
+    "Ingest", "Quality", "Imputation", "Quality adjustment", "Index build", "Findings",
+    "Diagnostics", "Reports")
 
 
 def current_username() -> str:
@@ -130,6 +131,7 @@ def workflow_progress() -> None:
         "Ingest": ingested,
         "Quality": computed,
         "Imputation": computed,
+        "Quality adjustment": computed,
         "Index build": computed,
         "Findings": computed,
         "Diagnostics": computed,
@@ -138,3 +140,37 @@ def workflow_progress() -> None:
     st.sidebar.markdown("**Workflow**")
     lines = [f"{'✅' if reached[stage] else '▫️'} {stage}" for stage in LIFECYCLE_STAGES]
     st.sidebar.markdown("  \n".join(lines))
+
+
+def compile_and_store(df: Any, cfg: Any, label: str, file_bytes: bytes, *,
+                      trigger: str = "compile") -> dict[str, Any]:
+    """Run (or fetch from the bounded cache) the analysis for this data and
+    configuration, and make it the session's active analysis.
+
+    Shared by Ingest, which compiles after upload, and Quality adjustment,
+    which recompiles after an approval changes the ledger inside the
+    configuration. The cache key is the file bytes, the full config JSON
+    (ledger included) and the label, so an approval is a new key, never a
+    stale hit.
+    """
+    from pricelab import analyse
+    from pricelab.core.cache import content_key, get_analysis_cache
+
+    cache = get_analysis_cache()
+    key = content_key(file_bytes, cfg.to_json(), label)
+    cached = cache.get(key)
+    if cached is None:
+        with st.spinner("Diagnosing, cleaning, indexing and writing the findings…"):
+            cached = analyse(df, label, cfg)
+        cached.pop("charts", None)  # rebuilt fresh on demand; see core/cache.py
+        cache.set(key, cached)
+        record(audit.CALCULATION_RUN, label, {
+            "formula": cfg.index.formula, "chained": cfg.index.chained, "rows": len(df),
+            "quality_adjustments": len(cfg.quality_adjustment.entries), "trigger": trigger})
+
+    st.session_state["analysis"] = {**cached, "label": label}
+    st.session_state["input_df"] = df
+    st.session_state["run_config"] = cfg
+    st.session_state.pop("loaded_run_id", None)
+    return cached
+

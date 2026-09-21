@@ -19,7 +19,12 @@ from sqlalchemy import engine_from_config, pool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pricelab.core import audit, registry, security  # noqa: F401,E402  side effect: register tables
+from pricelab.core import (  # noqa: F401,E402  side effect: register tables
+    audit,
+    ledger,
+    registry,
+    security,
+)
 from pricelab.core.config import get_settings  # noqa: E402
 from pricelab.core.db import Base  # noqa: E402
 from pricelab.data import (  # noqa: F401,E402  side effect: register tables

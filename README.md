@@ -35,8 +35,8 @@ in production — every query goes through SQLAlchemy, so that is the entire mig
 ## Access
 
 Four roles, enforced from inside each page's own code, not by hiding a sidebar
-entry: `administrator` and `compiler` can use Ingest, Quality, Imputation and Index
-build (compiling a run); `analyst` additionally reaches Findings and Diagnostics
+entry: `administrator` and `compiler` can use Ingest, Quality, Imputation, Quality
+adjustment and Index build (compiling a run); `analyst` additionally reaches Findings and Diagnostics
 (interpreting one); `viewer` reaches only Reports, which is also where a compiled
 run gets registered and, by an administrator, approved. Every login, logout, data
 load, configuration change, calculation run, quality or imputation override, and
@@ -104,7 +104,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 455 tests
+make test        # 513 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/ and data/
 ```
@@ -126,7 +126,11 @@ every formula were silently replaced by Jevons.
 
 `tests/test_golden_values.py` reproduces the published worked example in the CPI
 Manual 2020 (Chapter 8, Tables 8.1–8.3) number for number, at the manual's own
-published precision.
+published precision. `tests/test_quality_adjustment.py` does the same for Chapter 6's
+worked examples of missing prices and quality change (equation 6.4, the targeted-mean
+chain, Table 6.4a, Table 6.5 and the option-cost example), and
+`tests/test_hedonic.py` recovers a known quality effect from a synthetic panel whose
+true characteristics prices are known by construction.
 
 Covered: identity, proportionality, time reversal, unit invariance, matching
 behaviour, recovery of a known growth rate, level holding when nothing matches, scale
@@ -218,6 +222,13 @@ pricelab/
                         exactly additive contributions
     splicing.py         rebasing, link factors, chaining, chain drift
     custom.py           analyst-defined formulae via the restricted evaluator
+    quality_adjustment.py
+                        overlap, direct comparison, quantity, option cost,
+                        class/targeted/overall mean imputation; the ledger's
+                        application to a panel; the impact report
+    hedonic.py          time-dummy, characteristics-price and imputation
+                        hedonics in log-linear, semi-log and Box-Cox forms,
+                        with the diagnostics reported, not buried
     diagnostics.py      formula sensitivity, chain drift, unmatched comparison,
                         seasonality, churn
     auto.py             schema inference and self-configuration from the diagnosis
@@ -228,11 +239,12 @@ pricelab/
     report.py           Word and Markdown report, plus the method note
 pages/            one module per lifecycle stage; app.py wires them into
                   role-filtered st.navigation
-  ingest.py, quality.py, imputation.py, index_build.py, findings.py,
-  diagnostics.py, reports.py, common.py (shared session-state helpers)
-migrations/       Alembic; one revision covering users, sessions, audit events,
-                  index runs and the classification tree
-tests/            126 tests
+  ingest.py, quality.py, imputation.py, quality_adjustment.py, index_build.py,
+  findings.py, diagnostics.py, reports.py, common.py (shared session-state helpers)
+migrations/       Alembic; five revisions covering users, sessions, audit events,
+                  index runs, the classification tree, validation overrides,
+                  column mappings and the quality adjustment ledger
+tests/            513 tests
 scripts/
   generate_synthetic_data.py   the test fixture, not the product
   create_user.py               bootstraps a login (no self-registration)
@@ -263,8 +275,11 @@ top of that, never as the actual control.
 
 ## Known limitations
 
-No quality adjustment between a departing item and its replacement, so a change in
-specification is implicitly treated as price change. The weighted bilateral formulae
+Quality adjustment is applied only to the replacements a compiler values and approves
+on the Quality adjustment page; every other departing item is treated as unrelated
+to its successor, which implicitly attributes their whole price gap to quality (the
+matched-model default). The hedonic model needs a characteristics file uploaded on
+that page -- the price panel itself carries no characteristics. The weighted bilateral formulae
 (Fisher, Tornqvist, Walsh, Lowe, Young and the rest, in `engine/bilateral.py`) are
 library-level only: they need quantity or expenditure data that the upload schema does
 not yet carry, so the Ingest page still offers the four elementary formulae plus a

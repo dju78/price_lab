@@ -263,13 +263,98 @@ decimal for indices); no superlative golden values are asserted, because
 the 2020 volume contains no reproducible worked example of one -- see
 `tests/test_golden_values.py` for the full finding.
 
-## Phase 4 - Quality adjustment and hedonics
+## Phase 3 review (done, 2026-09-21)
 
-New. `engine/quality.py` today only repairs unit-of-measurement (order-of-100)
-errors; this phase adds overlap pricing, direct and explicit-quantity
-comparison, and hedonic regression (time dummy and characteristics-price
-variants) for genuine item replacement, plus the quality-adjustment ledger
-and impact report the master specification calls for.
+Phase 3 was left uncommitted when the previous session hit its usage limit
+during final verification. Reviewed against the phase prompt and the hard
+gate; three silent-failure findings fixed before committing: `build_index`
+skipped the rebase without comment when an explicit `index_reference_period`
+was absent from the data (now refused, like an absent price reference) or
+had no computable level (now an all-NaN series, since raising would take
+down `diagnostics.chain_drift`, which builds a direct variant of every run
+and had been subtracting an un-rebased direct series from a rebased chained
+one on thin categories); `aggregate_tree` dropped a leaf with an index but
+no weight without listing it in `problems`; `price_update_shares` fell back
+to un-updated shares when no update ratio was computable, which made
+`price_updating_effect` report a Lowe equal to Young and an effect of
+exactly zero. Also found: this machine's Windows Smart App Control now
+refuses pyarrow 25.0.1's `_fs.pyd`; the venv is on 24.0.0 (no code or
+`pyproject` change; CI on Linux is unaffected).
+
+## Phase 4 - Quality adjustment and hedonics (done)
+
+Delivered: `engine/quality_adjustment.py` -- overlap pricing, direct
+comparison, explicit quantity adjustment, option cost, class mean, targeted
+mean and overall mean imputation (plus link-to-show-no-change, which exists
+in the world and warns on use), each returning a `QualityAdjustment` with
+the quality ratio, the adjusted price, the adjustment in price terms and in
+index points (closed forms for Jevons and Carli, sum-based for Dutot) and a
+reason code; `apply_adjustments`, which links an approved replacement onto
+the old item's series before imputation and indexing, flags every linked
+row (`quality_adjustment_flag`, `replacement_flag`, `replaced_item_id`) and
+logs every row it moved or dropped; and `impact_report`, which re-runs the
+pipeline as configured, with every replacement linked at ratio 1, and with
+none linked, and states the adjustments' effect in index points and in
+percentage points of annual inflation (year on year where the span allows,
+annualised over the span otherwise, and it says which), attributed per
+entry by leave-one-out with the interaction residual reported as its own
+row so the column sums exactly. `engine/hedonic.py` -- log-linear, semi-log
+and Box-Cox (lambda by maximum likelihood on the regression) functional
+forms; time-dummy (pooled, index read from the dummies, with and without
+the Kennedy bias correction), characteristics-price (per-period fits,
+Laspeyres-, Paasche- and Fisher-type bundle pricing) and imputation (single
+and double) variants; dummy-encoded categoricals; WLS with expenditure
+weights; and the diagnostics the specification names: adjusted R squared,
+HC1 robust standard errors, VIF per regressor and the design's condition
+number, residual and leverage series (charted in `reporting/charts.py`),
+coefficient stability across rolling windows, and k-fold out-of-sample
+error. Severe multicollinearity raises `HedonicMulticollinearityWarning`,
+is recorded on the result and travels with any adjustment read from it.
+
+The ledger is configuration: `RunConfig.quality_adjustment.entries` holds
+every approved valuation (old item, new item, period, method, ratio,
+parameters, justification, approver), so the registry's content hash, the
+cache key, `reproduce()` and every saved config already cover it with no
+second mechanism; the approval record behind it is the `quality_adjustments`
+table (migration 0005, `core/ledger.py`), keyed by the input data's content
+hash so a re-uploaded collection brings its approved replacements back, with
+withdrawals kept as rows rather than deleted. `pages/quality_adjustment.py`
+(compiler and administrator) lists replacement candidates from the
+collection's exits and entrants, values one by any method with the result
+shown before approval, approves it (persisted, audited, recompiled), shows
+the ledger with withdrawal, the impact report, and fits a hedonic model
+from an uploaded characteristics file with its diagnostics on screen. The
+impact report is in the Markdown and Word reports and on its own slide in
+the deck; the method note's "Limitations" paragraph now says correctly that
+the matched-model default attributes a replacement's price gap to quality,
+not price.
+
+Acceptance: the hedonic estimator recovers a known quality effect within 2
+percent on a synthetic panel and the impact report attributes it; switching
+a replacement's method changes the headline and the change is attributed
+exactly (per entry plus residual); a specification with a duplicated
+regressor warns rather than reporting. Golden values from the CPI Manual
+2020 Chapter 6 text (equation 6.4's 1.023765; the targeted-mean chain 6.26,
+6.32, 6.34; Table 6.4a's 1.12; Table 6.5's unit prices; the option-cost
+1.01942) reproduce exactly. Not asserted, because the published text does
+not carry the inputs: Table 6.1's full tableau (so Table 6.2's whole chain)
+and Table 6.6's washing-machine regression. 54 tests added (513 passing,
+the one strict xfail-turned-skip unchanged); engine/ coverage 94%; ruff and
+mypy strict at zero, statsmodels and scipy added as dependencies.
+
+Scope decisions worth knowing about: the pack names the module
+`engine/quality.py`, but that name has meant value-level data quality
+(sentinel recoding, fault repair) since Phase 0 and is imported from six
+modules, so quality adjustment lives in `engine/quality_adjustment.py` and
+`engine/hedonic.py` rather than renaming the existing module under the hard
+gate. Characteristics are not part of the upload schema: the hedonic model
+takes a separate characteristics file (item_id plus columns) on the page.
+The adjustment is applied to the incoming series ("current period
+adjustment", dividing the replacement's prices by the ratio) rather than to
+the reference price; in a chained short-term index the relatives are the
+same, and it keeps `price_reported` untouched. A run loaded from the
+registry cannot have its ledger changed from the page -- that is a
+correction, and goes through `correct_run`.
 
 ## Phase 10 - Reporting and hardening
 

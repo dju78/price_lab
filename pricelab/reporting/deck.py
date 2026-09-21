@@ -287,9 +287,12 @@ def slide_method(prs, res: dict, nar: Narrative):
          "between two periods are excluded from that comparison, so replacement does not "
          "enter as price change."),
         ("Limitations",
-         "No quality adjustment between a departing item and its replacement, so a change "
-         "in specification is treated as price change. No expenditure weights, so the "
-         "aggregate is equally weighted and indicative."),
+         (f"{len(cfg.quality_adjustment.entries)} replacements valued and linked (see the "
+          "ledger); every other departing item is treated as unrelated to its successor. "
+          if cfg.quality_adjustment.entries else
+          "No quality adjustment between a departing item and its replacement, so their "
+          "price gap is implicitly treated as quality. ")
+         + "No expenditure weights, so the aggregate is equally weighted and indicative."),
     ]
     for col, items in ((M, left), (W / 2 + 0.2, right)):
         y = 1.7
@@ -358,6 +361,34 @@ def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "") -> byte
                        "Figures are produced from the cleaned collection using a matched "
                        "model index. The aggregate is equally weighted, as no expenditure "
                        "weights were supplied.")
+
+    # Quality adjustment is the most scrutinised number in a price index,
+    # so when a ledger exists it gets its own slide, ahead of the findings.
+    impact = res.get("quality_adjustment_impact")
+    if impact is not None:
+        n = len(res["config"].quality_adjustment.entries)
+        plural = "s" if n != 1 else ""
+        slide_stat_row(prs, "Quality adjustment", [
+            {"value": f"{impact.adjustment_effect_points:+.2f}", "accent": True,
+             "label": f"Index points: effect of valuing the {n} replacement{plural} "
+                      "rather than treating the price gap as price"},
+            {"value": f"{impact.adjustment_effect_annual_pp:+.2f} pp",
+             "label": f"Of the annual rate at {impact.final_period:%b %Y} "
+                      f"({impact.annual_measure.replace('_', ' ')})"},
+            {"value": f"{impact.linking_effect_points:+.2f}",
+             "label": "Index points: effect of linking replacements at all, against the "
+                      "matched-model default"},
+        ], "Each replacement's valuation, method, justification and approver are in the "
+           "ledger exported with this deck. The matched-model default compares nothing across "
+           "a replacement, which attributes the whole price gap to quality.")
+        if "quality_adjustment" in png:
+            slide_finding(prs, Finding(
+                kind="method", headline="Three ways to treat the replacements",
+                detail="The headline as compiled, with the same replacements linked but "
+                       "valued at ratio one, and with none linked.",
+                evidence=f"{impact.headline} at {impact.final_period:%b %Y}",
+                importance=80, chart="quality_adjustment"),
+                png["quality_adjustment"], "Quality adjustment")
 
     # One slide per material finding, in ranked order, deduplicating charts
     eyebrow = {"quality": "Data quality", "structure": "Sample structure",

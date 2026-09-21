@@ -162,6 +162,60 @@ def coverage_chart(matched: pd.DataFrame, figsize=(10, 4)):
     return fig
 
 
+def hedonic_residual_chart(result, figsize=(10, 4.5)):
+    """Residuals against fitted values, in the regression's own scale.
+
+    The plot a reviewer looks at before the coefficient table: a fan
+    shape means the robust standard errors were needed, a curve means the
+    functional form is wrong, and a handful of far points are the
+    observations to go and look at.
+    """
+    fig, ax = _fig(figsize)
+    ax.axhline(0, color=MUTED, linewidth=1)
+    ax.scatter(result.fitted, result.residuals, s=14, color=PRIMARY, alpha=0.7)
+    ax.set_xlabel("fitted (transformed price)")
+    ax.set_ylabel("residual")
+    ax.set_title(f"Hedonic residuals: {result.spec.functional_form}, adjusted R² "
+                 f"{result.adj_r_squared:.3f}", loc="left", fontsize=12, color=INK, pad=12)
+    return fig
+
+
+def hedonic_leverage_chart(result, figsize=(10, 4.5)):
+    """Leverage against standardised residual: the observations that pull
+    the fit towards themselves, and whether they are also badly fitted.
+    The dashed line is the conventional 2k/n leverage threshold."""
+    fig, ax = _fig(figsize)
+    sd = float(result.residuals.std()) or 1.0
+    ax.scatter(result.leverage, result.residuals / sd, s=14, color=PRIMARY, alpha=0.7)
+    threshold = 2.0 * result.n_params / max(result.n_obs, 1)
+    ax.axvline(threshold, color=ACCENT, linewidth=1, linestyle="--")
+    ax.set_xlabel("leverage (hat value)")
+    ax.set_ylabel("standardised residual")
+    ax.set_title("Hedonic leverage", loc="left", fontsize=12, color=INK, pad=12)
+    return fig
+
+
+def impact_chart(impact, figsize=(10, 4)):
+    """The three scenarios' final headline levels side by side: the
+    quality adjustment's effect as a picture, not a footnote."""
+    fig, ax = _fig(figsize)
+    levels = impact.scenarios["final_level"]
+    labels = {"as_configured": "As compiled", "linked_unadjusted": "Linked, no adjustment",
+              "no_link": "Not linked (matched model)"}
+    colours = [ACCENT, PRIMARY, MUTED]
+    bars = ax.bar([labels[k] for k in levels.index], levels.values, color=colours, width=0.55)
+    for bar, value in zip(bars, levels.values, strict=True):
+        ax.annotate(f"{value:.2f}", (bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                    ha="center", va="bottom", fontsize=9, color=INK)
+    lo = float(levels.min())
+    ax.set_ylim(lo - max(1.0, (float(levels.max()) - lo) * 3), float(levels.max()) + 1.0)
+    ax.set_ylabel(f"{impact.headline} at {impact.final_period:%b %Y}")
+    ax.set_title(f"Quality adjustment moved the headline by "
+                 f"{impact.adjustment_effect_points:+.2f} points",
+                 loc="left", fontsize=12, color=INK, pad=12)
+    return fig
+
+
 def build_all_charts(res: dict) -> dict:
     """Every chart the narrative might reference, rendered once."""
     I, yoy = res["indices"], res["inflation"]
@@ -179,4 +233,6 @@ def build_all_charts(res: dict) -> dict:
     seas = dg.seasonality(I)
     if len(seas):
         charts["seasonality"] = seasonality_chart(seas)
+    if res.get("quality_adjustment_impact") is not None:
+        charts["quality_adjustment"] = impact_chart(res["quality_adjustment_impact"])
     return charts

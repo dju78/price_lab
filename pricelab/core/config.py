@@ -201,6 +201,69 @@ class ImputationConfig(BaseModel):
         return self.by_category.get(category, self.default_method)
 
 
+class QualityAdjustmentEntry(BaseModel):
+    """One approved replacement link: old item, new item, the method that
+    valued the quality difference between them, and the value it arrived
+    at. The unit of the quality adjustment ledger.
+
+    Lives in the configuration rather than beside it for the same reason
+    `custom_formula` does: everything that already covers a parameter --
+    the registry's content hash, the cache key, the config JSON of every
+    saved run, `reproduce()` -- then covers this without a second
+    mechanism. A published index that depended on a ledger stored somewhere
+    the hash could not see would be reproducible in every respect except
+    the one the manual says is the most scrutinised.
+    """
+
+    old_item: str
+    new_item: str
+    category: str
+    period: str
+    """ISO date of the first period the replacement's price is used for the
+    old item's series."""
+    method: str
+    """The reason code of the method that produced `quality_ratio`; see
+    `engine.quality_adjustment.ReasonCode`."""
+    quality_ratio: float = Field(gt=0)
+    """Value of the new item relative to the old, in price terms: 1.0 means
+    directly comparable, 1.2 means the new item is worth 20 percent more.
+    The new item's prices are divided by this to express them in old-item
+    quality terms."""
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    """Whatever the method needed to reach the ratio: the overlap period and
+    prices, the quantities, the option value, the peer items."""
+    justification: str = ""
+    approved_by: str = ""
+    approved_at: str = ""
+
+
+class QualityAdjustmentConfig(BaseModel):
+    """The quality adjustment ledger as applied to this run."""
+
+    entries: list[QualityAdjustmentEntry] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _one_replacement_per_item(self) -> QualityAdjustmentConfig:
+        """An old item can be replaced once, by one new item, and a new item
+        can continue one old item. Two entries claiming the same new item
+        would write two different histories for the same prices."""
+        seen_new: dict[str, str] = {}
+        seen_old: dict[str, str] = {}
+        for e in self.entries:
+            if e.new_item in seen_new:
+                raise ValueError(
+                    f"new item {e.new_item!r} is entered as the replacement for both "
+                    f"{seen_new[e.new_item]!r} and {e.old_item!r}; one replacement continues "
+                    "one series")
+            if e.old_item in seen_old:
+                raise ValueError(
+                    f"old item {e.old_item!r} is replaced by both {seen_old[e.old_item]!r} and "
+                    f"{e.new_item!r}; an item can be replaced once")
+            seen_new[e.new_item] = e.old_item
+            seen_old[e.old_item] = e.new_item
+        return self
+
+
 class RunConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -218,6 +281,11 @@ class RunConfig(BaseModel):
     quality: QualityConfig = Field(default_factory=QualityConfig)
     imputation: ImputationConfig = Field(default_factory=ImputationConfig)
     index: IndexConfig = Field(default_factory=IndexConfig)
+    quality_adjustment: QualityAdjustmentConfig = Field(default_factory=QualityAdjustmentConfig)
+    """Approved replacement links (Phase 4). Empty for every run compiled
+    before this field existed, and an empty ledger applies nothing, so a
+    schema_version 2 config without the key loads unchanged: no version
+    bump, because no old field was renamed or reinterpreted."""
     label: str = "unnamed run"
 
     legacy_upconverted: bool = Field(default=False, exclude=True)

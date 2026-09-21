@@ -22,14 +22,12 @@ from pricelab import (
     QualityConfig,
     RunConfig,
     Schema,
-    analyse,
     auto_configure,
     standardise,
     validate,
 )
-from pricelab.core import audit, db
-from pricelab.core.cache import content_key, get_analysis_cache
-from pricelab.core.config import get_settings
+from pricelab.core import audit, db, ledger
+from pricelab.core.config import QualityAdjustmentConfig, get_settings
 from pricelab.core.models import Role
 from pricelab.core.security import FormulaError, require_role
 from pricelab.data import mapping, store, validation
@@ -214,6 +212,7 @@ def render() -> None:
     label = st.text_input("Title for the outputs", upload.name.rsplit(".", 1)[0])
 
     content_hash = store.content_hash_of(df)
+    st.session_state["content_hash"] = content_hash
     assessment = validation.assess(df, reference_date=pd.Timestamp.now())
     with db.session_scope() as s:
         already_overridden = {
@@ -314,6 +313,13 @@ def render() -> None:
         st.info("Correct the custom formula above, or choose a standard one, to compile.")
         return
 
+    # Approved replacement valuations recorded against this exact data
+    # (by content hash) ride in the configuration, so the registry hash,
+    # the cache key and every export already cover them. Approvals are
+    # made on the Quality adjustment page; this is where they take effect.
+    with db.session_scope() as s:
+        approved = ledger.active_entries(s, content_hash)
+
     cfg = RunConfig(
         schema=schema,
         quality=QualityConfig(missing_codes=auto_cfg.quality.missing_codes,
@@ -322,7 +328,11 @@ def render() -> None:
         imputation=ImputationConfig(default_method="none", by_category=by_cat),
         index=IndexConfig(formula=formula, custom_formula=custom_expression, chained=chained,
                           min_matched_items=auto_cfg.index.min_matched_items),
+        quality_adjustment=QualityAdjustmentConfig(entries=approved),
         label=label)
+    if approved:
+        st.caption(f"{len(approved)} approved quality adjustment(s) for this data will be "
+                   "applied; see the Quality adjustment page.")
 
     if cfg.quality.repair_scale_errors != auto_cfg.quality.repair_scale_errors:
         common.record(audit.QUALITY_OVERRIDE, label, {"repair_scale_errors": do_repair})
@@ -333,20 +343,7 @@ def render() -> None:
             "formula": formula, "chained": chained, "reference_window": window,
             **custom_formula_parameters(cfg.index)})
 
-    cache = get_analysis_cache()
-    key = content_key(file_bytes, cfg.to_json(), label)
-    cached = cache.get(key)
-    if cached is None:
-        with st.spinner("Diagnosing, cleaning, indexing and writing the findings…"):
-            cached = analyse(df, label, cfg)
-        cached.pop("charts", None)  # rebuilt fresh on demand; see core/cache.py
-        cache.set(key, cached)
-        common.record(audit.CALCULATION_RUN, label, {
-            "formula": formula, "chained": chained, "rows": len(df)})
-
-    st.session_state["analysis"] = {**cached, "label": label}
-    st.session_state["input_df"] = df
-    st.session_state.pop("loaded_run_id", None)
+    cached = common.compile_and_store(df, cfg, label, file_bytes, trigger="ingest")
 
     if "indices" not in cached["result"]:
         st.error("The pipeline could not build an index from this data; see Validation above.")
