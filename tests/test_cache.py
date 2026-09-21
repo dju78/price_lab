@@ -78,3 +78,64 @@ def test_invalidate_removes_a_specific_entry():
 def test_zero_or_negative_bound_is_rejected():
     with pytest.raises(ValueError):
         BoundedCache(max_entries=0)
+
+
+# ---------------------------------------------------------------------
+# Time-to-live, added for data.connectors: response caching on a schedule
+# independent of the LRU-by-count bound the analysis cache uses.
+# ---------------------------------------------------------------------
+class _FakeClock:
+    """A controllable clock so TTL expiry can be tested without a real
+    sleep: advance it explicitly instead of waiting."""
+
+    def __init__(self, start: float = 0.0):
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def test_entry_with_no_ttl_never_expires_by_time():
+    clock = _FakeClock()
+    cache: BoundedCache[str] = BoundedCache(max_entries=4, clock=clock)
+    cache.set("k1", "v1")
+    clock.advance(10_000)
+    assert cache.get("k1") == "v1"
+
+
+def test_entry_expires_after_its_ttl_elapses():
+    clock = _FakeClock()
+    cache: BoundedCache[str] = BoundedCache(max_entries=4, clock=clock)
+    cache.set("k1", "v1", ttl_seconds=60)
+    clock.advance(59)
+    assert cache.get("k1") == "v1"
+    clock.advance(2)
+    assert cache.get("k1") is None
+
+
+def test_expired_entry_is_evicted_from_the_store_not_just_hidden():
+    clock = _FakeClock()
+    cache: BoundedCache[str] = BoundedCache(max_entries=4, clock=clock)
+    cache.set("k1", "v1", ttl_seconds=60)
+    clock.advance(61)
+    assert "k1" not in cache
+    assert len(cache) == 0  # actually removed, not merely unreachable via get()
+
+
+def test_default_ttl_applies_when_set_does_not_override_it():
+    clock = _FakeClock()
+    cache: BoundedCache[str] = BoundedCache(max_entries=4, default_ttl_seconds=30, clock=clock)
+    cache.set("k1", "v1")
+    clock.advance(31)
+    assert cache.get("k1") is None
+
+
+def test_per_call_ttl_overrides_the_cache_wide_default():
+    clock = _FakeClock()
+    cache: BoundedCache[str] = BoundedCache(max_entries=4, default_ttl_seconds=30, clock=clock)
+    cache.set("k1", "v1", ttl_seconds=300)
+    clock.advance(31)
+    assert cache.get("k1") == "v1"  # outlives the default because of its own longer ttl

@@ -1,0 +1,797 @@
+{
+  "meta": {
+    "schema": "https://raw.githubusercontent.com/sdmx-twg/sdmx-json/master/data-message/tools/schemas/1.0/sdmx-json-data-schema.json",
+    "id": "IREF001860",
+    "prepared": "2026-09-20T14:44:40Z",
+    "test": false,
+    "contentLanguages": [
+      "en",
+      "en-US"
+    ],
+    "sender": {
+      "id": "Disseminate_Final_DMZ",
+      "name": "unknown",
+      "names": {
+        "en-US": "unknown"
+      }
+    }
+  },
+  "data": {
+    "dataSets": [
+      {
+        "action": "Information",
+        "links": [
+          {
+            "urn": "urn:sdmx:org.sdmx.infomodel.datastructure.DataStructure=OECD.SDD.TPS:DSD_PRICES(1.0)",
+            "rel": "DataStructure"
+          }
+        ],
+        "annotations": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "series": {
+          "0:0:0:0:0:0:0:0": {
+            "attributes": [
+              null,
+              null,
+              0
+            ],
+            "annotations": [],
+            "observations": {
+              "0": [
+                3.137271,
+                0
+              ],
+              "1": [
+                3.241145,
+                0
+              ],
+              "2": [
+                1.123595,
+                0
+              ],
+              "3": [
+                0.7490637,
+                0
+              ],
+              "4": [
+                0.3745318,
+                0
+              ],
+              "5": [
+                0.3745318,
+                0
+              ],
+              "6": [
+                0.3745318,
+                0
+              ],
+              "7": [
+                3.703704,
+                0
+              ],
+              "8": [
+                3.717472,
+                0
+              ],
+              "9": [
+                3.731343,
+                0
+              ],
+              "10": [
+                3.358209,
+                0
+              ],
+              "11": [
+                2.985075,
+                0
+              ],
+              "12": [
+                2.985075,
+                0
+              ],
+              "13": [
+                2.230483,
+                0
+              ],
+              "14": [
+                2.230483,
+                0
+              ],
+              "15": [
+                1.858736,
+                0
+              ],
+              "16": [
+                1.865672,
+                0
+              ],
+              "17": [
+                2.238806,
+                0
+              ],
+              "18": [
+                1.872659,
+                0
+              ],
+              "19": [
+                0.6896552,
+                0
+              ],
+              "20": [
+                0.6920415,
+                0
+              ],
+              "21": [
+                0.3460208,
+                0
+              ],
+              "22": [
+                0.3460208,
+                0
+              ],
+              "23": [
+                0.3472222,
+                0
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "structure": {
+      "name": "Consumer price indices (CPIs, HICPs), COICOP 1999",
+      "names": {
+        "en": "Consumer price indices (CPIs, HICPs), COICOP 1999"
+      },
+      "description": "This dataset contains statistics on Consumer Price Indices by COICOP 1999 divisions, including national CPIs, Harmonised Indices of Consumer Prices (HICPs) and their associated weights and contributions to national year-on-year inflation. For countries for which data are already available according to the COICOP 2018 classification statistics on Consumer Price Indices can be found in dataset <a href=\"https://data-explorer.oecd.org/vis?lc=en&pg=0&fs%5b0%5d=Topic%2C1%7CEconomy%23ECO%23%7CPrices%23ECO_PRI%23&fc=Topic&bp=true&snb=31&df%5bds%5d=dsDisseminateFinalDMZ&df%5bid%5d=DSD_PRICES_COICOP2018%40DF_PRICES_C2018_ALL&df%5bag%5d=OECD.SDD.TPS&df%5bvs%5d=1.0&dq=.M.N.CPI.PA._T.N.GY&lom=LASTNPERIODS&lo=13&to%5bTIME_PERIOD%5d=false\">Consumer price indices (CPIs, HICPs), COICOP 2018.</a> <br/>The data series presented have been chosen as the most relevant prices statistics for which comparable data across countries is available. Data are available monthly for all the countries except for Australia and New Zealand (quarterly data).",
+      "descriptions": {
+        "en": "This dataset contains statistics on Consumer Price Indices by COICOP 1999 divisions, including national CPIs, Harmonised Indices of Consumer Prices (HICPs) and their associated weights and contributions to national year-on-year inflation. For countries for which data are already available according to the COICOP 2018 classification statistics on Consumer Price Indices can be found in dataset <a href=\"https://data-explorer.oecd.org/vis?lc=en&pg=0&fs%5b0%5d=Topic%2C1%7CEconomy%23ECO%23%7CPrices%23ECO_PRI%23&fc=Topic&bp=true&snb=31&df%5bds%5d=dsDisseminateFinalDMZ&df%5bid%5d=DSD_PRICES_COICOP2018%40DF_PRICES_C2018_ALL&df%5bag%5d=OECD.SDD.TPS&df%5bvs%5d=1.0&dq=.M.N.CPI.PA._T.N.GY&lom=LASTNPERIODS&lo=13&to%5bTIME_PERIOD%5d=false\">Consumer price indices (CPIs, HICPs), COICOP 2018.</a> <br/>The data series presented have been chosen as the most relevant prices statistics for which comparable data across countries is available. Data are available monthly for all the countries except for Australia and New Zealand (quarterly data)."
+      },
+      "dimensions": {
+        "dataset": [],
+        "series": [
+          {
+            "id": "REF_AREA",
+            "name": "Reference area",
+            "names": {
+              "en": "Reference area"
+            },
+            "keyPosition": 0,
+            "roles": [
+              "REF_AREA"
+            ],
+            "values": [
+              {
+                "id": "USA",
+                "order": 37,
+                "name": "United States",
+                "names": {
+                  "en": "United States"
+                },
+                "annotations": [
+                  8
+                ]
+              }
+            ]
+          },
+          {
+            "id": "FREQ",
+            "name": "Frequency of observation",
+            "names": {
+              "en": "Frequency of observation"
+            },
+            "keyPosition": 1,
+            "roles": [
+              "FREQ"
+            ],
+            "values": [
+              {
+                "id": "M",
+                "order": 11,
+                "name": "Monthly",
+                "names": {
+                  "en": "Monthly"
+                }
+              }
+            ]
+          },
+          {
+            "id": "METHODOLOGY",
+            "name": "Methodology",
+            "names": {
+              "en": "Methodology"
+            },
+            "keyPosition": 2,
+            "roles": [
+              "METHODOLOGY"
+            ],
+            "values": [
+              {
+                "id": "N",
+                "order": 2,
+                "name": "National",
+                "names": {
+                  "en": "National"
+                },
+                "annotations": [
+                  9
+                ]
+              }
+            ]
+          },
+          {
+            "id": "MEASURE",
+            "name": "Measure",
+            "names": {
+              "en": "Measure"
+            },
+            "keyPosition": 3,
+            "roles": [
+              "MEASURE"
+            ],
+            "values": [
+              {
+                "id": "CPI",
+                "order": 0,
+                "name": "Consumer price index",
+                "names": {
+                  "en": "Consumer price index"
+                },
+                "annotations": [
+                  10
+                ]
+              }
+            ]
+          },
+          {
+            "id": "UNIT_MEASURE",
+            "name": "Unit of measure",
+            "names": {
+              "en": "Unit of measure"
+            },
+            "keyPosition": 4,
+            "roles": [
+              "UNIT_MEASURE"
+            ],
+            "values": [
+              {
+                "id": "PA",
+                "order": 760,
+                "name": "Percent per annum",
+                "names": {
+                  "en": "Percent per annum"
+                },
+                "annotations": [
+                  11
+                ]
+              }
+            ]
+          },
+          {
+            "id": "EXPENDITURE",
+            "name": "Expenditure",
+            "names": {
+              "en": "Expenditure"
+            },
+            "keyPosition": 5,
+            "roles": [
+              "EXPENDITURE"
+            ],
+            "values": [
+              {
+                "id": "_T",
+                "order": 0,
+                "name": "Total",
+                "names": {
+                  "en": "Total"
+                },
+                "annotations": [
+                  12
+                ]
+              }
+            ]
+          },
+          {
+            "id": "ADJUSTMENT",
+            "name": "Adjustment",
+            "names": {
+              "en": "Adjustment"
+            },
+            "keyPosition": 6,
+            "roles": [
+              "ADJUSTMENT"
+            ],
+            "values": [
+              {
+                "id": "N",
+                "order": 6,
+                "name": "Neither seasonally adjusted nor calendar adjusted",
+                "names": {
+                  "en": "Neither seasonally adjusted nor calendar adjusted"
+                },
+                "annotations": [
+                  13
+                ]
+              }
+            ]
+          },
+          {
+            "id": "TRANSFORMATION",
+            "name": "Transformation",
+            "names": {
+              "en": "Transformation"
+            },
+            "keyPosition": 7,
+            "roles": [
+              "TRANSFORMATION"
+            ],
+            "values": [
+              {
+                "id": "GY",
+                "order": 47,
+                "name": "Growth rate, over 1 year",
+                "names": {
+                  "en": "Growth rate, over 1 year"
+                },
+                "annotations": [
+                  14
+                ]
+              }
+            ]
+          }
+        ],
+        "observation": [
+          {
+            "id": "TIME_PERIOD",
+            "name": "Time period",
+            "names": {
+              "en": "Time period"
+            },
+            "keyPosition": 8,
+            "roles": [
+              "TIME_PERIOD"
+            ],
+            "values": [
+              {
+                "start": "2023-11-01T00:00:00",
+                "end": "2023-11-30T23:59:59",
+                "id": "2023-11",
+                "name": "2023-11",
+                "names": {
+                  "en-US": "2023-11"
+                }
+              },
+              {
+                "start": "2023-10-01T00:00:00",
+                "end": "2023-10-31T23:59:59",
+                "id": "2023-10",
+                "name": "2023-10",
+                "names": {
+                  "en-US": "2023-10"
+                }
+              },
+              {
+                "start": "1956-05-01T00:00:00",
+                "end": "1956-05-31T23:59:59",
+                "id": "1956-05",
+                "name": "1956-05",
+                "names": {
+                  "en-US": "1956-05"
+                }
+              },
+              {
+                "start": "1956-04-01T00:00:00",
+                "end": "1956-04-30T23:59:59",
+                "id": "1956-04",
+                "name": "1956-04",
+                "names": {
+                  "en-US": "1956-04"
+                }
+              },
+              {
+                "start": "1956-03-01T00:00:00",
+                "end": "1956-03-31T23:59:59",
+                "id": "1956-03",
+                "name": "1956-03",
+                "names": {
+                  "en-US": "1956-03"
+                }
+              },
+              {
+                "start": "1956-02-01T00:00:00",
+                "end": "1956-02-29T23:59:59",
+                "id": "1956-02",
+                "name": "1956-02",
+                "names": {
+                  "en-US": "1956-02"
+                }
+              },
+              {
+                "start": "1956-01-01T00:00:00",
+                "end": "1956-01-31T23:59:59",
+                "id": "1956-01",
+                "name": "1956-01",
+                "names": {
+                  "en-US": "1956-01"
+                }
+              },
+              {
+                "start": "1957-05-01T00:00:00",
+                "end": "1957-05-31T23:59:59",
+                "id": "1957-05",
+                "name": "1957-05",
+                "names": {
+                  "en-US": "1957-05"
+                }
+              },
+              {
+                "start": "1957-04-01T00:00:00",
+                "end": "1957-04-30T23:59:59",
+                "id": "1957-04",
+                "name": "1957-04",
+                "names": {
+                  "en-US": "1957-04"
+                }
+              },
+              {
+                "start": "1957-03-01T00:00:00",
+                "end": "1957-03-31T23:59:59",
+                "id": "1957-03",
+                "name": "1957-03",
+                "names": {
+                  "en-US": "1957-03"
+                }
+              },
+              {
+                "start": "1957-02-01T00:00:00",
+                "end": "1957-02-28T23:59:59",
+                "id": "1957-02",
+                "name": "1957-02",
+                "names": {
+                  "en-US": "1957-02"
+                }
+              },
+              {
+                "start": "1957-01-01T00:00:00",
+                "end": "1957-01-31T23:59:59",
+                "id": "1957-01",
+                "name": "1957-01",
+                "names": {
+                  "en-US": "1957-01"
+                }
+              },
+              {
+                "start": "1956-12-01T00:00:00",
+                "end": "1956-12-31T23:59:59",
+                "id": "1956-12",
+                "name": "1956-12",
+                "names": {
+                  "en-US": "1956-12"
+                }
+              },
+              {
+                "start": "1956-11-01T00:00:00",
+                "end": "1956-11-30T23:59:59",
+                "id": "1956-11",
+                "name": "1956-11",
+                "names": {
+                  "en-US": "1956-11"
+                }
+              },
+              {
+                "start": "1956-10-01T00:00:00",
+                "end": "1956-10-31T23:59:59",
+                "id": "1956-10",
+                "name": "1956-10",
+                "names": {
+                  "en-US": "1956-10"
+                }
+              },
+              {
+                "start": "1956-09-01T00:00:00",
+                "end": "1956-09-30T23:59:59",
+                "id": "1956-09",
+                "name": "1956-09",
+                "names": {
+                  "en-US": "1956-09"
+                }
+              },
+              {
+                "start": "1956-08-01T00:00:00",
+                "end": "1956-08-31T23:59:59",
+                "id": "1956-08",
+                "name": "1956-08",
+                "names": {
+                  "en-US": "1956-08"
+                }
+              },
+              {
+                "start": "1956-07-01T00:00:00",
+                "end": "1956-07-31T23:59:59",
+                "id": "1956-07",
+                "name": "1956-07",
+                "names": {
+                  "en-US": "1956-07"
+                }
+              },
+              {
+                "start": "1956-06-01T00:00:00",
+                "end": "1956-06-30T23:59:59",
+                "id": "1956-06",
+                "name": "1956-06",
+                "names": {
+                  "en-US": "1956-06"
+                }
+              },
+              {
+                "start": "1959-07-01T00:00:00",
+                "end": "1959-07-31T23:59:59",
+                "id": "1959-07",
+                "name": "1959-07",
+                "names": {
+                  "en-US": "1959-07"
+                }
+              },
+              {
+                "start": "1959-06-01T00:00:00",
+                "end": "1959-06-30T23:59:59",
+                "id": "1959-06",
+                "name": "1959-06",
+                "names": {
+                  "en-US": "1959-06"
+                }
+              },
+              {
+                "start": "1959-05-01T00:00:00",
+                "end": "1959-05-31T23:59:59",
+                "id": "1959-05",
+                "name": "1959-05",
+                "names": {
+                  "en-US": "1959-05"
+                }
+              },
+              {
+                "start": "1959-04-01T00:00:00",
+                "end": "1959-04-30T23:59:59",
+                "id": "1959-04",
+                "name": "1959-04",
+                "names": {
+                  "en-US": "1959-04"
+                }
+              },
+              {
+                "start": "1959-03-01T00:00:00",
+                "end": "1959-03-31T23:59:59",
+                "id": "1959-03",
+                "name": "1959-03",
+                "names": {
+                  "en-US": "1959-03"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "attributes": {
+        "dataSet": [
+          {
+            "id": "UNIT_MULT",
+            "name": "Unit multiplier",
+            "names": {
+              "en": "Unit multiplier"
+            },
+            "roles": [
+              "UNIT_MULT"
+            ],
+            "relationship": {
+              "none": {}
+            },
+            "values": []
+          }
+        ],
+        "series": [
+          {
+            "id": "BASE_PER",
+            "name": "Base period",
+            "names": {
+              "en": "Base period"
+            },
+            "roles": [
+              "BASE_PER"
+            ],
+            "relationship": {
+              "dimensions": [
+                "UNIT_MEASURE"
+              ]
+            },
+            "values": []
+          },
+          {
+            "id": "DURABILITY",
+            "name": "Durability",
+            "names": {
+              "en": "Durability"
+            },
+            "roles": [
+              "DURABILITY"
+            ],
+            "relationship": {
+              "dimensions": [
+                "EXPENDITURE"
+              ]
+            },
+            "values": []
+          },
+          {
+            "id": "DECIMALS",
+            "name": "Decimals",
+            "names": {
+              "en": "Decimals"
+            },
+            "roles": [
+              "DECIMALS"
+            ],
+            "relationship": {
+              "dimensions": [
+                "EXPENDITURE",
+                "ADJUSTMENT",
+                "TRANSFORMATION",
+                "REF_AREA",
+                "FREQ",
+                "METHODOLOGY",
+                "MEASURE",
+                "UNIT_MEASURE"
+              ]
+            },
+            "values": [
+              {
+                "id": "2",
+                "order": 2,
+                "name": "Two",
+                "names": {
+                  "en": "Two"
+                }
+              }
+            ]
+          }
+        ],
+        "observation": [
+          {
+            "id": "OBS_STATUS",
+            "name": "Observation status",
+            "names": {
+              "en": "Observation status"
+            },
+            "roles": [
+              "OBS_STATUS"
+            ],
+            "relationship": {
+              "primaryMeasure": "OBS_VALUE"
+            },
+            "values": [
+              {
+                "id": "A",
+                "order": 0,
+                "name": "Normal value",
+                "names": {
+                  "en": "Normal value"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "annotations": [
+        {
+          "type": "NonProductionDataflow",
+          "text": "true",
+          "texts": {
+            "en": "true"
+          }
+        },
+        {
+          "id": "@SDMX",
+          "title": "REF_AREA,EXPENDITURE,UNIT_MEASURE",
+          "type": "LAYOUT_ROW"
+        },
+        {
+          "id": "@SDMX",
+          "title": "TIME_PERIOD",
+          "type": "LAYOUT_COLUMN"
+        },
+        {
+          "id": "@SDMX",
+          "title": "MEASURE,METHODOLOGY,TRANSFORMATION,ADJUSTMENT",
+          "type": "LAYOUT_ROW_SECTION"
+        },
+        {
+          "id": "@SDMX",
+          "title": "OBS_STATUS=A,ADJUSTMENT=N,TRANSFORMATION=_Z,UNIT_MULT=0,REF_AREA=WXOECD",
+          "type": "NOT_DISPLAYED"
+        },
+        {
+          "id": "@SDMX",
+          "title": "FREQ=M,MEASURE=CPI,METHODOLOGY=N,UNIT_MEASURE=PA,TRANSFORMATION=GY,ADJUSTMENT=N,LASTNPERIODS=13,EXPENDITURE=_T",
+          "type": "DEFAULT"
+        },
+        {
+          "title": "COMBINED_MEASURE:MEASURE,METHODOLOGY,TRANSFORMATION;COMBINED_UNIT_MEASURE:UNIT_MEASURE,UNIT_MULT,ADJUSTMENT,BASE_PER",
+          "type": "COMBINED_CONCEPTS",
+          "text": "COMBINED_MEASURE:Measure;COMBINED_UNIT_MEASURE:Unit of measure",
+          "texts": {
+            "en": "COMBINED_MEASURE:Measure;COMBINED_UNIT_MEASURE:Unit of measure"
+          }
+        },
+        {
+          "title": "urn:sdmx:org.sdmx.infomodel.metadatastructure.MetadataStructure=OECD:MSD_REF_METADATA(1.0)",
+          "type": "METADATA"
+        },
+        {
+          "id": "@SDMX",
+          "type": "ORDER",
+          "text": "380",
+          "texts": {
+            "en": "380"
+          }
+        },
+        {
+          "id": "@SDMX",
+          "type": "ORDER",
+          "text": "30",
+          "texts": {
+            "en": "30"
+          }
+        },
+        {
+          "id": "@SDMX",
+          "type": "ORDER",
+          "text": "10",
+          "texts": {
+            "en": "10"
+          }
+        },
+        {
+          "id": "@SDMX",
+          "type": "ORDER",
+          "text": "7610",
+          "texts": {
+            "en": "7610"
+          }
+        },
+        {
+          "id": "@SDMX",
+          "type": "ORDER",
+          "text": "10",
+          "texts": {
+            "en": "10"
+          }
+        },
+        {
+          "id": "@SDMX",
+          "type": "ORDER",
+          "text": "60",
+          "texts": {
+            "en": "60"
+          }
+        },
+        {
+          "id": "@SDMX",
+          "type": "ORDER",
+          "text": "480",
+          "texts": {
+            "en": "480"
+          }
+        }
+      ]
+    }
+  },
+  "errors": []
+}

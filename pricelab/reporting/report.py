@@ -12,12 +12,16 @@ import pandas as pd
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 
+from ..core.config import IndexConfig
+from ..engine.custom import non_standard_notice
+from ..engine.index import resolve_index_reference_period
 from ..engine.insights import Narrative
 from .deck import _pretty
 
 INK = RGBColor(0x12, 0x26, 0x3A)
 PRIMARY = RGBColor(0x1E, 0x4D, 0x6B)
 MUTED = RGBColor(0x6B, 0x7C, 0x8C)
+ACCENT = RGBColor(0xD9, 0x82, 0x2B)
 
 KIND_ORDER = ["trend", "quality", "structure", "seasonal", "method"]
 KIND_TITLES = {
@@ -30,6 +34,15 @@ KIND_TITLES = {
 
 
 # ----------------------------------------------------------------------
+def _formula_label(index_cfg: IndexConfig) -> str:
+    """How the formula is named in prose. A custom formula is named as
+    analyst-defined and quoted in full, because the word "Custom" on its
+    own tells a reader nothing they can check."""
+    if index_cfg.formula == "custom":
+        return f"analyst-defined ({index_cfg.custom_formula})"
+    return str(index_cfg.formula).title()
+
+
 def method_note(res: dict) -> str:
     """The audit trail. Written as prose because a reader checking the work
     needs to follow the reasoning, not decode a settings dump."""
@@ -50,13 +63,19 @@ def method_note(res: dict) -> str:
         mech_txt = ("Gaps were classified by mechanism before treatment: "
                     + "; ".join(parts) + ".")
 
+    # A non-standard run says so before any of the numbers it produced: a
+    # reader who stops after the first line must still come away knowing
+    # the formula was not a recognised one.
+    notice = non_standard_notice(cfg.index)
+    banner = f"**{notice}**\n\n" if notice else ""
+
     imp_txt = f"The default imputation method was {_pretty(cfg.imputation.default_method)}."
     if cfg.imputation.by_category:
         imp_txt += (" Category overrides: "
                     + "; ".join(f"{k} treated by {_pretty(v)}"
                                 for k, v in cfg.imputation.by_category.items()) + ".")
 
-    return f"""**Source.** {len(clean):,} observations covering {clean.item_id.nunique()} items \
+    return banner + f"""**Source.** {len(clean):,} observations covering {clean.item_id.nunique()} items \
 across {clean.category.nunique()} categories, {clean.period.min():%B %Y} to \
 {clean.period.max():%B %Y}.
 
@@ -81,9 +100,10 @@ log10 units of their local level.
 
 **Imputation.** {imp_txt}
 
-**Aggregation.** A {cfg.index.formula.title()} elementary index was used, matched model, \
+**Aggregation.** A {_formula_label(cfg.index)} elementary index was used, matched model, \
 {'chained period on period' if cfg.index.chained else 'fixed base'}, set to \
-{cfg.index.base_value:.0f} at {I.index[0]:%B %Y}. Only items priced in both of the two periods \
+{cfg.index.base_value:.0f} at {resolve_index_reference_period(cfg.index, I.index):%B %Y}. \
+Only items priced in both of the two periods \
 being compared enter that comparison, so the entry or exit of an item does not register as price \
 change. Periods with fewer than {cfg.index.min_matched_items} matched items hold the previous \
 level. {'The all-items aggregate is an equally weighted geometric mean of the category indices. No expenditure weights were supplied, so it is indicative rather than authoritative.' if 'All items' in I.columns else ''}
@@ -99,8 +119,11 @@ def build_markdown(res: dict, nar: Narrative, label: str = "") -> str:
     I = res["indices"]
     lines = [f"# {nar.headline}", "", f"*{label or res['config'].label}*", "",
              nar.subtitle, "",
-             f"Produced {date.today():%d %B %Y} by PriceLab.", "",
-             "## Summary", ""]
+             f"Produced {date.today():%d %B %Y} by PriceLab.", ""]
+    notice = non_standard_notice(res["config"].index)
+    if notice:
+        lines += [f"> **{notice}**", ""]
+    lines += ["## Summary", ""]
     for i, f in enumerate(nar.top(5), 1):
         lines.append(f"{i}. **{f.headline}** ({f.evidence})")
     lines.append("")
@@ -186,6 +209,14 @@ def build_docx(res: dict, nar: Narrative, charts: dict, label: str = "") -> byte
     r = p.add_run(nar.subtitle + f"  ·  Produced {date.today():%d %B %Y} by PriceLab.")
     r.font.size = Pt(9)
     r.font.color.rgb = MUTED
+
+    notice = non_standard_notice(res["config"].index)
+    if notice:
+        p = doc.add_paragraph()
+        r = p.add_run(notice)
+        r.bold = True
+        r.font.size = Pt(10)
+        r.font.color.rgb = ACCENT
 
     doc.add_heading("Summary", level=2)
     for f in nar.top(5):

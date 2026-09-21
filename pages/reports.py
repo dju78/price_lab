@@ -16,7 +16,8 @@ from pricelab import build_all_charts, build_deck, build_docx, build_markdown, m
 from pricelab.core import audit, db
 from pricelab.core.models import Role
 from pricelab.core.registry import approve_run, register_run
-from pricelab.core.security import current_role, safe_csv
+from pricelab.core.security import current_role, safe_csv_with_notice
+from pricelab.engine.custom import non_standard_notice
 
 from . import common
 
@@ -52,7 +53,10 @@ def render() -> None:
                 common.record(audit.EXPORT, f"{label} report.docx")
         with d3:
             if st.download_button(
-                "Cleaned data", safe_csv(res["imputed"], index=False), f"{label} cleaned.csv",
+                "Cleaned data",
+                safe_csv_with_notice(res["imputed"], non_standard_notice(res["config"].index),
+                                     index=False),
+                f"{label} cleaned.csv",
                 "text/csv", use_container_width=True):
                 common.record(audit.EXPORT, f"{label} cleaned.csv")
         with d4:

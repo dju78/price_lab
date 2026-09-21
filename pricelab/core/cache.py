@@ -12,17 +12,35 @@ Figure), never a rendered chart, and evicts the least-recently-used entry
 once a configured entry count is exceeded. A Figure is cheap to rebuild from
 already-computed series and is rebuilt fresh on every access rather than
 retained, so nothing here ever holds one past the call that made it.
+
+`BoundedCache` also supports an optional per-entry time-to-live, added for
+`data.connectors`: an external agency's response should expire on its own
+schedule (an hourly series polled once a day is stale a day early; a daily
+series polled every minute is hammering the agency for nothing new), which
+is a different axis from the LRU-by-count eviction the analysis cache uses
+and does not need. A cache with no TTL configured behaves exactly as
+before -- entries never expire by time, only by the LRU bound -- so the
+analysis cache's behaviour is unchanged by this.
 """
 
 from __future__ import annotations
 
 import hashlib
+import time
 from collections import OrderedDict
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from .config import get_settings
 
 T = TypeVar("T")
+
+
+@dataclass
+class _Entry(Generic[T]):
+    value: T
+    expires_at: float | None  # a `_clock()` reading; None means "never"
 
 
 def content_key(*parts: bytes | str) -> str:
@@ -49,22 +67,35 @@ class BoundedCache(Generic[T]):
     module ships with needs.
     """
 
-    def __init__(self, max_entries: int | None = None):
+    def __init__(
+        self,
+        max_entries: int | None = None,
+        default_ttl_seconds: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self._max_entries = max_entries if max_entries is not None else get_settings().cache_max_entries
         if self._max_entries < 1:
             raise ValueError("a cache must hold at least one entry")
-        self._store: OrderedDict[str, T] = OrderedDict()
+        self._default_ttl = default_ttl_seconds
+        self._clock = clock
+        self._store: OrderedDict[str, _Entry[T]] = OrderedDict()
 
     def get(self, key: str) -> T | None:
-        if key not in self._store:
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        if entry.expires_at is not None and self._clock() >= entry.expires_at:
+            del self._store[key]
             return None
         self._store.move_to_end(key)
-        return self._store[key]
+        return entry.value
 
-    def set(self, key: str, value: T) -> None:
+    def set(self, key: str, value: T, ttl_seconds: float | None = None) -> None:
+        ttl = ttl_seconds if ttl_seconds is not None else self._default_ttl
+        expires_at = self._clock() + ttl if ttl is not None else None
         if key in self._store:
             self._store.move_to_end(key)
-        self._store[key] = value
+        self._store[key] = _Entry(value=value, expires_at=expires_at)
         while len(self._store) > self._max_entries:
             self._store.popitem(last=False)
 
@@ -78,7 +109,7 @@ class BoundedCache(Generic[T]):
         return len(self._store)
 
     def __contains__(self, key: str) -> bool:
-        return key in self._store
+        return self.get(key) is not None
 
 
 _analysis_cache: BoundedCache[dict[str, object]] | None = None

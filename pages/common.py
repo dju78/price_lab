@@ -20,8 +20,12 @@ KIND_LABEL = {
     "quality": "Data quality", "structure": "Sample structure",
     "trend": "Price movement", "seasonal": "Seasonality", "method": "Method",
 }
-IMPUTATION_METHODS = ["none", "class_mean", "carry_forward", "seasonal_hold"]
-INDEX_FORMULAS = ["jevons", "dutot", "carli", "laspeyres"]
+IMPUTATION_METHODS = ["none", "class_mean", "carry_forward", "seasonal_hold",
+                      "targeted_mean", "overall_mean"]
+#: "custom" is last deliberately: it is the escape hatch, not a peer
+#: of the four named formulae, and a run using it is marked
+#: non-standard everywhere it is exported.
+INDEX_FORMULAS = ["jevons", "dutot", "carli", "laspeyres", "custom"]
 
 LIFECYCLE_STAGES = (
     "Ingest", "Quality", "Imputation", "Index build", "Findings", "Diagnostics", "Reports")

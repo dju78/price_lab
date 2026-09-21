@@ -15,7 +15,9 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
+from ..core.config import IndexConfig
 from ..engine import diagnostics as dg
+from ..engine.index import resolve_index_reference_period
 
 # Palette. Deep navy dominates, amber is the single sharp accent reserved for
 # whatever the chart is actually about.
@@ -82,7 +84,13 @@ def quality_bands(clean: pd.DataFrame, figsize=(10, 5)):
     return fig
 
 
-def index_chart(I: pd.DataFrame, figsize=(10, 5)):
+def index_chart(I: pd.DataFrame, cfg: IndexConfig | None = None, figsize=(10, 5)):
+    """`cfg` is the run's IndexConfig, read only to label the y-axis with the
+    period the series was actually rebased to. Optional, and defaulting to
+    the series' first period when absent, because that is what the rebasing
+    step itself defaults to -- so a caller with no config in hand still gets
+    a label that matches the arithmetic rather than one that contradicts it.
+    """
     fig, ax = _fig(figsize)
     cats = [c for c in I.columns if c != "All items"]
     for i, c in enumerate(cats):
@@ -90,7 +98,8 @@ def index_chart(I: pd.DataFrame, figsize=(10, 5)):
     if "All items" in I.columns:
         ax.plot(I.index, I["All items"], lw=3, color=INK, label="All items", zorder=5)
     ax.axhline(100, color=MUTED, lw=0.8, ls="--")
-    ax.set_ylabel(f"Index, {I.index[0]:%b %Y} = 100")
+    index_ref = resolve_index_reference_period(cfg or IndexConfig(), I.index)
+    ax.set_ylabel(f"Index, {index_ref:%b %Y} = 100")
     ax.legend(frameon=False, fontsize=8, ncol=3, loc="upper left")
     ax.set_title("Category price indices", loc="left", fontsize=12, color=INK, pad=12)
     return fig
@@ -156,9 +165,10 @@ def coverage_chart(matched: pd.DataFrame, figsize=(10, 4)):
 def build_all_charts(res: dict) -> dict:
     """Every chart the narrative might reference, rendered once."""
     I, yoy = res["indices"], res["inflation"]
+    cfg = res["config"].index if "config" in res else None
     charts = {
         "quality_bands": quality_bands(res["clean"]),
-        "index": index_chart(I),
+        "index": index_chart(I, cfg),
         "coverage": coverage_chart(res["matched_counts"]),
     }
     if "All items" in yoy.columns and yoy["All items"].notna().any():

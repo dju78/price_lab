@@ -1,30 +1,24 @@
-"""A forcing function, not a backlog note.
+"""The "= 100" label must name the period the series was actually rebased to.
 
-reporting/charts.py's index_chart and reporting/deck.py's headline stat both
-hardcode their "X = 100" label as `I.index[0]`, the series' first period,
-rather than reading the run's actual `index_reference_period`. pages/
-findings.py had the same bug and was fixed in the reference-period patch;
-these two were deliberately left, because no reachable code path can set a
-non-default index_reference_period today and so nothing currently
-publishes a wrong label.
+Held open as a `strict=True` xfail from the Phase 1 patch until Phase 3,
+which is the phase that made the bug reachable: Lowe and Young need a real,
+independently-set reference period, and the deck is the artefact that leaves
+this application to be read by someone who cannot check it against the
+source data.
 
-That "nothing reaches it yet" is exactly the condition Phase 3 changes:
-Lowe and Young need a real, independently-set index_reference_period, and
-the deck is the client-facing artefact -- the thing that actually leaves
-this application and gets read by someone who cannot see the source data
-behind it. This test is `strict=True` xfail: it fails today (documenting
-the bug), and if reporting/charts.py or reporting/deck.py is ever changed
-in a way that happens to make it pass without the label logic actually
-being fixed, `strict=True` turns that accidental pass into a test suite
-failure rather than a silent, uncelebrated fix. Treat making this test
-pass *because the label was actually fixed* as a Phase 3 entry condition,
-and delete the xfail marker in the same commit that fixes it.
+Fixed by giving the rebasing rule one home --
+`engine.index.resolve_index_reference_period` -- and having the arithmetic
+(`build_index`'s final rescaling) and every label that describes it (this
+chart's y-axis, the deck's headline stat, the report's method note, the
+Findings metric, the Index build reference-period panel) read that one
+function. A label can no longer name a different period from the one the
+series was rebased to, because neither side derives it independently any
+more. The xfail marker is gone; this is now an ordinary regression test.
 """
 
 from io import BytesIO
 
 import pandas as pd
-import pytest
 from pptx import Presentation
 
 from pricelab import run_pipeline
@@ -49,13 +43,6 @@ def _panel_with_a_late_index_reference_period():
     return df, cfg, index_ref, periods[0]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="reporting/charts.py and reporting/deck.py hardcode their '= 100' label to "
-           "I.index[0] rather than reading index_reference_period; fixing this is a "
-           "Phase 3 entry condition (docs/backlog.md), and this test must keep failing "
-           "until that fix actually lands -- see this file's module docstring.",
-)
 def test_chart_ylabel_and_deck_text_report_the_actual_index_reference_period():
     df, cfg, index_ref, first_period = _panel_with_a_late_index_reference_period()
     res = run_pipeline(df, cfg)
@@ -86,3 +73,17 @@ def test_chart_ylabel_and_deck_text_report_the_actual_index_reference_period():
     assert correct_label_fragment in all_text, (
         "no slide names the configured index_reference_period "
         f"({index_ref:%b %Y}) in a '= 100' label")
+
+
+def test_the_method_note_names_the_actual_index_reference_period():
+    """The written report's method note carried the same hardcode as the
+    chart and the deck, and is the artefact a reviewer reads to check the
+    method, so it gets the same guarantee."""
+    from pricelab.reporting.report import method_note
+
+    df, cfg, index_ref, first_period = _panel_with_a_late_index_reference_period()
+    res = run_pipeline(df, cfg)
+
+    note = method_note(res)
+    assert f"{index_ref:%B %Y}" in note
+    assert f"set to 100 at {first_period:%B %Y}" not in note

@@ -104,9 +104,9 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 126 tests
+make test        # 455 tests
 make lint        # ruff
-make typecheck   # mypy strict, scoped to core/ and engine/
+make typecheck   # mypy strict, scoped to core/, engine/ and data/
 ```
 
 The index tests assert axiomatic properties rather than fixed expected numbers. A
@@ -114,6 +114,19 @@ test asserting an index equals 147.3 tells you nothing when it breaks; a test
 asserting that Jevons satisfies time reversal, that Carli does not, and that Dutot is
 sensitive to the quantity unit while Jevons is not, encodes the reason each formula
 was chosen or rejected.
+
+`tests/test_axioms.py` generates that data with Hypothesis rather than fixing it, so
+the tests look for a counterexample instead of confirming the case the author thought
+of: identity, proportionality, commensurability, time reversal, factor reversal, the
+Laspeyres/Fisher/Paasche ordering under substitution, the arithmetic/geometric/harmonic
+bias ranking, and exact additivity of contributions on random four-level trees. The
+failures are asserted too — Carli must fail time reversal and Dutot must fail
+commensurability — because a suite testing only the passing cases would go green if
+every formula were silently replaced by Jevons.
+
+`tests/test_golden_values.py` reproduces the published worked example in the CPI
+Manual 2020 (Chapter 8, Tables 8.1–8.3) number for number, at the manual's own
+published precision.
 
 Covered: identity, proportionality, time reversal, unit invariance, matching
 behaviour, recovery of a known growth rate, level holding when nothing matches, scale
@@ -177,12 +190,34 @@ pricelab/
     registry.py       index run registry: register, approve, correct, reproduce
     cache.py          bounded, content-hash-keyed analysis result cache
   data/
-    upload.py          column mapping and structural validation
-    classification.py  COICOP 2018 divisions, seeded reference data
+    upload.py          column mapping and structural validation (legacy path)
+    loaders.py         upload pipeline: format dispatch, encoding/delimiter
+                       detection, header inference, memory-footprint check
+    mapping.py         confidence-scored column mapping, confirmed and
+                       stored per file hash
+    validation.py      completeness/validity/consistency/uniqueness/
+                       timeliness/coverage/conformity/plausibility findings,
+                       with a persisted override workflow for critical ones
+    classification.py  COICOP 2018 full tree, plus a generic loader for a
+                       user-defined or other classification's own tree
+    store.py           immutable raw layer, cleaned layer, replayable
+                       transformation log
+    connectors/        ONS, Eurostat, IMF, World Bank, OECD, BLS, FAO and
+                       a generic SDMX 2.1 connector
   engine/
     quality.py         sentinel recoding, mechanism classification, fault repair
-    imputation.py       none | carry_forward | class_mean | seasonal_hold
-    index.py            jevons | dutot | carli | laspeyres, matched, chained or fixed
+    imputation.py       none | carry_forward | class_mean | seasonal_hold |
+                        targeted_mean | overall_mean, with response rates
+    index.py            jevons | dutot | carli | laspeyres | custom, matched,
+                        chained or fixed
+    elementary.py       the elementary aggregates, each returning its sample
+                        size and imputation count alongside the value
+    bilateral.py        laspeyres | paasche | fisher | tornqvist | walsh |
+                        marshall_edgeworth | lowe | young | geometric variants
+    aggregation.py      weighted roll-up through the classification tree, with
+                        exactly additive contributions
+    splicing.py         rebasing, link factors, chaining, chain drift
+    custom.py           analyst-defined formulae via the restricted evaluator
     diagnostics.py      formula sensitivity, chain drift, unmatched comparison,
                         seasonality, churn
     auto.py             schema inference and self-configuration from the diagnosis
@@ -229,15 +264,20 @@ top of that, never as the actual control.
 ## Known limitations
 
 No quality adjustment between a departing item and its replacement, so a change in
-specification is implicitly treated as price change. No expenditure weights unless a
-weight column is supplied, in which case the aggregate is equally weighted and
-indicative. Seasonal treatment is limited to holding the level across an out-of-season
+specification is implicitly treated as price change. The weighted bilateral formulae
+(Fisher, Tornqvist, Walsh, Lowe, Young and the rest, in `engine/bilateral.py`) are
+library-level only: they need quantity or expenditure data that the upload schema does
+not yet carry, so the Ingest page still offers the four elementary formulae plus a
+custom expression, and an all-items aggregate with no weights supplied remains an
+equally weighted geometric mean, indicative rather than authoritative. Seasonal treatment is limited to holding the level across an out-of-season
 gap; a counter-seasonal fixed weight approach is not implemented. Mechanism
 classification is a proposal for a human to confirm, not a determination.
 
-Only the thirteen top-level COICOP 2018 divisions are seeded as classification
-reference data; deeper groups and classes are not, rather than transcribed
-without a verified source (see `data/classification.py`). Small-cell secondary
+The full COICOP 2018 tree (871 codes, divisions through sub-classes) is seeded
+from the UN Stats structure file (see `data/classification.py`); CPA, NACE and
+HS are not seeded, since no authoritative, machine-readable source for any of
+them was found and verified in the time available -- the loader that would
+take one is generic and already tested against a synthetic tree. Small-cell secondary
 suppression (`core.security.suppress_with_secondary`) handles one published total
 per group; a hierarchy with several overlapping totals over the same cells would
 need a cascading solver this does not implement. User accounts are provisioned with

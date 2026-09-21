@@ -1,10 +1,12 @@
 """Ingest: upload a price collection, map its columns, review what the tool
 decided automatically, adjust the method, and compile the run.
 
-Moved from the top of the original single-page app.py, unchanged in logic:
-the same `infer_schema`, `auto_configure`, `standardise` and `validate`
-calls, the same sidebar widgets, now living on their own page instead of
-running unconditionally at the top of every script execution.
+Column mapping and data-quality validation go through `data.mapping` and
+`data.validation` (Phase 2): a mapping must be confirmed once per distinct
+file (by content hash) before compiling, and a critical validation finding
+blocks compiling until an analyst accepts, excludes, corrects or justifies
+it, with the decision persisted and audited rather than only shown once
+and forgotten.
 """
 
 from __future__ import annotations
@@ -22,15 +24,20 @@ from pricelab import (
     Schema,
     analyse,
     auto_configure,
-    infer_schema,
     standardise,
     validate,
 )
-from pricelab.core import audit
+from pricelab.core import audit, db
 from pricelab.core.cache import content_key, get_analysis_cache
 from pricelab.core.config import get_settings
 from pricelab.core.models import Role
-from pricelab.core.security import require_role
+from pricelab.core.security import FormulaError, require_role
+from pricelab.data import mapping, store, validation
+from pricelab.engine.custom import (
+    ELEMENTARY_VARIABLES,
+    custom_formula_parameters,
+    validate_elementary_formula,
+)
 
 from . import common
 
@@ -157,36 +164,95 @@ def render() -> None:
     sheet = st.selectbox("Worksheet", sheets) if sheets else 0
     raw = _read_upload(file_bytes, upload.name, sheet)
 
-    guess = infer_schema(raw)
-    with st.expander("Column mapping", expanded=False):
-        st.caption("Detected automatically. Correct anything that looks wrong.")
+    file_hash = mapping.file_hash_of(file_bytes)
+    confirm_key = f"mapping_confirmed_{file_hash}"
+
+    with db.session_scope() as s:
+        stored_schema = mapping.get_confirmed_mapping(s, file_hash)
+
+    if stored_schema is not None:
+        schema = stored_schema
+        st.session_state[confirm_key] = True
+        st.caption("Column mapping: using the mapping already confirmed for this exact file.")
+    else:
+        suggestions = mapping.suggest_column_mapping(raw)
         cols = list(raw.columns)
+        with st.expander("Column mapping", expanded=True):
+            st.caption("Detected automatically, with a confidence score per field. Correct "
+                       "anything that looks wrong, then confirm before compiling.")
 
-        def sel(lbl: str, cur: str, optional: bool = False) -> str:
-            opts = ([""] if optional else []) + cols
-            return str(st.selectbox(lbl, opts, index=opts.index(cur) if cur in opts else 0))
+            def sel(lbl: str, suggestion: mapping.MappingSuggestion,
+                    optional: bool = False) -> str:
+                opts = ([""] if optional else []) + cols
+                cur = suggestion.column or ""
+                return str(st.selectbox(
+                    f"{lbl} ({suggestion.confidence:.0%} confidence)", opts,
+                    index=opts.index(cur) if cur in opts else 0))
 
-        schema = Schema(
-            date=sel("Period", guess.date), item_id=sel("Item identifier", guess.item_id),
-            item_name=sel("Item name", guess.item_name),
-            category=sel("Category", guess.category), price=sel("Price", guess.price),
-            weight=sel("Expenditure weight", guess.weight or "", optional=True) or None)
+            schema = Schema(
+                date=sel("Period", suggestions["date"]),
+                item_id=sel("Item identifier", suggestions["item_id"]),
+                item_name=sel("Item name", suggestions["item_name"]),
+                category=sel("Category", suggestions["category"]),
+                price=sel("Price", suggestions["price"]),
+                weight=sel("Expenditure weight", suggestions["weight"], optional=True) or None)
+
+            if st.button("Confirm column mapping"):
+                with db.session_scope() as s:
+                    mapping.store_confirmed_mapping(
+                        s, file_hash, schema, actor=common.current_username())
+                common.record(audit.MAPPING_CONFIRMED, upload.name, {"file_hash": file_hash})
+                st.session_state[confirm_key] = True
+                st.rerun()
+
+        if not st.session_state.get(confirm_key):
+            st.warning("Confirm the column mapping above before compiling.")
+            return
 
     df = standardise(raw, schema)
-    report = validate(df)
+    structural = validate(df)
     label = st.text_input("Title for the outputs", upload.name.rsplit(".", 1)[0])
 
-    if not report.passed:
-        st.error("This file cannot be analysed as mapped.")
-        for e in report.errors:
-            st.error(e)
-        st.caption("Correct the column mapping above, or fix the source file.")
+    content_hash = store.content_hash_of(df)
+    assessment = validation.assess(df, reference_date=pd.Timestamp.now())
+    with db.session_scope() as s:
+        already_overridden = {
+            o.dimension for o in
+            s.query(validation.ValidationOverrideORM).filter_by(content_hash=content_hash).all()}
+    for dim in already_overridden:
+        assessment.override(dim)
+
+    if assessment.blocking:
+        st.error("This file has critical data-quality findings that must be resolved before "
+                 "it can be compiled.")
+        for finding in assessment.by_severity(validation.Severity.CRITICAL):
+            if finding.overridden:
+                continue
+            with st.expander(f"[{finding.dimension}] {finding.message}", expanded=True):
+                decision = st.selectbox(
+                    "Decision", ["accept", "exclude", "correct", "justify"],
+                    key=f"decision_{content_hash}_{finding.dimension}")
+                reason = st.text_input(
+                    "Reason (required)", key=f"reason_{content_hash}_{finding.dimension}")
+                if st.button("Submit", key=f"submit_{content_hash}_{finding.dimension}"):
+                    if not reason.strip():
+                        st.error("A reason is required.")
+                    else:
+                        with db.session_scope() as s:
+                            validation.record_override(
+                                s, actor=common.current_username(), content_hash=content_hash,
+                                dimension=finding.dimension, decision=decision, reason=reason)
+                        common.record(audit.VALIDATION_OVERRIDE, upload.name, {
+                            "dimension": finding.dimension, "decision": decision})
+                        st.rerun()
+        st.caption("Correct the column mapping above, or fix the source file, or resolve each "
+                   "finding above.")
         st.dataframe(raw.head(20), use_container_width=True)
         return
 
     common.record(audit.DATA_LOAD, upload.name, {
-        "rows": report.facts.get("rows"), "categories": report.facts.get("categories"),
-        "items": report.facts.get("items")})
+        "rows": structural.facts.get("rows"), "categories": structural.facts.get("categories"),
+        "items": structural.facts.get("items")})
 
     auto_cfg, decisions = auto_configure(df, label)
 
@@ -196,10 +262,13 @@ def render() -> None:
         for d in decisions:
             st.markdown(f'<div class="pl-card">{d}</div>', unsafe_allow_html=True)
         st.markdown("**Validation**")
-        for k, v in report.facts.items():
+        for k, v in structural.facts.items():
             st.markdown(f"- **{k.title()}**: {v}")
-        for w in report.warnings:
-            st.warning(w)
+        for finding in assessment.findings:
+            if finding.severity == validation.Severity.CRITICAL:
+                continue  # already resolved above, or this run would not have reached here
+            level = {"high": st.warning, "medium": st.warning, "low": st.info}[finding.severity.value]
+            level(f"[{finding.dimension}] {finding.message}")
 
     with st.expander("Adjust the method", expanded=False):
         st.caption("Chosen from the diagnosis. Change any of them and the compiled run "
@@ -211,6 +280,28 @@ def render() -> None:
         do_repair = st.checkbox("Repair faults rather than drop", True)
         formula = st.selectbox("Elementary formula", common.INDEX_FORMULAS,
                                index=common.INDEX_FORMULAS.index(auto_cfg.index.formula))
+
+        # A compiler who needs a formula this tool does not ship writes it
+        # here. It goes through the whitelist parser, never eval, and is
+        # rejected on the spot rather than part way through a compile.
+        custom_expression: str | None = None
+        custom_error: str | None = None
+        if formula == "custom":
+            custom_expression = st.text_input(
+                "Custom formula", value="(carli * harmonic_mean) ** 0.5",
+                help="An arithmetic expression combining the standard elementary indices: "
+                     f"{', '.join(ELEMENTARY_VARIABLES)}. A run using one is marked "
+                     "non-standard in every export.")
+            try:
+                validate_elementary_formula(custom_expression or "")
+            except FormulaError as exc:
+                custom_error = str(exc)
+                st.error(f"That formula cannot be used: {exc}")
+            else:
+                st.caption(
+                    "This run will be marked as non-standard on the deck, the written "
+                    "report and every data export.")
+
         chained = st.radio("Chaining", ["Chained", "Fixed base"], horizontal=True) == "Chained"
         by_cat = dict(auto_cfg.imputation.by_category)
         if by_cat:
@@ -219,13 +310,17 @@ def render() -> None:
                 by_cat[c] = st.selectbox(c, common.IMPUTATION_METHODS,
                                          index=common.IMPUTATION_METHODS.index(m), key=f"imp_{c}")
 
+    if custom_error:
+        st.info("Correct the custom formula above, or choose a standard one, to compile.")
+        return
+
     cfg = RunConfig(
         schema=schema,
         quality=QualityConfig(missing_codes=auto_cfg.quality.missing_codes,
                               reference_window=window, scale_log10_low=lo,
                               scale_log10_high=hi, repair_scale_errors=do_repair),
         imputation=ImputationConfig(default_method="none", by_category=by_cat),
-        index=IndexConfig(formula=formula, chained=chained,
+        index=IndexConfig(formula=formula, custom_formula=custom_expression, chained=chained,
                           min_matched_items=auto_cfg.index.min_matched_items),
         label=label)
 
@@ -235,7 +330,8 @@ def render() -> None:
         common.record(audit.IMPUTATION_OVERRIDE, label, {"by_category": by_cat})
     if cfg.to_json() != auto_cfg.to_json():
         common.record(audit.CONFIGURATION_CHANGE, label, {
-            "formula": formula, "chained": chained, "reference_window": window})
+            "formula": formula, "chained": chained, "reference_window": window,
+            **custom_formula_parameters(cfg.index)})
 
     cache = get_analysis_cache()
     key = content_key(file_bytes, cfg.to_json(), label)

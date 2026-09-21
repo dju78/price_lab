@@ -18,13 +18,24 @@ def method_sensitivity(df: pd.DataFrame, cfg: IndexConfig | None = None,
     """Final index level under each elementary formula, same cleaned data.
 
     Turns a methodological preference into a quantified consequence.
+
+    A run compiled on an analyst-defined formula gets an extra column for
+    it, so the comparison answers the question that run actually raises:
+    not just how the standard formulae differ from each other, but how far
+    the custom one sits from all of them. `custom_formula` is cleared on
+    each standard variant -- the question being asked of those is what the
+    data looks like under Jevons, not under Jevons plus a stray
+    expression that would never be read.
     """
     cfg = cfg or IndexConfig()
     out = {}
     for f in formulae:
-        c = IndexConfig(**{**cfg.__dict__, "formula": f})
+        c = IndexConfig(**{**cfg.__dict__, "formula": f, "custom_formula": None})
         I, _ = build_all(df, c, price_col)
         out[f] = I.iloc[-1]
+    if cfg.formula == "custom" and cfg.custom_formula:
+        I, _ = build_all(df, cfg, price_col)
+        out["custom"] = I.iloc[-1]
     res = pd.DataFrame(out)
     res["max_spread"] = res.max(axis=1) - res.min(axis=1)
     return res.round(2)

@@ -43,6 +43,10 @@ QUALITY_OVERRIDE = "quality_override"
 IMPUTATION_OVERRIDE = "imputation_override"
 EXPORT = "export"
 LEGACY_CONFIG_UPCONVERTED = "legacy_config_upconverted"
+EXTERNAL_FETCH_SUCCESS = "external_fetch_success"
+EXTERNAL_FETCH_FAILURE = "external_fetch_failure"
+VALIDATION_OVERRIDE = "validation_override"
+MAPPING_CONFIRMED = "mapping_confirmed"
 
 
 class AuditEventORM(Base):

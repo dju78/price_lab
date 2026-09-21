@@ -30,13 +30,26 @@ def test_migration_upgrades_head_cleanly_and_seeds_coicop(tmp_path, monkeypatch)
     engine = create_engine(f"sqlite:///{db_path}")
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
-    assert {"users", "sessions", "audit_events", "index_runs", "classification_nodes"} <= tables
+    assert {"users", "sessions", "audit_events", "index_runs", "classification_nodes",
+            "validation_overrides", "column_mappings"} <= tables
+
+    mapping_columns = {c["name"] for c in inspector.get_columns("column_mappings")}
+    assert mapping_columns == {"id", "file_hash", "schema_json", "confirmed_by", "confirmed_at"}
+    override_columns = {c["name"] for c in inspector.get_columns("validation_overrides")}
+    assert override_columns == {
+        "id", "content_hash", "dimension", "decision", "reason", "actor", "created_at"}
 
     with engine.connect() as conn:
+        # 0001 seeds the 13 household-consumption divisions; 0003 (Phase 2)
+        # loads the complete tree -- 871 codes across all 15 divisions
+        # (household plus NPISH and government consumption) down to
+        # sub-class level -- from the vendored, source-derived CSV.
         count = conn.execute(text("select count(*) from classification_nodes")).scalar_one()
-        assert count == 13
-        codes = {row[0] for row in conn.execute(text("select code from classification_nodes"))}
-        assert codes == {f"{i:02d}" for i in range(1, 14)}
+        assert count == 871
+        divisions = {
+            row[0] for row in
+            conn.execute(text("select code from classification_nodes where level = 0"))}
+        assert divisions == {f"{i:02d}" for i in range(1, 16)}
 
     index_run_columns = {c["name"] for c in inspector.get_columns("index_runs")}
     assert {"price_reference_period", "weight_reference_period",
@@ -84,6 +97,24 @@ def test_0002_heals_a_database_that_already_applied_the_pre_edit_0001(tmp_path, 
             VALUES ('abc123', 'hash1', 'hash2', '{}', 'v1', 'env1', 'old run',
                     '2025-01-01', X'00')
         """))
+        # A real database that ran 0001 (any shape of it) also has this
+        # table, seeded with the 13 divisions; 0003 must find it and add
+        # the rest of the tree to it, not assume it is starting from
+        # nothing.
+        conn.execute(text("""
+            CREATE TABLE classification_nodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scheme VARCHAR(32) NOT NULL DEFAULT 'COICOP2018',
+                code VARCHAR(32) NOT NULL,
+                label VARCHAR(255) NOT NULL,
+                level INTEGER NOT NULL,
+                parent_code VARCHAR(32)
+            )
+        """))
+        conn.execute(text("""
+            INSERT INTO classification_nodes (scheme, code, label, level, parent_code)
+            VALUES ('COICOP2018', '01', 'Food and non-alcoholic beverages', 0, NULL)
+        """))
 
     cfg = _alembic_config(db_path)
     command.stamp(cfg, "0001")  # record that the pre-edit shape of 0001 already ran
@@ -101,6 +132,15 @@ def test_0002_heals_a_database_that_already_applied_the_pre_edit_0001(tmp_path, 
         assert row is not None
         assert row[0] == "abc123"        # the pre-existing row survived the healing
         assert row[1] is None            # backfilled as unknown, not fabricated
+
+        # 0003 also ran (0001 -> 0002 -> 0003 in one `upgrade head` call):
+        # the pre-existing division row was not duplicated, and the rest
+        # of the tree was added around it.
+        count = conn.execute(text("select count(*) from classification_nodes")).scalar_one()
+        assert count == 871
+        dup = conn.execute(
+            text("select count(*) from classification_nodes where code = '01'")).scalar_one()
+        assert dup == 1
 
     get_settings.cache_clear()
 

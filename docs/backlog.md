@@ -61,20 +61,55 @@ Imputation/Index build behind compiler+administrator, adds analyst to
 Findings/Diagnostics, and opens Reports to every role including viewer, so
 an analyst or viewer with nothing of their own compiled can load a
 previously approved run there via the registry instead. Only the top-level
-COICOP divisions are seeded, not the full tree (see README's Known
-limitations). There is no in-app user-management page; accounts are
+COICOP divisions were seeded at this point (the full tree followed in Phase
+2). There is no in-app user-management page; accounts are
 provisioned with `scripts/create_user.py`. Secondary suppression handles one
 published total per group, not a cascading multi-total solver.
 
-## Phase 2 - Data layer
+## Phase 2 - Data layer, connectors and validation (done)
 
-Formalise `data/upload.py`'s schema inference and validation into a proper
-loader/connector split; add read-only connectors for the official series a
-user is actually likely to compare against (ONS, and a generic SDMX 2.1
-connector others can be configured from); an immutable raw layer plus a
-cleaned layer with a replayable transformation log, so the cleaned data can
-always be regenerated from source rather than only being an in-memory
-DataFrame.
+Delivered: `BaseConnector`, with retry/backoff and jitter, `Retry-After`-aware
+rate-limit handling, response caching (`core.cache`, TTL support added),
+schema validation before the engine ever sees a response, a vintage stamp
+(source, query, retrieval time, response hash) and an audit event on every
+fetch; seven concrete connectors (ONS, Eurostat, IMF, World Bank, OECD, BLS,
+FAO) plus a generic SDMX 2.1 connector, each tested against a real, recorded
+fixture for the happy path, a timeout, a rate limit, a malformed payload and
+a schema change, with no network access in the test suite. `data/loaders.py`
+formalises the upload pipeline: CSV/Excel (incl. multi-sheet)/Parquet/JSON
+dispatch, encoding and delimiter detection (a counting vote across candidate
+delimiters, not `csv.Sniffer` alone, which gives up on the whole sample the
+moment one line -- a title row -- doesn't contain the real delimiter),
+header-row inference, and a memory-footprint estimate enforced against
+`pages.ingest.validate_upload`'s existing size cap, with a chunked CSV
+reader that aborts mid-read on real measured memory, not only a
+pre-read projection. `data/mapping.py` adds confidence-scored column-mapping
+suggestions (built on the existing `infer_schema`, not a second matching
+engine) with mandatory analyst confirmation, persisted per file content hash
+so the same file maps identically next time; wired into `pages/ingest.py` as
+a real blocking gate, not just a backend module. `data/validation.py` adds
+completeness, timeliness and conformity dimensions (none existed before),
+reuses `data.upload.validate` for consistency/uniqueness/validity and
+`engine.quality.classify_missing` for the missingness-mechanism half of
+plausibility, and blocks compiling on any critical finding until an analyst
+accepts, excludes, corrects or justifies it -- also wired into `pages/
+ingest.py` as a real gate, with the decision persisted (`validation_overrides`)
+and audited. The full COICOP 2018 tree (871 codes, divisions through
+sub-classes) is seeded from the UN Stats structure file, replacing the
+13-division stub; CPA, NACE and HS were not seeded -- no authoritative,
+machine-readable source for any of them was found and verified in time --
+but the loader that would take one (`load_classification_from_csv`,
+`load_user_defined_tree`) is generic and tested against a synthetic tree,
+along with weight-sum validation at every node. `data/store.py` adds an
+immutable raw Parquet layer, a cleaned layer, and a transformation log
+proven (against the real fixture, byte-for-byte on disk) to replay the
+cleaned layer exactly from the raw layer. Two new migrations (0003 for the
+full COICOP tree, 0004 for `validation_overrides` and `column_mappings`);
+276 tests added on top of Phase 1's 161 (298 passing, the one strict xfail
+still xfailing); ruff and mypy strict stay at zero errors, mypy's scope
+extended to `data/`. The real fixture's index series is proven identical,
+value-for-value, whether reached through the old direct-`infer_schema` path
+or the new mapping-confirmation-gated path.
 
 ## Phase 1 patch - reference periods, test gaps, suppression guard (done)
 
@@ -164,15 +199,69 @@ mathematics" spirit:
    suite. Delete the marker in the same commit that fixes it -- the deck
    is the client-facing artefact.
 
-## Phase 3 - Core engine extension
+## Phase 3 - The elementary and bilateral index engine (done)
 
-Add Paasche, Fisher, Tornqvist, Walsh, Marshall-Edgeworth, Lowe and Young to
-the existing Jevons/Dutot/Carli/Laspeyres set -- Lowe and Young are now
-expressible now that the reference-period split exists (see the patch
-above) but are not yet implemented; add the harmonic mean and CSWD
-elementary formulae; add the Appendix 2 golden-value and axiom property
-tests (time reversal, factor reversal, additivity) alongside the existing
-axiomatic test style in `tests/test_pricelab.py`.
+Both entry conditions cleared first. The `strict=True` xfail in
+`tests/test_deferred_deck_label.py` is gone: the "= 100" label now reads
+`engine.index.resolve_index_reference_period`, one function shared by the
+rebasing arithmetic and by every label describing it (chart y-axis, deck
+headline stat, report method note, Findings metric, Index build panel), so
+a label can no longer name a different period from the one the series was
+rebased to. And an unset `index_reference_period` now defaults to
+`price_reference_period` rather than to the first observation.
+
+That second change turned out not to close the base_value quirk on its
+own, contrary to the note it inherited: with a later price reference, the
+old rebasing divided by a level that was itself the hardcoded 100, so the
+fabricated first row survived the change. The hardcode is therefore gone
+too -- a fixed-base index now computes every period against the price
+reference, including periods before it, and only the price reference
+period itself is assigned `base_value` by definition. A chained index's
+first period is still the starting level, which is what it genuinely is.
+
+Delivered: `engine/elementary.py` (harmonic mean, CSWD, unit value added
+to the existing Jevons/Dutot/Carli, which are called rather than
+reimplemented; every result carries its sample size, imputation count,
+formula and parameters; unit value refuses to run without an explicit,
+justified homogeneity assertion, because its failure mode -- reporting a
+shift in purchase mix as a price change -- is invisible in the output).
+`engine/bilateral.py` (Paasche, Fisher, Tornqvist, Walsh,
+Marshall-Edgeworth, Lowe, Young, geometric Laspeyres and Paasche, plus the
+Fisher quantity index so factor reversal can be tested rather than
+asserted; `price_updating_effect` computes Lowe and Young over the same
+data and attributes the gap between them to price updating, which is what
+that gap is). `engine/aggregation.py` (weighted roll-up through the Phase
+2 classification tree, parent weights derived by summing children,
+contributions that sum to the headline change exactly, weight-hierarchy
+problems reported rather than absorbed; the equally weighted geometric
+aggregate migrated out of `build_all`, which still calls it). 
+`engine/splicing.py` (rebasing, link factors, splicing, chaining, price
+updating, and a chain drift diagnostic with a configurable threshold).
+Two imputation methods (targeted cell mean and overall mean, both
+anchored to the last observed price rather than cascading like
+`class_mean`) plus response-rate tracking that reports imputed values as a
+share of the aggregate they feed. `engine/custom.py` wires the Phase 1
+restricted AST evaluator into the interface: a compiler can define an
+elementary or aggregate formula, it is parsed by the whitelist walker and
+never by `eval`, it is rejected when written rather than mid-compile, it
+rides in the config JSON so the registry hash and cache key already cover
+it, and a run using one is marked non-standard on the deck, in the written
+report, in the docx and at the head of every CSV export.
+
+Scope decisions worth knowing about: `engine.index.laspeyres` is untouched
+and still falls back to Jevons with no weights, because every run compiled
+through the interface goes through it; note that what it computes is the
+Young form (a weighted mean of relatives), not the quantity-basket
+Laspeyres in `engine/bilateral.py`, and the two coincide only when the
+weights are the base period's own expenditure shares. The new bilateral
+formulae are library-level: they are not yet selectable from the Ingest
+page, which still offers the four elementary formulae plus the custom
+escape hatch, because choosing one requires quantity data the upload
+schema does not yet carry. Golden values come from CPI Manual 2020 Chapter
+8 Tables 8.1-8.3 and match at the manual's own published precision (one
+decimal for indices); no superlative golden values are asserted, because
+the 2020 volume contains no reproducible worked example of one -- see
+`tests/test_golden_values.py` for the full finding.
 
 ## Phase 4 - Quality adjustment and hedonics
 
@@ -199,5 +288,7 @@ decomposition (contributions, core inflation measures, base effects,
 diffusion); deflation, real values, PPP and spatial price levels; asset,
 trade and construction indices; forecasting and scenario tooling; PostgreSQL
 and OIDC (would require hosting beyond Streamlit Community Cloud); an in-app
-user-management page; the full COICOP 2018 tree below division level; a
-cascading (multi-total) secondary-suppression solver.
+user-management page; CPA, NACE and HS classification reference data (no
+authoritative, machine-readable source verified yet -- the generic loader
+that would take one already exists); a cascading (multi-total)
+secondary-suppression solver.

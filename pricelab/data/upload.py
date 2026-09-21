@@ -6,6 +6,7 @@ because the person fixing them is usually not the person running the code.
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import pandas as pd
 
@@ -17,13 +18,13 @@ class ValidationReport:
     passed: bool = True
     errors: list[str] = field(default_factory=list)      # block the run
     warnings: list[str] = field(default_factory=list)    # worth a human look
-    facts: dict = field(default_factory=dict)            # descriptive profile
+    facts: dict[str, Any] = field(default_factory=dict)  # descriptive profile
 
-    def error(self, msg: str):
+    def error(self, msg: str) -> None:
         self.errors.append(msg)
         self.passed = False
 
-    def warn(self, msg: str):
+    def warn(self, msg: str) -> None:
         self.warnings.append(msg)
 
     def __str__(self) -> str:
@@ -37,7 +38,7 @@ class ValidationReport:
         return "\n".join(lines)
 
 
-def read_price_data(path: str, sheet_name=0, schema: Schema = None) -> pd.DataFrame:
+def read_price_data(path: str, sheet_name: int | str = 0, schema: Schema | None = None) -> pd.DataFrame:
     """Read CSV or Excel into the canonical long format."""
     schema = schema or Schema()
     if str(path).lower().endswith((".xlsx", ".xlsm", ".xls")):
@@ -47,7 +48,7 @@ def read_price_data(path: str, sheet_name=0, schema: Schema = None) -> pd.DataFr
     return standardise(df, schema)
 
 
-def standardise(df: pd.DataFrame, schema: Schema = None) -> pd.DataFrame:
+def standardise(df: pd.DataFrame, schema: Schema | None = None) -> pd.DataFrame:
     """Rename to canonical column names and coerce types."""
     schema = schema or Schema()
     mapping = {

@@ -16,6 +16,7 @@ from .engine.index import (
     dutot,
     jevons,
     laspeyres,
+    resolve_index_reference_period,
     year_on_year,
     years_span,
 )

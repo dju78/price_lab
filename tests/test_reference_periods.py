@@ -90,6 +90,87 @@ def test_fixed_base_index_reference_period_need_not_equal_price_reference_period
 
 
 # ---------------------------------------------------------------------
+# Phase 3 entry condition: an unset index reference period defaults to the
+# price reference period, not to the first observation -- and the level at
+# a period *before* the price reference is computed rather than hardcoded.
+# ---------------------------------------------------------------------
+def test_unset_index_reference_defaults_to_the_price_reference_not_the_first_period():
+    """With only `price_reference_period` set, the published series must
+    read base_value at that period. Defaulting the rebasing step to the
+    first period instead would renormalise the series onto a period the
+    caller never nominated, quietly undoing the price reference they did."""
+    df, periods = _two_item_panel()
+    price_ref = periods[2]
+
+    out = build_index(df, IndexConfig(
+        chained=False, price_reference_period=str(price_ref.date())))
+
+    assert out.loc[price_ref, "index"] == pytest.approx(100.0)
+    assert out.loc[periods[0], "index"] != pytest.approx(100.0)
+
+
+def test_the_same_default_applies_to_a_chained_series():
+    """The rebasing step is method-agnostic, so the new default must be
+    too: a chained series with only a price reference set is published at
+    that period as well."""
+    df, periods = _two_item_panel()
+    price_ref = periods[2]
+
+    out = build_index(df, IndexConfig(
+        chained=True, price_reference_period=str(price_ref.date())))
+
+    assert out.loc[price_ref, "index"] == pytest.approx(100.0)
+
+
+def test_an_explicit_index_reference_still_wins_over_the_price_reference():
+    df, periods = _two_item_panel()
+    price_ref, index_ref = periods[1], periods[3]
+
+    out = build_index(df, IndexConfig(
+        chained=False, price_reference_period=str(price_ref.date()),
+        index_reference_period=str(index_ref.date())))
+
+    assert out.loc[index_ref, "index"] == pytest.approx(100.0)
+    assert out.loc[price_ref, "index"] != pytest.approx(100.0)
+
+
+def test_a_period_before_the_price_reference_is_computed_not_hardcoded():
+    """The base_value quirk, closed. A fixed-base index's first row used to
+    be assigned base_value outright, sharing the chained branch's genuine
+    "no predecessor" case. With a price reference later than the series'
+    start, that published a fabricated 100 for a period whose real level
+    relative to the price reference is perfectly computable -- and which
+    the new default rebasing no longer papers over.
+
+    Item 1 runs 10, 11, 12, 13 and item 2 runs 20, 19, 22, 26. Against a
+    price reference of period 3, period 1's Jevons relative is
+    sqrt((10/12) * (20/22)), so the level is that times 100.
+    """
+    import numpy as np
+
+    df, periods = _two_item_panel()
+    price_ref = periods[2]
+
+    out = build_index(df, IndexConfig(
+        chained=False, price_reference_period=str(price_ref.date())))
+
+    expected = 100.0 * float(np.sqrt((10.0 / 12.0) * (20.0 / 22.0)))
+    assert out.loc[periods[0], "index"] == pytest.approx(expected)
+    assert out.loc[periods[0], "index"] < 100.0  # prices rose, so the past is below 100
+
+
+def test_defaulting_is_unchanged_when_no_reference_period_is_set_at_all():
+    """The guarantee the whole phase rests on: a run that sets none of the
+    three reference periods -- every existing run, including the committed
+    fixture -- is completely unaffected by the new default."""
+    df, periods = _two_item_panel()
+
+    for chained in (True, False):
+        out = build_index(df, IndexConfig(chained=chained))
+        assert out.loc[periods[0], "index"] == pytest.approx(100.0)
+
+
+# ---------------------------------------------------------------------
 # Parameter hash coverage: the registry's content hash and the cache key
 # must both change when only a reference period differs. Both already flow
 # through RunConfig.to_json(), which serialises every real field including
@@ -270,3 +351,45 @@ def test_interface_level_load_of_a_current_run_is_not_flagged_upconverted(tmp_pa
 
     db.reset_db_state()
     get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------
+# An index reference period the series cannot be rebased to is an error,
+# not a silent no-op. The label side (`resolve_index_reference_period`)
+# would go on naming the requested period on every export; the arithmetic
+# side must not quietly decline to honour it.
+# ---------------------------------------------------------------------
+def test_an_index_reference_period_absent_from_the_data_is_refused_not_ignored():
+    df, _periods = _two_item_panel()
+    cfg = IndexConfig(chained=False, index_reference_period="2021-06-01")
+    with pytest.raises(ValueError, match="index_reference_period 2021-06-01 does not match"):
+        build_index(df, cfg)
+
+
+def test_the_same_refusal_applies_to_a_chained_series():
+    df, _periods = _two_item_panel()
+    cfg = IndexConfig(chained=True, index_reference_period="2021-06-01")
+    with pytest.raises(ValueError, match="index_reference_period 2021-06-01 does not match"):
+        build_index(df, cfg)
+
+
+def test_an_index_reference_period_with_no_computable_level_yields_no_levels_at_all():
+    """Fixed-base, and the requested index reference period is one where
+    fewer than min_matched_items items matched the price reference, so the
+    level there is NaN. The old behaviour skipped the rebase and returned
+    the series at its price-reference scaling, under labels claiming it
+    read 100 at the index reference period. A series that cannot be
+    rebased has no publishable levels: every level is NaN, and the matched
+    counts and flags that explain why are kept."""
+    df, periods = _two_item_panel()
+    # Item 2 is unpriced in period 3, leaving one matched item there.
+    df = df.loc[~((df["item_id"] == "2") & (df["period"] == periods[2]))]
+    cfg = IndexConfig(chained=False, min_matched_items=2,
+                      price_reference_period=str(periods[0].date()),
+                      index_reference_period=str(periods[2].date()))
+    out = build_index(df, cfg)
+
+    assert out["index"].isna().all()
+    assert bool(out.loc[periods[2], "insufficient_match"])
+    assert out.loc[periods[2], "matched_items"] == 1
+    assert out.loc[periods[0], "matched_items"] == 2

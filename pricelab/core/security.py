@@ -12,7 +12,7 @@ import ast
 import functools
 import operator
 import secrets
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -258,6 +258,27 @@ def sanitize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def safe_csv_with_notice(df: pd.DataFrame, notice: str = "", **kwargs: Any) -> str:
+    """`safe_csv` with a leading comment line, for a run that has
+    something a downstream reader must be told.
+
+    The comment is prefixed with `#`, which every mainstream reader skips
+    by default and every text editor shows. Putting it in a column instead
+    would corrupt the shape of the data; putting it nowhere would mean an
+    exported CSV of a non-standard run is indistinguishable from an
+    exported CSV of a standard one the moment it leaves this application.
+
+    The notice goes through `sanitize_cell` like any other text: it is
+    assembled from configuration a user supplied, so it is not exempt from
+    the formula-injection rule just because the application wrote the
+    sentence around it.
+    """
+    body = safe_csv(df, **kwargs)
+    if not notice:
+        return body
+    return f"# {sanitize_cell(notice)}\n{body}"
+
+
 def safe_csv(df: pd.DataFrame, **kwargs: Any) -> str:
     """`DataFrame.to_csv` with every string cell sanitised against formula
     injection first. Every export path in this codebase should route
@@ -313,18 +334,58 @@ def evaluate_formula(expr: str, variables: Mapping[str, float]) -> float:
     branch for it and falls through to the final `FormulaError`: the
     default is deny, not a denylist a new syntax form could slip past.
 
-    Nothing in this codebase calls this yet. It is built ahead of Phase 3,
-    which will need a safe way to let an analyst define a derived series
-    (for example a custom core-inflation exclusion formula) without that
-    feature's first implementation being `eval` with a regex sanity check
-    in front of it, which is how an unsafe evaluator usually ends up
-    shipped by accident.
+    Used by `engine.custom` to evaluate an analyst-defined elementary or
+    aggregate formula (Phase 3), which is the use case it was built ahead
+    of: the alternative first implementation of that feature is `eval`
+    with a regex sanity check in front of it, which is how an unsafe
+    evaluator usually ends up shipped by accident.
     """
     try:
         tree = ast.parse(expr, mode="eval")
     except SyntaxError as exc:
         raise FormulaError(f"could not parse {expr!r}: {exc}") from exc
     return _eval_node(tree.body, variables)
+
+
+def validate_formula_syntax(expr: str, allowed_names: Iterable[str] | None = None) -> set[str]:
+    """Check an expression without evaluating it, and return the names it
+    references.
+
+    Separated from `evaluate_formula` so a formula can be rejected when it
+    is *written* rather than when it is first run: an analyst typing an
+    expression into the interface should be told immediately that `os` is
+    not a permitted name, not have the compile fail after the quality and
+    imputation stages have already run.
+
+    The same walker enforces the same whitelist -- this calls
+    `evaluate_formula` with every referenced name bound to 1.0, so there
+    is one implementation of what is permitted rather than a validator
+    that could drift from the evaluator it is supposed to predict. Names
+    are collected from the parsed AST rather than by regex, so a name that
+    only appears inside a rejected construct still gets rejected.
+
+    `allowed_names`, when given, additionally restricts which variables the
+    expression may reference, so a formula meant for elementary building
+    blocks cannot silently reference an aggregate-level one.
+    """
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as exc:
+        raise FormulaError(f"could not parse {expr!r}: {exc}") from exc
+
+    names = {node.id for node in ast.walk(tree)
+             if isinstance(node, ast.Name) and node.id not in _ALLOWED_FUNCS}
+    if allowed_names is not None:
+        unknown = sorted(names - set(allowed_names))
+        if unknown:
+            raise FormulaError(
+                f"unknown name(s) {unknown}; available: {sorted(allowed_names)}")
+
+    # 1.0 for every name: a division by a variable stays finite, so this
+    # checks structure rather than accidentally rejecting an expression
+    # for the value it would take on one particular set of inputs.
+    _eval_node(tree.body, dict.fromkeys(names, 1.0))
+    return names
 
 
 def _eval_node(node: ast.expr, variables: Mapping[str, float]) -> float:

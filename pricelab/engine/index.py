@@ -18,6 +18,7 @@ Matching is applied before any formula: only items priced in both periods enter
 the comparison, so item replacement cannot be mistaken for price change.
 """
 
+from collections.abc import Sequence
 from typing import cast, overload
 
 import numpy as np
@@ -83,8 +84,37 @@ def laspeyres(a: pd.Series, b: pd.Series, w: pd.Series | None = None) -> float:
 FORMULAE = {"jevons": jevons, "dutot": dutot, "carli": carli, "laspeyres": laspeyres}
 
 
+def _custom_np(a: np.ndarray, b: np.ndarray, expression: str) -> float:
+    """Evaluate an analyst-defined elementary formula over one matched
+    comparison, from the numpy arrays the period loop already holds.
+
+    The standard elementary indices are computed here and offered to the
+    expression as names. Deliberately the same set, and the same
+    arithmetic, as `engine.elementary` exposes to a caller working in
+    pandas -- the difference is only that this path avoids constructing
+    two Series per period per category, which on a multi-year panel is
+    the difference between a custom formula being usable and being a
+    thing people try once.
+    """
+    from ..core.security import evaluate_formula
+
+    relatives = b / a
+    carli_value = float(relatives.mean())
+    harmonic_value = float(relatives.size / (1.0 / relatives).sum())
+    variables = {
+        "jevons": float(np.exp(np.log(relatives).mean())),
+        "dutot": float(b.mean() / a.mean()),
+        "carli": carli_value,
+        "harmonic_mean": harmonic_value,
+        "cswd": float(np.sqrt(carli_value * harmonic_value)),
+        "n_items": float(relatives.size),
+    }
+    return float(evaluate_formula(expression, variables))
+
+
 def _formula_np(
-    formula: str, a: np.ndarray, b: np.ndarray, w: np.ndarray | None = None
+    formula: str, a: np.ndarray, b: np.ndarray, w: np.ndarray | None = None,
+    expression: str | None = None,
 ) -> tuple[float, int]:
     """Numpy-array reimplementation of the formulae above, numerically
     identical to them, for the period loop in build_index.
@@ -117,7 +147,38 @@ def _formula_np(
         if wm.sum() == 0:
             return float(np.exp(np.log(bm / am).mean())), n
         return float((wm * (bm / am)).sum() / wm.sum()), n
+    if formula == "custom":
+        if not expression:
+            raise ValueError(
+                'formula is "custom" but no expression was supplied; IndexConfig rejects '
+                "that combination, so reaching here means _formula_np was called directly "
+                "without one")
+        return _custom_np(am, bm, expression), n
     raise ValueError(f"unknown formula '{formula}'")
+
+
+def resolve_index_reference_period(
+    cfg: IndexConfig, index: Sequence[pd.Timestamp] | pd.Index
+) -> pd.Timestamp:
+    """The period a finished series is rebased to read `base_value` at.
+
+    One resolution rule, shared by the arithmetic (`build_index`'s rebasing
+    step) and by every label that describes it (the chart's y-axis, the
+    deck's headline stat, the report's method note, the Findings metric),
+    so a label can no longer claim a different reference period from the
+    one the series was actually rebased to -- which is exactly the bug
+    tests/test_deferred_deck_label.py was holding open.
+
+    The fallback chain is `index_reference_period`, then
+    `price_reference_period`, then the deprecated `base_period`, then the
+    first period present. Defaulting to the price reference rather than
+    straight to the first period matters once the two can differ: a
+    fixed-base index compiled against a price reference reads `base_value`
+    there by construction, and silently rebasing it onto its first period
+    instead would renormalise away the very levels the caller asked for.
+    """
+    setting = cfg.index_reference_period or cfg.price_reference_period or cfg.base_period
+    return pd.to_datetime(setting) if setting else pd.Timestamp(index[0])
 
 
 def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
@@ -186,21 +247,46 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
     rows, level = [], cfg.base_value
 
     for i, p in enumerate(periods):
-        if i == 0:
-            matched = np.nan
-            insufficient = False
-        else:
-            prev = periods[i - 1] if cfg.chained else price_ref
-            rel, matched = _formula_np(cfg.formula, row(prev), row(p),
-                                       weight_row(prev) if cfg.formula == "laspeyres" else None)
-            insufficient = matched < cfg.min_matched_items
-            if insufficient:
-                rel = np.nan            # hold the level, flagged below
-
-            if cfg.chained:
-                level = level * rel if np.isfinite(rel) else level
+        if cfg.chained:
+            # A chained index's first period has no predecessor to link
+            # from: it *is* the starting level, by construction.
+            if i == 0:
+                matched, insufficient = np.nan, False
             else:
-                level = cfg.base_value * rel if np.isfinite(rel) else np.nan
+                prev = periods[i - 1]
+                rel, matched = _formula_np(
+                    cfg.formula, row(prev), row(p),
+                    weight_row(prev) if cfg.formula == "laspeyres" else None,
+                    cfg.custom_formula)
+                insufficient = matched < cfg.min_matched_items
+                if insufficient:
+                    rel = np.nan        # hold the level, flagged below
+                level = level * rel if np.isfinite(rel) else level
+        else:
+            # A fixed-base index compares every period, including the
+            # first, against the price reference period. The first period
+            # used to be hardcoded to `base_value` here alongside the
+            # chained branch's genuine "no predecessor" case, which was
+            # only ever harmless because nothing could set a price
+            # reference away from the series' start: where it can (Lowe
+            # and Young, this phase), that hardcode published a fabricated
+            # 100 for a period whose real level relative to the price
+            # reference is perfectly computable.
+            rel, matched = _formula_np(
+                cfg.formula, row(price_ref), row(p),
+                weight_row(price_ref) if cfg.formula == "laspeyres" else None,
+                cfg.custom_formula)
+            insufficient = matched < cfg.min_matched_items
+            if p == price_ref:
+                # Definitionally base_value: an index at its own price
+                # reference period is 100 whether or not enough items
+                # matched, and NaN-ing it would take the rebasing step's
+                # divisor with it.
+                level = cfg.base_value
+            elif insufficient or not np.isfinite(rel):
+                level = np.nan
+            else:
+                level = cfg.base_value * rel
 
         rows.append({"period": p, "index": level, "matched_items": matched,
                      "insufficient_match": insufficient})
@@ -218,12 +304,36 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
     # branch after the rest of it was split out. Multiplying every level by
     # the same constant changes the level, never the ratio between any two
     # periods, so no period-on-period movement is affected by this step.
-    index_ref_setting = cfg.index_reference_period or cfg.base_period
-    index_ref = pd.to_datetime(index_ref_setting) if index_ref_setting else periods[0]
-    if index_ref in out.index:
-        base_level = cast(float, out.loc[index_ref, "index"])
-        if np.isfinite(base_level):
-            out["index"] = out["index"] / base_level * cfg.base_value
+    index_ref = resolve_index_reference_period(cfg, out.index)
+    if index_ref not in out.index:
+        # Same rule as the price reference above: an explicitly requested
+        # period that the data does not contain is an error, not a no-op.
+        # Skipping the rebase here would leave the series at whatever level
+        # the compilation produced while every label built from
+        # `resolve_index_reference_period` (chart axis, deck headline,
+        # report note) went on claiming it reads `base_value` at the
+        # index reference period -- the label-versus-arithmetic split
+        # this function was introduced to make impossible.
+        raise ValueError(
+            f"index_reference_period {index_ref:%Y-%m-%d} does not match any period present "
+            f"in the data (available range: {periods[0]:%Y-%m-%d} to {periods[-1]:%Y-%m-%d}), "
+            "so the series cannot be rebased to it. An un-rebased series published under a "
+            "label naming that period would be mislabelled on every export.")
+    base_level = cast(float, out.loc[index_ref, "index"])
+    if not np.isfinite(base_level):
+        # The period is present but the series has no level there (a
+        # fixed-base comparison with too few items matched to the price
+        # reference). A series that cannot be rebased to its index
+        # reference period has no publishable levels at all: leaving it
+        # un-rebased would put every label in the wrong, and raising would
+        # take down diagnostics (`diagnostics.chain_drift` builds a direct
+        # variant of every run) on thin categories that are an ordinary
+        # fact of a collection. So the levels become NaN -- undefined, and
+        # visibly so -- while the matched counts and insufficient-match
+        # flags stay, because they are what explains the gap.
+        out["index"] = np.nan
+        return out
+    out["index"] = out["index"] / base_level * cfg.base_value
     return out
 
 
@@ -251,7 +361,12 @@ def build_all(df: pd.DataFrame, cfg: IndexConfig | None = None,
     I = pd.DataFrame(idx)
     M = pd.DataFrame(matched)
     if len(I.columns) > 1:
-        I["All items"] = np.exp(np.log(I).mean(axis=1))
+        # Migrated to engine.aggregation, which is where the weighted
+        # roll-up now lives too; imported here rather than at module level
+        # because aggregation imports data.classification for the
+        # weight-hierarchy rule, and this module is imported by data/.
+        from .aggregation import equally_weighted_aggregate
+        I["All items"] = equally_weighted_aggregate(I)
     return I, M
 
 

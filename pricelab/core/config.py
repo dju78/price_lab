@@ -76,7 +76,23 @@ class QualityConfig(BaseModel):
 
 class IndexConfig(BaseModel):
     formula: str = "jevons"
-    """Elementary or aggregate formula: jevons | dutot | carli | laspeyres."""
+    """Elementary or aggregate formula: jevons | dutot | carli | laspeyres,
+    or "custom" to evaluate `custom_formula` instead."""
+
+    custom_formula: str | None = None
+    """A restricted arithmetic expression combining the standard formulae,
+    for a compiler who needs one this tool does not ship. Evaluated by
+    `core.security.evaluate_formula` -- a whitelist AST walker, never
+    `eval` -- over the named building blocks listed in
+    `engine.custom.ELEMENTARY_VARIABLES`.
+
+    Recorded here rather than anywhere else precisely so it is covered by
+    everything that already covers a parameter: the registry's content
+    hash, the cache key, the audit trail and the config JSON of every
+    saved run. A run compiled with one is marked non-standard in every
+    export (`engine.custom.is_non_standard`), because a reader cannot
+    otherwise tell that the number in front of them came from a formula
+    the analyst wrote rather than one the profession recognises."""
     chained: bool = True
     """Chain period-on-period links rather than compare every period to one fixed base."""
 
@@ -113,6 +129,43 @@ class IndexConfig(BaseModel):
     """Index level assigned to the index reference period."""
     min_matched_items: int = 2
     """Below this many matched items, the index holds its level and flags insufficiency."""
+
+    @model_validator(mode="after")
+    def _custom_formula_is_coherent_and_parses(self) -> IndexConfig:
+        """A custom formula must be declared as one, and must parse.
+
+        Both halves are rejected at config time rather than at run time.
+        A `custom_formula` set while `formula` still names a standard one
+        is ambiguous about which the caller meant, and a typo in the
+        expression should surface when it is written -- not part-way
+        through a compile, after the quality and imputation stages have
+        already run.
+        """
+        if self.formula == "custom" and not (self.custom_formula or "").strip():
+            raise ValueError(
+                'formula is "custom" but custom_formula is empty: there is no expression '
+                "to evaluate.")
+        if self.custom_formula and self.formula != "custom":
+            raise ValueError(
+                f'custom_formula is set but formula is "{self.formula}", so the custom '
+                'expression would be silently ignored. Set formula="custom" to use it, or '
+                "clear custom_formula.")
+        if self.custom_formula:
+            # Imported inside the validator, not at module scope: the
+            # variable names a custom formula may use are derived from the
+            # elementary formulae the engine actually implements, and
+            # engine imports this module. By validation time both modules
+            # are fully loaded, so the cycle never materialises -- and
+            # deriving the names rather than restating them here means a
+            # formula added to the engine cannot become a name this
+            # validator still rejects.
+            from ..engine.custom import ELEMENTARY_VARIABLES
+            from .security import FormulaError, validate_formula_syntax
+            try:
+                validate_formula_syntax(self.custom_formula, ELEMENTARY_VARIABLES)
+            except FormulaError as exc:
+                raise ValueError(f"custom_formula is not a permitted expression: {exc}") from exc
+        return self
 
     @model_validator(mode="after")
     def _weight_reference_not_after_price_reference(self) -> IndexConfig:

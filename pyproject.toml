@@ -18,16 +18,25 @@ dependencies = [
     "alembic>=1.13",
     "argon2-cffi>=23.1",
     "pyarrow>=14.0",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4",
+    "pytest-cov>=5.0",
+    # Property-based testing for the index axioms: identity,
+    # proportionality, commensurability, time and factor reversal,
+    # ordering and additivity are claims about every data set, so the
+    # tests generate the data rather than fixing it.
+    "hypothesis>=6.100",
     "ruff>=0.6",
     "mypy>=1.10",
     "pre-commit>=3.7",
     "pandas-stubs",
     "types-tabulate",
+    "types-requests",
+    "responses>=0.24",
 ]
 
 [build-system]
@@ -92,12 +101,13 @@ strict = true
 # treating problems in files outside this scope as this scope's problem.
 follow_imports = "silent"
 
-# The Phase 1 spec asks for mypy strict "over core/ and engine/" -- the
-# governance and calculation modules -- not the whole application. `files`
-# makes that the literal scope of a bare `mypy` invocation (what CI runs),
-# rather than relying on every contributor to remember to pass a path.
-# app.py, pages/, data/, reporting/ and scripts/ lean on Streamlit,
-# python-pptx and python-docx APIs with incomplete or absent stubs, where
-# chasing strict compliance across them would mean type: ignore theatre
-# rather than real safety; they keep their own test coverage instead.
-files = ["pricelab/core", "pricelab/engine"]
+# The Phase 1 spec asked for mypy strict "over core/ and engine/"; Phase 2
+# added "and data/" (the ingestion/connectors/classification/storage
+# layer). `files` makes that the literal scope of a bare `mypy` invocation
+# (what CI runs), rather than relying on every contributor to remember to
+# pass a path. app.py, pages/, reporting/ and scripts/ still lean on
+# Streamlit, python-pptx and python-docx APIs with incomplete or absent
+# stubs, where chasing strict compliance across them would mean type:
+# ignore theatre rather than real safety; they keep their own test
+# coverage instead.
+files = ["pricelab/core", "pricelab/engine", "pricelab/data"]

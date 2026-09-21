@@ -12,6 +12,13 @@ typecheck:
 test:
 	python -m pytest tests/ -q
 
+# The engine is where the index arithmetic lives, so it is the package
+# with a coverage floor: 80 percent, enforced rather than reported, so a
+# formula added without tests fails the build instead of quietly
+# lowering the number.
+coverage:
+	python -m pytest tests/ -q --cov=pricelab/engine --cov-report=term-missing --cov-fail-under=80
+
 migrate:
 	alembic upgrade head
 
