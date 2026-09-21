@@ -45,7 +45,7 @@ from ..core.provenance import STAMP_KEY, ProvenanceStamp
 from ..core.security import sanitize_cell
 from ..engine.insights import Narrative
 from .exports import publication_table, wide_publication
-from .report import method_note, quality_adjustment_note
+from .report import method_note
 
 INK, PRIMARY, ACCENT, MUTED = "#12263A", "#1E4D6B", "#D9822B", "#8A9BA8"
 HEADLINE_TOLERANCE = 1e-6
@@ -58,6 +58,16 @@ class BulletinError(ValueError):
 def _t(text: Any) -> str:
     """Escape and sanitise text for a Paragraph."""
     return escape(str(sanitize_cell("" if text is None else text)))
+
+
+def _bold_markup(block: str) -> str:
+    """A method-note block, escaped, with its leading `**Label.**` as a bold
+    run. Only that leading marker is honoured; any other asterisks are
+    text."""
+    if block.startswith("**") and "**" in block[2:]:
+        end = block.index("**", 2)
+        return f"<b>{_t(block[2:end])}</b>{_t(block[end + 2:])}"
+    return _t(block)
 
 
 def _styles() -> dict[str, ParagraphStyle]:
@@ -73,7 +83,7 @@ def _styles() -> dict[str, ParagraphStyle]:
         "headline_label": ParagraphStyle("hl", parent=base["Normal"], fontSize=10,
                                          textColor=INK, leading=13),
         "h2": ParagraphStyle("h2", parent=base["Heading2"], fontSize=13, textColor=PRIMARY,
-                             spaceBefore=12, spaceAfter=6),
+                             spaceBefore=12, spaceAfter=6, keepWithNext=1),
         "body": ParagraphStyle("body", parent=base["Normal"], fontSize=9.5, leading=13,
                                textColor=INK),
         "small": ParagraphStyle("small", parent=base["Normal"], fontSize=7.5, leading=9.5,
@@ -83,17 +93,34 @@ def _styles() -> dict[str, ParagraphStyle]:
     }
 
 
+FRAME_WIDTH = 174 * mm     # A4 less the 18 mm margins either side
+
+
 def _table(rows: Sequence[Sequence[Any]], col_widths: Sequence[float] | None = None,
            header: bool = True) -> Table:
-    data = [[_t(c) for c in r] for r in rows]
+    """A table that stays inside the frame: columns share the frame width
+    when none are given, cells wrap, and the font shrinks for wide tables
+    (thirteen columns of index levels overran the margin when rendered)."""
+    n_cols = max(len(r) for r in rows)
+    if col_widths is None:
+        col_widths = [FRAME_WIDTH / n_cols] * n_cols
+    font_size = 8 if n_cols <= 8 else 6.5
+    cell_style = ParagraphStyle("cell", fontName="Helvetica", fontSize=font_size,
+                                leading=font_size + 2, textColor=INK)
+    head_style = ParagraphStyle("head", parent=cell_style, fontName="Helvetica-Bold",
+                                fontSize=font_size if n_cols <= 10 else font_size - 0.7)
+    data = [[Paragraph(_t(c), head_style if (header and i == 0) else cell_style) for c in r]
+            for i, r in enumerate(rows)]
     t = Table(data, colWidths=col_widths, repeatRows=1 if header else 0)
     style = [
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("FONTSIZE", (0, 0), (-1, -1), font_size),
         ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor(INK)),
         ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.HexColor(PRIMARY)),
         ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.HexColor("#E9EEF2")),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6 if n_cols <= 8 else 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6 if n_cols <= 8 else 2),
     ]
     if header:
         style += [("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -186,44 +213,54 @@ def build_bulletin(
                                height=85 * mm, kind="proportional"))
             story.append(Spacer(1, 4))
 
-    story.append(Paragraph("Tables", st["h2"]))
     table = publication_table(res)
     wide = wide_publication(table)
     tail = wide.tail(13)
     headers = ["Period", *[str(c) for c in tail.columns]]
-    body = [[idx, *[("suppressed" if v == "suppressed" else f"{float(v):.1f}" if v else "")
-                    for v in row]] for idx, row in zip(tail.index, tail.to_numpy(), strict=True)]
-    story.append(_table([headers, *body]))
+    # Monthly periods print as year-month; a full date wraps in a narrow
+    # column and says nothing more.
+    body = [[pd.Timestamp(idx).strftime("%Y-%m"),
+             *[("suppressed" if v == "suppressed" else f"{float(v):.1f}" if v else "")
+               for v in row]] for idx, row in zip(tail.index, tail.to_numpy(), strict=True)]
     n_sup = int(table["suppressed"].sum())
-    story.append(Paragraph(
-        f"{n_sup} cell{'s' if n_sup != 1 else ''} suppressed under this release's disclosure "
-        f"control: {_t(stamp.suppression_rules.get('method'))} (minimum "
-        f"{stamp.suppression_rules.get('min_count')} matched quotes).", st["small"]))
+    shown_sup = int((tail == "suppressed").to_numpy().sum())
+    story.append(KeepTogether([
+        Paragraph("Tables", st["h2"]),
+        _table([headers, *body]),
+        Paragraph(
+            f"{shown_sup} cell{'s' if shown_sup != 1 else ''} in this table "
+            f"({n_sup} in the full series) read \"suppressed\" under this release's "
+            f"disclosure control: {_t(stamp.suppression_rules.get('method'))} (minimum "
+            f"{stamp.suppression_rules.get('min_count')} matched quotes).", st["small"]),
+    ]))
 
     story.append(Paragraph("Methodology note", st["h2"]))
+    # The method note already carries the quality-adjustment paragraph;
+    # its **bold** markers become bold runs rather than being stripped.
     for block in method_note(res).split("\n\n"):
         block = block.strip()
         if block:
-            story.append(Paragraph(_t(block.replace("**", "")), st["body"]))
-    story.append(Paragraph(_t(quality_adjustment_note(res)), st["body"]))
+            story.append(Paragraph(_bold_markup(block), st["body"]))
 
     story.append(Paragraph("Revision statement", st["h2"]))
     story.append(Paragraph(_t(revision_statement(run)), st["body"]))
 
-    story.append(Paragraph("Contact and release", st["h2"]))
-    story.append(_table([
-        ["Organisation", settings.release_organisation],
-        ["Contact", settings.release_contact_name],
-        ["Email", settings.release_contact_email],
-        ["Telephone", settings.release_contact_phone or "not given"],
-        ["Release date", f"{release:%d %B %Y}"],
-        ["Next release", "as announced by the organisation"],
-    ], col_widths=[40 * mm, 130 * mm], header=False))
+    story.append(KeepTogether([
+        Paragraph("Contact and release", st["h2"]),
+        _table([
+            ["Organisation", settings.release_organisation],
+            ["Contact", settings.release_contact_name],
+            ["Email", settings.release_contact_email],
+            ["Telephone", settings.release_contact_phone or "not given"],
+            ["Release date", f"{release:%d %B %Y}"],
+            ["Next release", "as announced by the organisation"],
+        ], col_widths=[40 * mm, 134 * mm], header=False),
+    ]))
 
     story.append(PageBreak())
     story.append(Paragraph("Provenance", st["h2"]))
-    story.append(_table([["Field", "Value"], *[[k, str(v)[:400]] for k, v in stamp.rows()]],
-                        col_widths=[45 * mm, 125 * mm]))
+    story.append(_table([["Field", "Value"], *[[k, str(v)] for k, v in stamp.rows()]],
+                        col_widths=[45 * mm, 129 * mm]))
     story.append(Spacer(1, 6))
     story.append(Paragraph(f"{STAMP_KEY} {_t(stamp.to_json())}", st["mono"]))
 

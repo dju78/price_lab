@@ -84,6 +84,14 @@ def quality_bands(clean: pd.DataFrame, figsize=(10, 5)):
     return fig
 
 
+LINE_STYLES = ["-", "--", "-.", ":", (0, (5, 1)), (0, (3, 1, 1, 1)), (0, (1, 1)),
+               (0, (5, 2, 1, 2)), (0, (7, 3)), (0, (2, 2))]
+
+
+def _percent_label(value: float, _pos: object) -> str:
+    return f"{value:.1f}%" if abs(value - round(value)) > 1e-9 else f"{value:.0f}%"
+
+
 def index_chart(I: pd.DataFrame, cfg: IndexConfig | None = None, figsize=(10, 5)):
     """`cfg` is the run's IndexConfig, read only to label the y-axis with the
     period the series was actually rebased to. Optional, and defaulting to
@@ -93,14 +101,21 @@ def index_chart(I: pd.DataFrame, cfg: IndexConfig | None = None, figsize=(10, 5)
     """
     fig, ax = _fig(figsize)
     cats = [c for c in I.columns if c != "All items"]
+    # Colour alone does not survive a greyscale print, and the bulletin is
+    # printed: each series also gets its own dash pattern, so eleven lines
+    # stay tellable apart in one ink.
     for i, c in enumerate(cats):
-        ax.plot(I.index, I[c], lw=1.1, color=SERIES[i % len(SERIES)], alpha=0.75, label=c)
+        ax.plot(I.index, I[c], lw=1.2, color=SERIES[i % len(SERIES)], alpha=0.85, label=c,
+                linestyle=LINE_STYLES[i % len(LINE_STYLES)])
     if "All items" in I.columns:
         ax.plot(I.index, I["All items"], lw=3, color=INK, label="All items", zorder=5)
     ax.axhline(100, color=MUTED, lw=0.8, ls="--")
     index_ref = resolve_index_reference_period(cfg or IndexConfig(), I.index)
     ax.set_ylabel(f"Index, {index_ref:%b %Y} = 100")
-    ax.legend(frameon=False, fontsize=8, ncol=3, loc="upper left")
+    # Below the axes, not over the data: a legend inside the plot area sat
+    # on the seasonal peaks in the rendered bulletin.
+    ax.legend(frameon=False, fontsize=8, ncol=4, loc="upper center",
+              bbox_to_anchor=(0.5, -0.12))
     ax.set_title("Category price indices", loc="left", fontsize=12, color=INK, pad=12)
     return fig
 
@@ -116,7 +131,11 @@ def inflation_chart(yoy: pd.DataFrame, col="All items", figsize=(10, 4.5)):
     ax.annotate(f"{s.max():.1f}%  {peak_at:%b %Y}", (peak_at, s.max()),
                 textcoords="offset points", xytext=(10, 6), color=ACCENT,
                 fontsize=10, fontweight="bold")
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    # A whole-number formatter on half-point ticks printed "2%, 2%, 2%" in
+    # the rendered bulletin; one decimal is shown whenever the tick step
+    # needs it.
+    ax.yaxis.set_major_formatter(FuncFormatter(_percent_label))
+    ax.set_ylabel("% change on the same period a year earlier")
     ax.set_title("Twelve period rate of change", loc="left", fontsize=12, color=INK, pad=12)
     return fig
 
@@ -195,7 +214,7 @@ def hedonic_leverage_chart(result, figsize=(10, 4.5)):
     return fig
 
 
-def impact_chart(impact, figsize=(10, 4)):
+def impact_chart(impact, figsize=(10, 4), reference_period=None):
     """The three scenarios' final headline levels side by side: the
     quality adjustment's effect as a picture, not a footnote."""
     fig, ax = _fig(figsize)
@@ -203,13 +222,15 @@ def impact_chart(impact, figsize=(10, 4)):
     labels = {"as_configured": "As compiled", "linked_unadjusted": "Linked, no adjustment",
               "no_link": "Not linked (matched model)"}
     colours = [ACCENT, PRIMARY, MUTED]
-    bars = ax.bar([labels[k] for k in levels.index], levels.values, color=colours, width=0.55)
+    bars = ax.bar([labels[k] for k in levels.index], levels.values, color=colours, width=0.55,
+                  hatch=["", "//", ".."], edgecolor="white")   # tellable apart in one ink
     for bar, value in zip(bars, levels.values, strict=True):
         ax.annotate(f"{value:.2f}", (bar.get_x() + bar.get_width() / 2, bar.get_height()),
                     ha="center", va="bottom", fontsize=9, color=INK)
     lo = float(levels.min())
     ax.set_ylim(lo - max(1.0, (float(levels.max()) - lo) * 3), float(levels.max()) + 1.0)
-    ax.set_ylabel(f"{impact.headline} at {impact.final_period:%b %Y}")
+    ref = f", {pd.Timestamp(reference_period):%b %Y} = 100" if reference_period is not None else ""
+    ax.set_ylabel(f"{impact.headline} index at {impact.final_period:%b %Y}{ref}")
     ax.set_title(f"Quality adjustment moved the headline by "
                  f"{impact.adjustment_effect_points:+.2f} points",
                  loc="left", fontsize=12, color=INK, pad=12)
@@ -234,5 +255,7 @@ def build_all_charts(res: dict) -> dict:
     if len(seas):
         charts["seasonality"] = seasonality_chart(seas)
     if res.get("quality_adjustment_impact") is not None:
-        charts["quality_adjustment"] = impact_chart(res["quality_adjustment_impact"])
+        charts["quality_adjustment"] = impact_chart(
+            res["quality_adjustment_impact"],
+            reference_period=resolve_index_reference_period(cfg or IndexConfig(), I.index))
     return charts
