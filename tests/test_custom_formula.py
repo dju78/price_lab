@@ -220,7 +220,23 @@ def test_a_custom_run_is_marked_and_the_notice_names_the_expression():
     assert "NON-STANDARD INDEX" in notice
     assert "0.5*jevons + 0.5*dutot" in notice
     assert "not comparable" in notice
-    assert custom.custom_formula_parameters(cfg)["expression"] == "0.5*jevons + 0.5*dutot"
+    assert custom.custom_formula_parameters(cfg)["expression"] == "elementary: 0.5*jevons + 0.5*dutot"
+
+
+def test_a_custom_aggregate_formula_also_marks_the_run_non_standard():
+    """The aggregate escape hatch (Phase 3 Task 4's second half, wired to
+    the interface in Phase 10.5) is marked exactly like the elementary one,
+    and a run using both names both."""
+    cfg = IndexConfig(custom_aggregate_formula="(bread + milk) / 2")
+    assert cfg.formula == "jevons" and custom.is_non_standard(cfg)
+    assert "aggregate: (bread + milk) / 2" in custom.non_standard_notice(cfg)
+    both = IndexConfig(formula="custom", custom_formula="cswd",
+                       custom_aggregate_formula="all_items")
+    assert custom.non_standard_expression(both) == "elementary: cswd; aggregate: all_items"
+    with pytest.raises(ValueError, match="not a permitted expression"):
+        IndexConfig(custom_aggregate_formula="__import__('os')")
+    with pytest.raises(ValueError, match="empty"):
+        IndexConfig(custom_aggregate_formula="   ")
 
 
 def test_the_custom_formula_is_recorded_in_the_config_like_any_other_parameter():

@@ -20,6 +20,7 @@ changing its ledger is a correction, which goes through `correct_run`.
 from __future__ import annotations
 
 import io
+import warnings
 from typing import Any
 
 import numpy as np
@@ -160,7 +161,6 @@ def _fit_hedonic_section(clean: pd.DataFrame) -> hedonic.HedonicResult | None:
         characteristics=tuple(continuous), categorical=tuple(categorical), functional_form=form,
         weight_col="weight" if weighted else None, price_col="price_clean")
     try:
-        import warnings
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
             fit = hedonic.fit_hedonic(panel, spec, stability_window=int(window), cv_folds=5)
@@ -169,6 +169,23 @@ def _fit_hedonic_section(clean: pd.DataFrame) -> hedonic.HedonicResult | None:
         return None
     fit.data_vintage = dict(st.session_state.get("characteristics_vintage", {}))
     st.session_state["hedonic_fit"] = fit
+    # Per-period fits, for the characteristics-price index and the
+    # imputation variant; periods too thin to fit are named in the
+    # panel's warnings rather than fitted badly.
+    try:
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            hedonic_panel = hedonic.fit_by_period(panel, spec)
+        for period_fit in hedonic_panel.fits.values():
+            period_fit.data_vintage = fit.data_vintage
+        st.session_state["hedonic_panel"] = hedonic_panel
+        st.session_state["hedonic_panel_bundles"] = {
+            pd.Timestamp(p): g[[*continuous, *categorical]]
+            for p, g in panel.groupby(pd.to_datetime(panel["period"]))}
+    except hedonic.HedonicError as exc:
+        st.session_state["hedonic_panel"] = None
+        st.caption(f"Per-period fits not available ({exc}); the imputation variant and the "
+                   "characteristics-price index need them.")
     common.record(audit.CONFIGURATION_CHANGE, "hedonic fit", {
         "characteristics_vintage": fit.data_vintage,
         "functional_form": form, "characteristics": continuous, "categorical": categorical,
@@ -204,6 +221,24 @@ def _show_hedonic_diagnostics(fit: hedonic.HedonicResult) -> None:
             "time dummy index": fit.time_dummy_index(),
             "bias corrected": fit.time_dummy_index(bias_corrected=True)}).round(3),
             use_container_width=True)
+    hedonic_panel = st.session_state.get("hedonic_panel")
+    bundles = st.session_state.get("hedonic_panel_bundles") or {}
+    if hedonic_panel is not None and bundles:
+        with st.expander("Characteristics-price index from the per-period fits"):
+            st.caption("A fixed bundle of characteristics priced at each period's own "
+                       "coefficients: Laspeyres-type (the first period's bundle), "
+                       "Paasche-type (each period's own bundle) and the Fisher-type mean.")
+            base = min(bundles)
+            try:
+                table = hedonic_panel.characteristics_price_index(
+                    bundles[base], base_period=base, current_bundles=bundles)
+                st.dataframe(table.round(3), use_container_width=True)
+            except hedonic.HedonicError as exc:
+                st.caption(str(exc))
+            skipped = [w for w in hedonic_panel.fits[min(hedonic_panel.fits)].warnings
+                       if w.startswith("periods not fitted")]
+            for w in skipped:
+                st.caption(w)
 
 
 def _valuation_form(res: dict[str, Any], clean: pd.DataFrame, fit: hedonic.HedonicResult | None
@@ -301,11 +336,31 @@ def _valuation_form(res: dict[str, Any], clean: pd.DataFrame, fit: hedonic.Hedon
             if old_item not in by_item.index or new_item not in by_item.index:
                 st.warning("Both items need a row in the characteristics file.")
                 return None
+            variant = st.radio(
+                "Hedonic variant",
+                ["characteristics price (pooled coefficients)",
+                 "imputation (per-period fits, double imputation)"],
+                horizontal=True,
+                help="Characteristics price values the difference between the two bundles at "
+                     "the pooled coefficients. Imputation predicts the old item's price in the "
+                     "link period from that period's own regression, and in the period before "
+                     "from its regression, and takes the ratio as the pure price change.")
+            if variant.startswith("imputation"):
+                hedonic_panel = st.session_state.get("hedonic_panel")
+                if hedonic_panel is None:
+                    st.warning("The per-period fits are not available for this model.")
+                    return None
+                if not len(old_before):
+                    st.warning("Imputation needs the old item priced in the period before the link.")
+                    return None
+                return hedonic.hedonic_imputation_adjustment(
+                    hedonic_panel, old_item, new_item, category, old_before.index[-1], period,
+                    old_price, new_price, by_item.loc[old_item].to_dict(), double=True,
+                    **common_kwargs)
             return hedonic.hedonic_adjustment(
                 fit, old_item, new_item, category, period, old_price, new_price,
                 by_item.loc[old_item].to_dict(), by_item.loc[new_item].to_dict(), **common_kwargs)
         if method == "link_to_show_no_change":
-            import warnings
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 adj = qa.link_to_show_no_change(old_item, new_item, category, period, old_price,

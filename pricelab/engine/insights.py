@@ -461,7 +461,7 @@ def method_findings(imputed: pd.DataFrame, I: pd.DataFrame, cfg: RunConfig) -> l
             evidence=f"{len(impossible)} of {len(drift)} categories have no surviving item",
             kind="method", importance=77, table=drift.reset_index(names="Category"),
             action="Accept chaining and monitor drift where the category is strongly seasonal."))
-    else:
+    elif drift["drift_pp"].notna().any():
         # idxmax() types as generically Hashable, since pandas cannot know a
         # DataFrame's index dtype ahead of time; drift's index is always the
         # category names chain_drift built it from, i.e. always str.

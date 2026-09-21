@@ -153,7 +153,7 @@ def build_stamp(
     such.
     """
     from .. import __version__
-    from ..engine.custom import is_non_standard
+    from ..engine.custom import is_non_standard, non_standard_expression
     from ..engine.index import resolve_index_reference_period
     from .registry import _environment_fingerprint
 
@@ -195,7 +195,8 @@ def build_stamp(
         parameters=json.loads(config.to_json()),
         suppression_rules=suppression_rules(),
         non_standard_formula=is_non_standard(config.index),
-        non_standard_expression=config.index.custom_formula if is_non_standard(config.index) else None,
+        non_standard_expression=(non_standard_expression(config.index)
+                                 if is_non_standard(config.index) else None),
         quality_adjustments=len(config.quality_adjustment.entries),
         headline=head,
         generated_at=datetime.now(UTC).isoformat(timespec="seconds"),

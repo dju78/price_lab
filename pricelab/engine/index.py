@@ -18,7 +18,7 @@ Matching is applied before any formula: only items priced in both periods enter
 the comparison, so item replacement cannot be mistaken for price change.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import cast, overload
 
 import numpy as np
@@ -337,14 +337,34 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
     return out
 
 
-def build_all(df: pd.DataFrame, cfg: IndexConfig | None = None,
-              price_col: str = "price_imputed", group: str = "category"
-              ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Index per group, plus an equally weighted aggregate.
+def category_weights(df: pd.DataFrame, group: str = "category") -> dict[str, float] | None:
+    """Expenditure weight per group from the panel's `weight` column: each
+    item's weight (its mean over the periods it carries one) summed over
+    the group. None when the panel has no usable weights, which is what
+    makes the aggregate fall back to equal weighting."""
+    if "weight" not in df.columns or not df["weight"].notna().any():
+        return None
+    per_item = df.dropna(subset=["weight"]).groupby([group, "item_id"])["weight"].mean()
+    per_group = per_item.groupby(level=0).sum()
+    weights = {str(k): float(v) for k, v in per_group.items() if np.isfinite(v) and v > 0}
+    return weights or None
 
-    The aggregate is a geometric mean of the group indices. With no expenditure
-    weights supplied this is indicative only, and the library says so rather
-    than implying an authority it does not have.
+
+def build_all(df: pd.DataFrame, cfg: IndexConfig | None = None,
+              price_col: str = "price_imputed", group: str = "category",
+              parent_of: Mapping[str, str | None] | None = None,
+              ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Index per group, plus the aggregate.
+
+    The aggregate is the equally weighted geometric mean of the group
+    indices when the panel carries no expenditure weights -- indicative
+    only, and the library says so rather than implying an authority it
+    does not have. With a `weight` column it is the weighted arithmetic
+    mean (`engine.aggregation.weighted_aggregate`, whose contributions add
+    up exactly), and with `parent_of` -- a classification tree the groups
+    are codes in -- every parent node is rolled up too and the root is the
+    aggregate. An analyst-defined aggregate formula, when configured,
+    replaces the standard aggregate and marks the run non-standard.
     """
     cfg = cfg or IndexConfig()
     idx: dict[str, pd.Series] = {}
@@ -361,12 +381,28 @@ def build_all(df: pd.DataFrame, cfg: IndexConfig | None = None,
     I = pd.DataFrame(idx)
     M = pd.DataFrame(matched)
     if len(I.columns) > 1:
-        # Migrated to engine.aggregation, which is where the weighted
-        # roll-up now lives too; imported here rather than at module level
-        # because aggregation imports data.classification for the
-        # weight-hierarchy rule, and this module is imported by data/.
-        from .aggregation import equally_weighted_aggregate
-        I["All items"] = equally_weighted_aggregate(I)
+        # Imported here rather than at module level because aggregation
+        # imports data.classification for the weight-hierarchy rule, and
+        # this module is imported by data/.
+        from .aggregation import aggregate_tree, equally_weighted_aggregate, weighted_aggregate
+
+        weights = category_weights(df, group)
+        if weights is not None and parent_of is not None and all(c in parent_of for c in I.columns):
+            rolled = aggregate_tree(I, weights, parent_of)
+            for node in rolled.indices.columns:
+                if node not in I.columns:
+                    I[node] = rolled.indices[node]
+            roots = [n for n, p in parent_of.items() if p is None and n in I.columns]
+            I["All items"] = (I[roots[0]] if len(roots) == 1
+                              else weighted_aggregate(I[roots], {r: float(rolled.weights.get(r, 0.0))
+                                                                 for r in roots}))
+        elif weights is not None:
+            I["All items"] = weighted_aggregate(I, weights)
+        else:
+            I["All items"] = equally_weighted_aggregate(I)
+        if cfg.custom_aggregate_formula:
+            from .custom import evaluate_aggregate
+            I["All items"] = evaluate_aggregate(cfg.custom_aggregate_formula, I)
     return I, M
 
 

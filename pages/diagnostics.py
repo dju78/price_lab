@@ -38,10 +38,17 @@ def render() -> None:
     st.dataframe(dg.method_sensitivity(imputed, cfg.index), use_container_width=True)
 
     st.markdown("**Chain drift**")
-    st.caption("The chained level against the direct fixed-base level at the final period. "
-               "A large gap in a seasonal series is the classic warning that chaining is "
-               "accumulating drift rather than measuring price change.")
-    st.dataframe(dg.chain_drift(imputed, cfg.index), use_container_width=True)
+    st.caption("The chained level against the direct fixed-base level over the same span, "
+               "both rebased to the first period. A large gap in a seasonal series is the "
+               "classic warning that chaining is accumulating drift rather than measuring "
+               f"price change. Flagged above {cfg.index.chain_drift_threshold_pp:g} index "
+               "points (engine/splicing.py).")
+    drift = dg.chain_drift(imputed, cfg.index)
+    flagged = drift[drift["exceeds_threshold"]]
+    if len(flagged):
+        st.warning(f"{len(flagged)} series exceed the drift threshold: "
+                   + ", ".join(str(i) for i in flagged.index[:8]))
+    st.dataframe(drift, use_container_width=True)
 
     st.markdown("**Matched vs. naive comparison**")
     st.caption("The matched index against a naive average of prices. The gap is the effect "

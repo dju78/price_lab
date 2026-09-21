@@ -209,3 +209,36 @@ def load_user_defined_tree(
         inserted += 1
     session.flush()
     return inserted
+
+
+def parent_map_for(categories: Iterable[str]) -> dict[str, str | None] | None:
+    """The classification tree's parent map, when every one of `categories`
+    is a code in the tree -- what `engine.index.build_all` needs to roll a
+    weighted collection up through the tree. None when the categories are
+    not tree codes (plain labels, or a code the tree lacks) or when no
+    database is reachable, so a library caller without one is unaffected.
+    """
+    from ..core import db
+
+    wanted = {str(c) for c in categories}
+    try:
+        with db.session_scope() as s:
+            nodes = s.query(ClassificationNodeORM).all()
+            mapping = parent_map(nodes)
+    except Exception:  # noqa: BLE001 -- no database is an ordinary library situation
+        return None
+    if not wanted or not wanted <= set(mapping):
+        return None
+    # Keep the ancestors of the categories only, so the roll-up produces
+    # the nodes above this collection and not the whole scheme.
+    keep: dict[str, str | None] = {}
+    stack = list(wanted)
+    while stack:
+        code = stack.pop()
+        if code in keep:
+            continue
+        parent = mapping.get(code)
+        keep[code] = parent
+        if parent is not None:
+            stack.append(parent)
+    return keep

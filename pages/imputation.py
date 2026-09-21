@@ -11,6 +11,7 @@ import streamlit as st
 from pricelab.core import audit
 from pricelab.core.models import Role
 from pricelab.core.security import require_role, safe_csv
+from pricelab.engine.imputation import imputation_summary, response_rates
 
 from . import common
 
@@ -37,6 +38,19 @@ def render() -> None:
         {"category": categories,
          "method": [by_cat.get(c, cfg.imputation.default_method) for c in categories]},
         hide_index=True, use_container_width=True)
+
+    st.markdown("**Response rates**")
+    st.caption("Observed, imputed and still-missing counts per category and period, with "
+               "the share of each cell that is model output rather than collection. An "
+               "index resting on three observed prices and seven imputed ones is a weaker "
+               "claim than one resting on ten observed, and nothing in the level says so.")
+    rates = response_rates(imputed).reset_index()
+    rates[["response_rate", "imputed_share"]] = rates[["response_rate", "imputed_share"]].round(3)
+    st.dataframe(rates, use_container_width=True, hide_index=True, height=280)
+    summary = imputation_summary(imputed)
+    if len(summary):
+        st.markdown("**Values filled, by method**")
+        st.dataframe(summary.reset_index().round(4), use_container_width=True, hide_index=True)
 
     filled = imputed.loc[imputed["imputation"] != "",
                          ["period", "category", "item_id", "item_name", "price_clean",

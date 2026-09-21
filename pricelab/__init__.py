@@ -8,6 +8,14 @@ import time
 
 from .core.config import ImputationConfig, IndexConfig, QualityConfig, RunConfig, Schema
 from .core.logging import get_logger, run_context
+from .core.models import (
+    IMPUTATION_COLUMNS,
+    QUALITY_FLAG_COLUMNS,
+    ImputationRecord,
+    QualityFlag,
+    validate_frame,
+)
+from .data.classification import parent_map_for
 from .data.upload import ValidationReport, read_price_data, standardise, validate
 from .engine import diagnostics
 from .engine.imputation import run_imputation
@@ -28,6 +36,16 @@ from .engine.quality_adjustment import apply_adjustments, impact_report
 
 __version__ = "0.1.0"
 log = get_logger("pricelab.pipeline")
+
+
+def _assert_contract(frame, columns, model, producer: str) -> None:
+    """The stage's output against its declared column contract
+    (core.models): an engine stage that stopped producing a column, or
+    produced it with the wrong type, fails here with the stage named,
+    rather than as a KeyError three stages later."""
+    problems = validate_frame(frame, columns, model)
+    if problems:
+        raise RuntimeError(f"{producer} broke its output contract: " + "; ".join(problems))
 
 
 def run_pipeline(df, config: RunConfig = None, *, compute_impact: bool = True):
@@ -56,6 +74,7 @@ def run_pipeline(df, config: RunConfig = None, *, compute_impact: bool = True):
             return {"validation": report, "config": config, "correlation_id": correlation_id}
 
         clean, quality = run_quality(df, config.quality)
+        _assert_contract(clean, QUALITY_FLAG_COLUMNS, QualityFlag, "engine.quality.run_quality")
         log.info("pipeline.quality", extra={"scale_errors_detected": quality["scale_errors_detected"],
                                             "scale_errors_repaired": quality["scale_errors_repaired"]})
         # Approved replacements are linked onto the old item's series here,
@@ -66,8 +85,15 @@ def run_pipeline(df, config: RunConfig = None, *, compute_impact: bool = True):
         # downstream of it.
         clean, link_log = apply_adjustments(clean, config.quality_adjustment.entries)
         imputed = run_imputation(clean, config.imputation)
+        _assert_contract(imputed, IMPUTATION_COLUMNS, ImputationRecord, "engine.imputation.run_imputation")
         log.info("pipeline.imputation", extra={"imputed_values": int((imputed["imputation"] != "").sum())})
-        indices, matched = build_all(imputed, config.index)
+        # A weighted collection whose categories are classification codes
+        # rolls up through the tree; the parent map comes from the
+        # classification table, or is None (flat weighted aggregate) when the
+        # categories are labels or no database is reachable.
+        parent_of = (parent_map_for(imputed["category"].astype(str).unique())
+                     if "weight" in imputed.columns and imputed["weight"].notna().any() else None)
+        indices, matched = build_all(imputed, config.index, parent_of=parent_of)
         log.info("pipeline.index", extra={"periods": int(len(indices)), "series": int(len(indices.columns)),
                                           "elapsed_ms": round((time.monotonic() - started) * 1000)})
 

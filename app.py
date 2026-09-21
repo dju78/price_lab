@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+import pages.audit_log
 import pages.diagnostics
 import pages.findings
 import pages.imputation
@@ -26,6 +27,7 @@ import pages.ingest
 import pages.quality
 import pages.quality_adjustment
 import pages.reports
+import pages.sources
 from pages import common
 from pricelab.core import audit, db
 from pricelab.core.logging import configure_logging
@@ -167,6 +169,8 @@ _PAGE_SPECS = [
     (pages.findings.render, "Findings", "🗒️", "findings"),
     (pages.diagnostics.render, "Diagnostics", "🔎", "diagnostics"),
     (pages.reports.render, "Reports", "📤", "reports"),
+    (pages.sources.render, "Sources", "🌐", "sources"),
+    (pages.audit_log.render, "Audit", "🔏", "audit"),
 ]
 
 

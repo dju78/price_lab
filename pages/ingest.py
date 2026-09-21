@@ -11,8 +11,6 @@ and forgotten.
 
 from __future__ import annotations
 
-import io
-
 import pandas as pd
 import streamlit as st
 
@@ -31,10 +29,11 @@ from pricelab.core.config import QualityAdjustmentConfig, get_settings
 from pricelab.core.models import Role
 from pricelab.core.ratelimit import RateLimited, upload_limiter
 from pricelab.core.security import FormulaError, require_role
-from pricelab.data import mapping, store, validation
+from pricelab.data import classification, loaders, mapping, store, validation
 from pricelab.engine.custom import (
     ELEMENTARY_VARIABLES,
     custom_formula_parameters,
+    validate_aggregate_formula,
     validate_elementary_formula,
 )
 
@@ -44,7 +43,7 @@ from . import common
 #: below; also enforced explicitly in `validate_upload` because the widget's
 #: own `type=` restriction is a client-side filter on the picker dialog, not
 #: a guarantee about what the server actually receives.
-ALLOWED_UPLOAD_EXTENSIONS = (".xlsx", ".xlsm", ".csv")
+ALLOWED_UPLOAD_EXTENSIONS = (".xlsx", ".xlsm", ".xls", ".csv", ".parquet", ".json")
 
 
 def validate_upload(name: str, size_bytes: int, max_mb: float) -> str | None:
@@ -68,18 +67,30 @@ def validate_upload(name: str, size_bytes: int, max_mb: float) -> str | None:
 
 
 @st.cache_data(show_spinner=False)
-def _read_upload(file_bytes: bytes, name: str, sheet: object) -> pd.DataFrame:
-    buf = io.BytesIO(file_bytes)
-    if name.lower().endswith((".xlsx", ".xlsm", ".xls")):
-        return pd.read_excel(buf, sheet_name=sheet)
-    return pd.read_csv(buf)
+def _read_upload(file_bytes: bytes, name: str, sheet: object, max_mb: float) -> loaders.LoadResult:
+    """`data.loaders.read_upload`: format dispatch (CSV, Excel, Parquet,
+    JSON), encoding and delimiter detection, header-row inference, and
+    the memory-footprint cap enforced before and during the read. What
+    it detected is shown beside the preview, because a wrong delimiter
+    guess is something the analyst can see and a silent one is not."""
+    return loaders.read_upload(file_bytes, name, sheet_name=sheet if sheet is not None else 0,
+                               max_mb=max_mb)
 
 
 @st.cache_data(show_spinner=False)
 def _sheet_names(file_bytes: bytes, name: str) -> list[str] | None:
-    if not name.lower().endswith((".xlsx", ".xlsm", ".xls")):
-        return None
-    return pd.ExcelFile(io.BytesIO(file_bytes)).sheet_names
+    return loaders.list_sheets(file_bytes, name)
+
+
+def classification_codes_for(categories: list[str]) -> list[str] | None:
+    """The classification tree's codes, when this collection's categories
+    are codes in it -- the conformity check only makes sense against a
+    scheme the collection is actually coded to, and a collection of plain
+    labels ("Bread") would otherwise fail conformity wholesale."""
+    with db.session_scope() as s:
+        codes = [str(n.code) for n in s.query(classification.ClassificationNodeORM).all()]
+    known = set(codes)
+    return codes if any(c in known for c in categories) else None
 
 
 def _landing() -> None:
@@ -111,10 +122,11 @@ def _landing() -> None:
     st.divider()
     st.markdown("#### What your file needs")
     st.markdown("One row per item per period, with columns for the period, an item "
-                "identifier, a category and a price. Excel or CSV. Columns are detected "
-                "automatically and you can correct the mapping if it guesses wrong. An "
-                "optional expenditure weight column turns the aggregate into a weighted "
-                "index.")
+                "identifier, a category and a price. Excel, CSV, Parquet or JSON; encoding, "
+                "delimiter and a title row above the header are detected. Columns are "
+                "detected automatically and you can correct the mapping if it guesses wrong. "
+                "An optional expenditure weight column turns the aggregate into a weighted "
+                "index with contributions.")
     st.dataframe(pd.DataFrame({
         "Date": ["2015-01-01", "2015-01-01", "2015-02-01"],
         "Category": ["Bread", "Bread", "Bread"],
@@ -135,7 +147,7 @@ def render() -> None:
         st.session_state.uploader_key = 0
 
     upload = st.file_uploader(
-        "Price collection", type=["xlsx", "xlsm", "csv"],
+        "Price collection", type=["xlsx", "xlsm", "xls", "csv", "parquet", "json"],
         key=f"uploader_{st.session_state.uploader_key}")
 
     if upload is not None and st.button("Clear data"):
@@ -173,7 +185,23 @@ def render() -> None:
 
     sheets = _sheet_names(file_bytes, upload.name)
     sheet = st.selectbox("Worksheet", sheets) if sheets else 0
-    raw = _read_upload(file_bytes, upload.name, sheet)
+    try:
+        loaded = _read_upload(file_bytes, upload.name, sheet, settings.upload_max_mb)
+    except loaders.MemoryFootprintError as exc:
+        st.error(f"Upload refused before it was read: {exc}")
+        return
+    except loaders.LoaderError as exc:
+        st.error(f"The file could not be read: {exc}")
+        return
+    raw = loaded.df
+    detected = [f"{len(raw):,} rows"]
+    if loaded.encoding:
+        detected.append(f"encoding {loaded.encoding}")
+    if loaded.delimiter:
+        detected.append(f"delimiter {loaded.delimiter!r}")
+    if loaded.header_row:
+        detected.append(f"header found on row {loaded.header_row + 1} (rows above it skipped)")
+    st.caption("Read: " + ", ".join(detected) + ".")
 
     file_hash = mapping.file_hash_of(file_bytes)
     confirm_key = f"mapping_confirmed_{file_hash}"
@@ -238,7 +266,9 @@ def render() -> None:
         common.record(audit.DATA_LOAD, upload.name, {
             "content_hash": content_hash, "file_sha256": vintage.file_sha256,
             "raw_path": vintage.raw_path, "rows": len(df), "kind": "prices"})
-    assessment = validation.assess(df, reference_date=pd.Timestamp.now())
+    assessment = validation.assess(
+        df, classification_codes=classification_codes_for(list(df["category"].astype(str).unique())),
+        reference_date=pd.Timestamp.now())
     with db.session_scope() as s:
         already_overridden = {
             o.dimension for o in
@@ -273,6 +303,16 @@ def render() -> None:
                    "finding above.")
         st.dataframe(raw.head(20), use_container_width=True)
         return
+
+    # Every finding the validation engine produced, blocking or not: a
+    # high completeness or conformity finding is the analyst's to weigh,
+    # and one that is never shown cannot be weighed.
+    non_critical = [f for f in assessment.findings if f.severity != validation.Severity.CRITICAL]
+    if non_critical:
+        with st.expander(f"Validation findings ({len(non_critical)})", expanded=False):
+            for finding in non_critical:
+                (st.warning if finding.severity == validation.Severity.HIGH else st.caption)(
+                    f"{finding.dimension} ({finding.severity}): {finding.message}")
 
     common.record(audit.DATA_LOAD, upload.name, {
         "rows": structural.facts.get("rows"), "categories": structural.facts.get("categories"),
@@ -327,6 +367,54 @@ def render() -> None:
                     "report and every data export.")
 
         chained = st.radio("Chaining", ["Chained", "Fixed base"], horizontal=True) == "Chained"
+
+        # The three reference periods a price index actually has, chosen
+        # from the periods the data contains. Defaults reproduce the
+        # engine's own: first period for the price reference, the price
+        # reference for the index reference, no weight reference.
+        periods = [pd.Timestamp(p) for p in sorted(df["period"].unique())]
+        period_labels = ["default"] + [f"{p:%Y-%m-%d}" for p in periods]
+        st.markdown("**Reference periods**")
+        price_ref = "default"
+        if not chained:
+            price_ref = st.selectbox(
+                "Price reference period (denominator of every relative)", period_labels,
+                help="Fixed base only: every period is compared with this one.")
+        index_ref = st.selectbox(
+            "Index reference period (the series reads 100 here)", period_labels,
+            help="A presentational rebasing of the finished series; defaults to the price "
+                 "reference period.")
+        weight_ref = "default"
+        has_weights = "weight" in df.columns and df["weight"].notna().any()
+        if has_weights:
+            weight_ref = st.selectbox(
+                "Weight reference period (where the expenditure weights come from)",
+                period_labels,
+                help="Deliberately earlier than the price reference for a Lowe or Young "
+                     "index; the price-updating effect is reported on Index build.")
+
+        # The aggregate escape hatch: an expression over the category
+        # index levels, same whitelist walker, same non-standard mark.
+        aggregate_expression: str | None = None
+        categories = sorted(df["category"].astype(str).unique())
+        if len(categories) > 1:
+            aggregate_expression = st.text_input(
+                "Custom aggregate formula (optional)", value="",
+                help="An expression over the category index levels of the same period, e.g. "
+                     "(bread + milk) / 2, with all_items for the standard aggregate. Names are "
+                     "the category labels in lower case with spaces as underscores. Leave blank "
+                     "for the standard aggregate.") or None
+            if aggregate_expression:
+                try:
+                    validate_aggregate_formula(
+                        aggregate_expression, pd.Index([*categories, "All items"]))
+                except FormulaError as exc:
+                    custom_error = str(exc)
+                    st.error(f"That aggregate formula cannot be used: {exc}")
+                else:
+                    st.caption("The aggregate will be analyst-defined and the run marked "
+                               "non-standard in every export.")
+
         by_cat = dict(auto_cfg.imputation.by_category)
         if by_cat:
             st.markdown("**Imputation**")
@@ -352,6 +440,10 @@ def render() -> None:
                               scale_log10_high=hi, repair_scale_errors=do_repair),
         imputation=ImputationConfig(default_method="none", by_category=by_cat),
         index=IndexConfig(formula=formula, custom_formula=custom_expression, chained=chained,
+                          custom_aggregate_formula=aggregate_expression,
+                          price_reference_period=None if price_ref == "default" else price_ref,
+                          index_reference_period=None if index_ref == "default" else index_ref,
+                          weight_reference_period=None if weight_ref == "default" else weight_ref,
                           min_matched_items=auto_cfg.index.min_matched_items),
         quality_adjustment=QualityAdjustmentConfig(entries=approved),
         label=label)

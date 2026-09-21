@@ -93,8 +93,19 @@ class IndexConfig(BaseModel):
     export (`engine.custom.is_non_standard`), because a reader cannot
     otherwise tell that the number in front of them came from a formula
     the analyst wrote rather than one the profession recognises."""
+    custom_aggregate_formula: str | None = None
+    """An analyst-defined expression for the all-items aggregate over the
+    category index levels of the same period (names are the sanitised
+    category labels, plus `all_items` for the standard aggregate), e.g.
+    `(bread + milk) / 2` or `all_items - 0.1 * energy`. Evaluated by the
+    same whitelist walker as `custom_formula`; a run using one is marked
+    non-standard everywhere, exactly as an elementary custom formula is.
+    Independent of `formula`: a Jevons run may still define its aggregate."""
     chained: bool = True
     """Chain period-on-period links rather than compare every period to one fixed base."""
+    chain_drift_threshold_pp: float = 1.0
+    """Index points of chained-versus-direct gap above which the chain
+    drift diagnostic flags a series (`engine.splicing.chain_drift`)."""
 
     base_period: str | None = None
     """Deprecated alias carried for backward compatibility only: a config
@@ -150,6 +161,20 @@ class IndexConfig(BaseModel):
                 f'custom_formula is set but formula is "{self.formula}", so the custom '
                 'expression would be silently ignored. Set formula="custom" to use it, or '
                 "clear custom_formula.")
+        if self.custom_aggregate_formula is not None and not self.custom_aggregate_formula.strip():
+            raise ValueError("custom_aggregate_formula is set but empty; clear it or write an expression")
+        if self.custom_aggregate_formula:
+            from .security import FormulaError, validate_formula_syntax
+
+            try:
+                # Names are the run's own category labels, unknown until the
+                # data is loaded; the interface checks them against the
+                # actual columns. Syntax and construct whitelist are checked
+                # here so a saved config with a rejected construct never loads.
+                validate_formula_syntax(self.custom_aggregate_formula)
+            except FormulaError as exc:
+                raise ValueError(
+                    f"custom_aggregate_formula is not a permitted expression: {exc}") from exc
         if self.custom_formula:
             # Imported inside the validator, not at module scope: the
             # variable names a custom formula may use are derived from the

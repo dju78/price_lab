@@ -29,7 +29,7 @@ INDEX_FORMULAS = ["jevons", "dutot", "carli", "laspeyres", "custom"]
 
 LIFECYCLE_STAGES = (
     "Ingest", "Quality", "Imputation", "Quality adjustment", "Index build", "Findings",
-    "Diagnostics", "Reports")
+    "Diagnostics", "Reports", "Audit")
 
 
 def current_username() -> str:
@@ -136,6 +136,7 @@ def workflow_progress() -> None:
         "Findings": computed,
         "Diagnostics": computed,
         "Reports": computed,
+        "Audit": True,
     }
     st.sidebar.markdown("**Workflow**")
     lines = [f"{'✅' if reached[stage] else '▫️'} {stage}" for stage in LIFECYCLE_STAGES]

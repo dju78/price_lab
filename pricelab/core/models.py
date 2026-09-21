@@ -1,7 +1,8 @@
-"""Domain schemas for the objects this codebase actually has: a row of the
-price panel, a flagged or imputed observation, an item's lifespan, a
-classification node, an index level, a registered run, an audit event, a
-user.
+"""Domain schemas for the DataFrame boundaries this codebase actually
+checks: a row of the price panel, a flagged observation, an imputed
+observation. (Pydantic mirrors of the ORM rows and of shapes nothing ever
+instantiated were removed in the Phase 10.5 wiring audit; the ORM classes
+in core/ and data/ are the record of those shapes.)
 
 These validate shape at a boundary; they do not replace the DataFrames the
 engine computes over. Converting a multi-year monthly panel into one pydantic
@@ -22,7 +23,7 @@ from enum import StrEnum
 from typing import Any
 
 import pandas as pd
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 
 
 class Role(StrEnum):
@@ -36,26 +37,21 @@ class Role(StrEnum):
     VIEWER = "viewer"
 
 
-class User(BaseModel):
-    """A login identity. `password_hash` is never the plain password; see
-    core/security.py for hashing."""
-
-    id: int | None = None
-    username: str
-    password_hash: str
-    role: Role
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
 
 class PriceQuote(BaseModel):
     """One row of the canonical price panel, after `data.upload.standardise`."""
 
     period: datetime
     """The observation period."""
-    category: str
-    """Classification group the item belongs to."""
-    item_id: str
-    """Stable identifier for the priced item."""
+    category: str | None = None
+    """Classification group the item belongs to. Optional at the row level
+    because completeness is a *graded* validation finding
+    (`data.validation`: a minority of nulls is high, a majority critical),
+    not a type error; this contract checks shape and type, and the column
+    itself is required."""
+    item_id: str | None = None
+    """Stable identifier for the priced item; optional here for the same
+    reason as `category`."""
     item_name: str | None = None
     """Human-readable item label."""
     price_reported: float | None = None
@@ -89,94 +85,17 @@ class ImputationRecord(BaseModel):
     period: datetime
     item_id: str
     category: str
-    method: str
-    """none | carry_forward | class_mean | seasonal_hold."""
-    price_imputed: float
-    """The price actually used downstream, after imputation."""
+    imputation: str
+    """"" (observed) | carry_forward | class_mean | seasonal_hold |
+    targeted_mean | overall_mean."""
+    price_imputed: float | None = None
+    """The price actually used downstream, after imputation; None where
+    the gap was left unfilled."""
 
 
-class ItemSeries(BaseModel):
-    """One item's lifespan summary, as `engine.diagnostics.churn` produces."""
-
-    category: str
-    item_id: str
-    item_name: str | None = None
-    first: datetime
-    last: datetime
-    periods: int = Field(ge=1)
-    entry_price: float | None = None
-    exit_price: float | None = None
 
 
-class ClassificationNode(BaseModel):
-    """One node of a classification tree (COICOP, CPA, HS, or a custom tree)."""
 
-    code: str
-    label: str
-    level: int = Field(ge=0, description="0 for a root division, increasing with depth")
-    parent_code: str | None = None
-    scheme: str = "COICOP2018"
-
-
-class IndexSeries(BaseModel):
-    """One period's level for one series, as `engine.index.build_index` and
-    `build_all` produce."""
-
-    period: datetime
-    series: str
-    """The category name, or "All items" for the aggregate."""
-    index: float | None = None
-    matched_items: float | None = None
-    """NaN for the base period, which has no prior period to match against."""
-    insufficient_match: bool = False
-
-    price_reference_period: datetime | None = None
-    """The period whose prices are the denominator of every relative in this
-    series. Carried alongside the series for display and audit; does not
-    change how any row above was computed."""
-    weight_reference_period: datetime | None = None
-    """The period the weights or quantities were drawn from. Not read by any
-    formula implemented yet (Lowe and Young are Phase 3); carried so a
-    future reader knows what a run intended even before that lands."""
-    index_reference_period: datetime | None = None
-    """The period this series is rebased to read `base_value` at."""
-
-
-class IndexRun(BaseModel):
-    """Registry entry for one calculation run; see core/registry.py."""
-
-    run_id: str
-    content_hash: str
-    """Hash of the input data plus the full parameter set."""
-    config_json: str
-    code_version: str
-    environment_fingerprint: str
-    label: str
-    created_at: datetime
-    approved: bool = False
-    vintage: int = Field(default=1, ge=1)
-    correction_reason: str | None = None
-
-    price_reference_period: str | None = None
-    weight_reference_period: str | None = None
-    index_reference_period: str | None = None
-    """The three reference periods `IndexConfig` recorded for this run, as
-    ISO date strings exactly as configured (possibly None, if the run never
-    set them and relied on the engine's own default). See
-    `core.config.IndexConfig` for what each means."""
-
-
-class AuditEvent(BaseModel):
-    """One entry of the append-only audit log; see core/audit.py."""
-
-    id: int | None = None
-    prev_hash: str
-    hash: str
-    actor: str
-    action: str
-    target: str
-    params_json: str
-    created_at: datetime
 
 
 # ---------------------------------------------------------------------
@@ -213,6 +132,14 @@ PRICE_QUOTE_COLUMNS = [
     ColumnSpec(name="weight", dtype_check=_is_numeric, required=False),
 ]
 
+IMPUTATION_COLUMNS = [
+    ColumnSpec(name="period", dtype_check=_is_datetime),
+    ColumnSpec(name="item_id", dtype_check=_is_text),
+    ColumnSpec(name="category", dtype_check=_is_text),
+    ColumnSpec(name="imputation", dtype_check=_is_text),
+    ColumnSpec(name="price_imputed", dtype_check=_is_numeric),
+]
+
 QUALITY_FLAG_COLUMNS = [
     ColumnSpec(name="period", dtype_check=_is_datetime),
     ColumnSpec(name="item_id", dtype_check=_is_text),
@@ -220,6 +147,13 @@ QUALITY_FLAG_COLUMNS = [
     ColumnSpec(name="flag", dtype_check=_is_text),
     ColumnSpec(name="price", dtype_check=_is_numeric, required=False),
 ]
+
+
+def _is_missing(value: Any) -> bool:
+    try:
+        return bool(pd.isna(value)) if not isinstance(value, (list, dict, tuple)) else False
+    except (TypeError, ValueError):
+        return False
 
 
 def validate_frame(
@@ -257,8 +191,11 @@ def validate_frame(
     # check that would only ever prove pandas' own construction correct.
     records: list[dict[Hashable, Any]] = df.head(sample).to_dict(orient="records")
     for row in records:
+        # pandas writes a missing string as NaN (a float); to the row model
+        # that is "absent", which is what None says.
+        cleaned = {k: (None if _is_missing(v) else v) for k, v in row.items()}
         try:
-            model.model_validate(row)
+            model.model_validate(cleaned)
         except ValidationError as exc:
             problems.append(f"a sampled row failed {model.__name__} validation: {exc}")
             break

@@ -24,7 +24,7 @@ from pricelab import build_all_charts, build_deck, build_docx, build_markdown, m
 from pricelab.core import audit, db
 from pricelab.core.models import Role
 from pricelab.core.provenance import build_stamp
-from pricelab.core.registry import IndexRunORM, approve_run, register_run
+from pricelab.core.registry import IndexRunORM, approve_run, correct_run, register_run
 from pricelab.core.security import current_role
 from pricelab.engine.custom import non_standard_notice
 from pricelab.reporting import bulletin, excel, exports
@@ -159,6 +159,39 @@ def render() -> None:
                         approve_run(s, run_id)
                     common.record(audit.CALCULATION_RUN, label, {"approved": run_id})
                     st.success(f"Run {run_id} approved and now immutable.")
+                    st.rerun()
+
+        # A correction: this run registered as a new vintage of an approved
+        # one, with a reason, the original left untouched (core.registry.
+        # correct_run). The bulletin's revision statement reads this chain.
+        with db.session_scope() as s:
+            approved = s.query(IndexRunORM).filter_by(approved=True).order_by(
+                IndexRunORM.created_at.desc()).limit(50).all()
+            approved_options = {f"{r.label} — {r.run_id} (vintage {r.vintage})": r.run_id
+                                for r in approved}
+        if approved_options:
+            st.markdown("**Register as a correction**")
+            st.caption("An approved run cannot be edited. Registering the active run as a "
+                       "correction of one creates vintage n+1 with your reason; the superseded "
+                       "vintage stays on record and reproducible.")
+            target = st.selectbox("Approved run being corrected", list(approved_options))
+            reason = st.text_input("Reason for the correction (required)", key="correction_reason")
+            if st.button("Register correction", disabled=not reason.strip()):
+                try:
+                    with db.session_scope() as s:
+                        corrected = correct_run(
+                            s, approved_options[target], st.session_state["input_df"],
+                            res["config"], label, reason)
+                        new_id, new_vintage = corrected.run_id, corrected.vintage
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state["last_run_id"] = new_id
+                    common.record(audit.CALCULATION_RUN, label, {
+                        "correction_of": approved_options[target], "run_id": new_id,
+                        "vintage": new_vintage, "reason": reason})
+                    st.success(f"Registered as run {new_id}, vintage {new_vintage}, superseding "
+                               f"{approved_options[target]}.")
                     st.rerun()
 
     if "indices" in res:

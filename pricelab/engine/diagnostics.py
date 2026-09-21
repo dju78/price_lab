@@ -124,8 +124,25 @@ def chain_drift(df: pd.DataFrame, cfg: IndexConfig | None = None,
     accumulating drift rather than measuring price change.
     """
     cfg = cfg or IndexConfig()
+    from .splicing import chain_drift_table
+
     chained, _ = build_all(df, IndexConfig(**{**cfg.__dict__, "chained": True}), price_col)
     direct, _ = build_all(df, IndexConfig(**{**cfg.__dict__, "chained": False}), price_col)
-    out = pd.DataFrame({"chained": chained.iloc[-1], "fixed_base": direct.iloc[-1]})
-    out["drift_pp"] = out["chained"] - out["fixed_base"]
-    return out.round(2)
+    # The comparison itself is engine.splicing's: both series rebased to
+    # their first common period, the gap in points and as a share of the
+    # direct level, flagged against the run's configured threshold.
+    table = chain_drift_table(chained, direct, threshold_pp=cfg.chain_drift_threshold_pp)
+    out = pd.DataFrame({"chained": table["chained"], "fixed_base": table["direct"],
+                        "drift_pp": table["drift_pp"], "drift_pct": table["drift_pct"],
+                        "exceeds_threshold": table["exceeds_threshold"].astype(bool)})
+    # A series the diagnostic could not compare (a direct index that is
+    # all NaN because no item survives from the price reference to the
+    # end) stays in the table with a NaN fixed base: that absence is
+    # itself a finding the narrative reports, not a row to drop.
+    out = out.reindex(chained.columns)
+    out.index.name = None
+    numeric = ["chained", "fixed_base", "drift_pp", "drift_pct"]
+    out[numeric] = out[numeric].astype(float).round(2)
+    out["chained"] = out["chained"].fillna(chained.iloc[-1].round(2))
+    out["exceeds_threshold"] = out["exceeds_threshold"].fillna(False).astype(bool)
+    return out

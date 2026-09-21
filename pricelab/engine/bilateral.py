@@ -547,3 +547,46 @@ BILATERAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "lowe": ("qb",),
     "young": ("sb",),
 }
+
+
+def price_updating_from_panel(
+    df: pd.DataFrame, *, weight_reference: pd.Timestamp, price_reference: pd.Timestamp,
+    current: pd.Timestamp, price_col: str = "price_imputed", group: str = "category",
+) -> pd.DataFrame:
+    """Lowe against Young for each group of a price panel that carries a
+    `weight` column, with the difference attributed to price updating.
+
+    For each group: `p_b`, `p_0` and `p_t` are the items' prices at the
+    weight reference, price reference and current periods; `s_b` is each
+    item's weight at the weight reference period (its mean weight where
+    the panel repeats it). Items priced in all three periods enter. One
+    row per group with the Lowe and Young levels (base 100 at the price
+    reference), the gap in points, and the aggregate price change between
+    b and 0 that drives it; a group with too few items is reported with
+    NaN rather than dropped.
+    """
+    rows = {}
+    for key, d in df.groupby(group):
+        pivot = d.pivot_table(index="period", columns="item_id", values=price_col, aggfunc="first")
+        weights = d.dropna(subset=["weight"]).groupby("item_id")["weight"].mean()
+        if not {weight_reference, price_reference, current} <= set(pivot.index):
+            rows[str(key)] = {"lowe": np.nan, "young": np.nan, "difference_pp": np.nan,
+                              "weight_price_change": np.nan, "n_items": 0}
+            continue
+        pb = pd.Series(pivot.loc[weight_reference].to_numpy(dtype=float), index=pivot.columns)
+        p0 = pd.Series(pivot.loc[price_reference].to_numpy(dtype=float), index=pivot.columns)
+        pt = pd.Series(pivot.loc[current].to_numpy(dtype=float), index=pivot.columns)
+        shared = pivot.columns.intersection(weights.index)
+        usable = [i for i in shared if np.isfinite(pb[i]) and np.isfinite(p0[i]) and np.isfinite(pt[i])
+                  and pb[i] > 0 and p0[i] > 0 and pt[i] > 0 and weights[i] > 0]
+        if len(usable) < 2:
+            rows[str(key)] = {"lowe": np.nan, "young": np.nan, "difference_pp": np.nan,
+                              "weight_price_change": np.nan, "n_items": len(usable)}
+            continue
+        report = price_updating_effect(p0.loc[usable], pt.loc[usable], pb.loc[usable],
+                                       weights.loc[usable].astype(float))
+        rows[str(key)] = {"lowe": report.lowe * 100.0, "young": report.young * 100.0,
+                          "difference_pp": report.difference_pp,
+                          "weight_price_change": report.weight_price_change,
+                          "n_items": len(usable)}
+    return pd.DataFrame(rows).T

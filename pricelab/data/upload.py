@@ -39,13 +39,18 @@ class ValidationReport:
 
 
 def read_price_data(path: str, sheet_name: int | str = 0, schema: Schema | None = None) -> pd.DataFrame:
-    """Read CSV or Excel into the canonical long format."""
+    """Read a file (CSV, Excel, Parquet, JSON) into the canonical long
+    format, through the same `data.loaders.read_upload` the Ingest page
+    uses -- encoding and delimiter detection, header-row inference -- so
+    a notebook and the application read a file the same way."""
+    from pathlib import Path
+
+    from .loaders import read_upload
+
     schema = schema or Schema()
-    if str(path).lower().endswith((".xlsx", ".xlsm", ".xls")):
-        df = pd.read_excel(path, sheet_name=sheet_name)
-    else:
-        df = pd.read_csv(path)
-    return standardise(df, schema)
+    file_path = Path(path)
+    loaded = read_upload(file_path.read_bytes(), file_path.name, sheet_name=sheet_name)
+    return standardise(loaded.df, schema)
 
 
 def standardise(df: pd.DataFrame, schema: Schema | None = None) -> pd.DataFrame:
@@ -70,6 +75,12 @@ def standardise(df: pd.DataFrame, schema: Schema | None = None) -> pd.DataFrame:
         out["price_reported"] = pd.to_numeric(out["price_reported"], errors="coerce")
     if "item_id" in out:
         out["item_id"] = out["item_id"].astype(str)
+    # A category or item name that happens to look numeric ("01", a
+    # classification code) is still a label. Left as an integer it fails
+    # the column contract and, worse, "01" and "1" would silently merge.
+    for col in ("category", "item_name"):
+        if col in out and not pd.api.types.is_string_dtype(out[col]):
+            out[col] = out[col].where(out[col].isna(), out[col].astype(str))
 
     keep = [c for c in ["period", "category", "item_id", "item_name",
                         "price_reported", "weight"] if c in out.columns]
@@ -90,6 +101,16 @@ def validate(df: pd.DataFrame) -> ValidationReport:
     if missing:
         r.error(f"required columns absent after mapping: {missing}")
         return r
+
+    # The pydantic column contract (core.models): every declared column's
+    # presence and dtype, then a bounded row sample through PriceQuote.
+    from ..core.models import PRICE_QUOTE_COLUMNS, PriceQuote, validate_frame
+
+    contract = validate_frame(df, PRICE_QUOTE_COLUMNS, PriceQuote)
+    for problem in contract:
+        r.error(f"column contract: {problem}")
+    if any("unexpected dtype" in problem for problem in contract):
+        return r          # the value checks below assume the declared types
 
     dup = df.duplicated(["period", "item_id"]).sum()
     if dup:

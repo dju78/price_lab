@@ -140,8 +140,22 @@ def evaluate_aggregate(expr: str, I: pd.DataFrame) -> pd.Series:
 
 
 def is_non_standard(cfg: IndexConfig) -> bool:
-    """True when this run's index came from an analyst-defined formula."""
-    return cfg.formula == "custom" and bool((cfg.custom_formula or "").strip())
+    """True when this run's index came from an analyst-defined formula,
+    elementary or aggregate."""
+    elementary = cfg.formula == "custom" and bool((cfg.custom_formula or "").strip())
+    aggregate = bool((cfg.custom_aggregate_formula or "").strip())
+    return elementary or aggregate
+
+
+def non_standard_expression(cfg: IndexConfig) -> str:
+    """The analyst-defined expression(s) a non-standard run used, for the
+    banner and the provenance stamp."""
+    parts = []
+    if cfg.formula == "custom" and (cfg.custom_formula or "").strip():
+        parts.append(f"elementary: {cfg.custom_formula}")
+    if (cfg.custom_aggregate_formula or "").strip():
+        parts.append(f"aggregate: {cfg.custom_aggregate_formula}")
+    return "; ".join(parts)
 
 
 #: The line that goes on every export of a non-standard run. One sentence,
@@ -158,7 +172,7 @@ def non_standard_notice(cfg: IndexConfig) -> str:
     used a standard formula."""
     if not is_non_standard(cfg):
         return ""
-    return NON_STANDARD_NOTICE.format(expression=cfg.custom_formula)
+    return NON_STANDARD_NOTICE.format(expression=non_standard_expression(cfg))
 
 
 def custom_formula_parameters(cfg: IndexConfig) -> Mapping[str, str]:
@@ -166,4 +180,4 @@ def custom_formula_parameters(cfg: IndexConfig) -> Mapping[str, str]:
     formula, beyond the config JSON they already serialise wholesale."""
     if not is_non_standard(cfg):
         return {}
-    return {"formula": "custom", "expression": cfg.custom_formula or ""}
+    return {"formula": cfg.formula, "expression": non_standard_expression(cfg)}

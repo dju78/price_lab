@@ -43,7 +43,7 @@ import pandas as pd
 from lxml import etree
 
 from ..core.provenance import STAMP_KEY, ProvenanceStamp
-from ..core.security import safe_csv, sanitize_cell, sanitize_dataframe, suppress_with_secondary
+from ..core.security import safe_csv, sanitize_cell, suppress_with_secondary
 
 SUPPRESSED = "suppressed"
 
@@ -227,9 +227,3 @@ def validate_sdmx_ml(document: bytes, schema_dir: str) -> tuple[bool, list[str]]
     doc = etree.parse(io.BytesIO(document))
     ok = bool(schema.validate(doc))
     return ok, [str(e.message) for e in schema.error_log]
-
-
-def sanitised(df: pd.DataFrame) -> pd.DataFrame:
-    """Re-exported for exporters that write tables through a library
-    rather than through `safe_csv`."""
-    return sanitize_dataframe(df)
