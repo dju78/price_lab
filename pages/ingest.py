@@ -36,6 +36,7 @@ from pricelab.engine.custom import (
     validate_aggregate_formula,
     validate_elementary_formula,
 )
+from pricelab.engine.index import QUANTITY_FORMULAE, formula_availability, quantity_series
 
 from . import common
 
@@ -234,7 +235,15 @@ def render() -> None:
                 item_name=sel("Item name", suggestions["item_name"]),
                 category=sel("Category", suggestions["category"]),
                 price=sel("Price", suggestions["price"]),
-                weight=sel("Expenditure weight", suggestions["weight"], optional=True) or None)
+                weight=sel("Expenditure weight", suggestions["weight"], optional=True) or None,
+                quantity=sel("Quantity", suggestions["quantity"], optional=True) or None,
+                expenditure=sel("Expenditure (price x quantity)", suggestions["expenditure"],
+                                optional=True) or None,
+                unit=sel("Unit of measurement", suggestions["unit"], optional=True) or None)
+            st.caption("Quantity or expenditure (either; both are cross-checked) is what the "
+                       "quantity-weighted formulae -- Paasche, Fisher, Törnqvist, Walsh, "
+                       "Marshall-Edgeworth, the geometric forms and the unit value -- need. "
+                       "Leave them blank for a price-only collection.")
 
             if st.button("Confirm column mapping"):
                 with db.session_scope() as s:
@@ -268,7 +277,8 @@ def render() -> None:
             "raw_path": vintage.raw_path, "rows": len(df), "kind": "prices"})
     assessment = validation.assess(
         df, classification_codes=classification_codes_for(list(df["category"].astype(str).unique())),
-        reference_date=pd.Timestamp.now())
+        reference_date=pd.Timestamp.now(),
+        expenditure_tolerance=QualityConfig().expenditure_tolerance)
     with db.session_scope() as s:
         already_overridden = {
             o.dimension for o in
@@ -304,16 +314,6 @@ def render() -> None:
         st.dataframe(raw.head(20), use_container_width=True)
         return
 
-    # Every finding the validation engine produced, blocking or not: a
-    # high completeness or conformity finding is the analyst's to weigh,
-    # and one that is never shown cannot be weighed.
-    non_critical = [f for f in assessment.findings if f.severity != validation.Severity.CRITICAL]
-    if non_critical:
-        with st.expander(f"Validation findings ({len(non_critical)})", expanded=False):
-            for finding in non_critical:
-                (st.warning if finding.severity == validation.Severity.HIGH else st.caption)(
-                    f"{finding.dimension} ({finding.severity}): {finding.message}")
-
     common.record(audit.DATA_LOAD, upload.name, {
         "rows": structural.facts.get("rows"), "categories": structural.facts.get("categories"),
         "items": structural.facts.get("items")})
@@ -342,8 +342,38 @@ def render() -> None:
         lo = st.slider("Fault band, lower", 0.5, 2.0, auto_cfg.quality.scale_log10_low, 0.1)
         hi = st.slider("Fault band, upper", 2.0, 4.0, auto_cfg.quality.scale_log10_high, 0.1)
         do_repair = st.checkbox("Repair faults rather than drop", True)
-        formula = st.selectbox("Elementary formula", common.INDEX_FORMULAS,
-                               index=common.INDEX_FORMULAS.index(auto_cfg.index.formula))
+        # Every formula the engine has, the unavailable ones labelled with
+        # the reason rather than hidden: a compiler learns what a Fisher
+        # needs instead of wondering where it went.
+        availability = formula_availability(df)
+        labels = {name: (name if availability.get(name) is None
+                         else f"{name} -- unavailable: {availability[name]}")
+                  for name in common.INDEX_FORMULAS}
+        choice = st.selectbox("Index formula", [labels[n] for n in common.INDEX_FORMULAS],
+                              index=common.INDEX_FORMULAS.index(auto_cfg.index.formula))
+        formula = next(n for n, lbl in labels.items() if lbl == choice)
+        formula_error: str | None = availability.get(formula)
+        if formula_error:
+            st.error(f"{formula} cannot be compiled on this collection: {formula_error}.")
+        quantities = quantity_series(df, "price_reported")
+        if quantities is not None and formula in QUANTITY_FORMULAE:
+            st.caption("Quantities " + ("derived as expenditure / price (no quantity column was "
+                                       "mapped); each result is flagged as built on derived "
+                                       "quantities." if quantities.name == "quantity_derived"
+                                       else "from the mapped quantity column.")
+                       + (" With quantities, Laspeyres is the quantity-basket form; without, "
+                          "the share-weighted (Young) form." if formula == "laspeyres" else ""))
+        homogeneity: str | None = None
+        if formula == "unit_value":
+            homogeneity = st.text_area(
+                "Homogeneity assertion (required for the unit value index)",
+                help="The unit value index is only defined over items that are one homogeneous "
+                     "product with additive quantities (CPI Manual 2020, 8.87). State why that "
+                     "holds for every category here; the assertion is recorded with the run.") or None
+            if not (homogeneity or "").strip():
+                formula_error = "state the homogeneity assertion above"
+                st.warning("The unit value index needs the homogeneity assertion before it can "
+                           "be compiled.")
 
         # A compiler who needs a formula this tool does not ship writes it
         # here. It goes through the whitelist parser, never eval, and is
@@ -425,6 +455,10 @@ def render() -> None:
     if custom_error:
         st.info("Correct the custom formula above, or choose a standard one, to compile.")
         return
+    if formula_error:
+        st.info("Choose a formula this collection supports, or map the columns it needs, to "
+                "compile.")
+        return
 
     # Approved replacement valuations recorded against this exact data
     # (by content hash) ride in the configuration, so the registry hash,
@@ -441,6 +475,7 @@ def render() -> None:
         imputation=ImputationConfig(default_method="none", by_category=by_cat),
         index=IndexConfig(formula=formula, custom_formula=custom_expression, chained=chained,
                           custom_aggregate_formula=aggregate_expression,
+                          homogeneity_justification=homogeneity,
                           price_reference_period=None if price_ref == "default" else price_ref,
                           index_reference_period=None if index_ref == "default" else index_ref,
                           weight_reference_period=None if weight_ref == "default" else weight_ref,

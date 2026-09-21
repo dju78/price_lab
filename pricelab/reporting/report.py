@@ -42,7 +42,30 @@ def _formula_label(index_cfg: IndexConfig) -> str:
     own tells a reader nothing they can check."""
     if index_cfg.formula == "custom":
         return f"analyst-defined ({index_cfg.custom_formula})"
-    return str(index_cfg.formula).title()
+    return str(index_cfg.formula).replace("_", " ").title().replace("Tornqvist", "Törnqvist")
+
+
+def quantity_note(res: dict) -> str:
+    """How the quantities behind a quantity-weighted formula were obtained,
+    or what Laspeyres meant on a price-only run; empty otherwise."""
+    from ..engine.index import QUANTITY_FORMULAE, quantity_series
+
+    cfg = res["config"].index
+    quantities = quantity_series(res["imputed"])
+    if cfg.formula not in QUANTITY_FORMULAE or quantities is None:
+        if cfg.formula == "laspeyres":
+            return (" Laspeyres here is the share-weighted (Young) form over the supplied weights, "
+                    "falling back to Jevons where none were supplied; the collection carries no "
+                    "quantities.")
+        return ""
+    source = ("derived as expenditure / price, no quantity column having been mapped, and every "
+              "result is flagged as built on derived quantities"
+              if quantities.name == "quantity_derived" else "taken from the mapped quantity column")
+    note = f" Quantities were {source}."
+    if cfg.formula == "unit_value":
+        note += (" Unit value: the compiler asserted homogeneity of each category's items on "
+                 f"these grounds: {cfg.homogeneity_justification!r}.")
+    return note
 
 
 def method_note(res: dict) -> str:
@@ -107,7 +130,7 @@ log10 units of their local level.
 {cfg.index.base_value:.0f} at {resolve_index_reference_period(cfg.index, I.index):%B %Y}. \
 Only items priced in both of the two periods \
 being compared enter that comparison, so the entry or exit of an item does not register as price \
-change. Periods with fewer than {cfg.index.min_matched_items} matched items hold the previous \
+change.{quantity_note(res)} Periods with fewer than {cfg.index.min_matched_items} matched items hold the previous \
 level. {'The all-items aggregate is an equally weighted geometric mean of the category indices. No expenditure weights were supplied, so it is indicative rather than authoritative.' if 'All items' in I.columns else ''}
 
 **Quality adjustment.** {quality_adjustment_note(res)}

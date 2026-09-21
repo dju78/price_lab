@@ -32,8 +32,13 @@ remembered for that exact file. Read the validation report: a critical
 finding blocks compiling until you accept, exclude, correct or justify it,
 and your decision is recorded with your name. Review the automatic
 diagnosis (missing codes, fault band, imputation method per category from
-the gap mechanism), change what you disagree with, choose the elementary
-formula and chaining, and compile. Every upload is written once to the
+the gap mechanism), change what you disagree with, choose the formula and
+chaining, and compile. If the upload carries a quantity column (or
+expenditure, from which quantity is derived), the quantity-weighted
+formulae -- Paasche, Fisher, Törnqvist, Walsh, Marshall-Edgeworth, the
+geometric forms and the unit value -- become available and Laspeyres uses
+the quantity basket; on a price-only upload they stay listed with the
+reason they cannot be compiled. Every upload is written once to the
 immutable raw Parquet layer with a receipt naming you, the file and the
 time; every compile writes the cleaned layer and its transformation log.
 
@@ -93,7 +98,8 @@ You track supplier prices or build an input-cost index from your own data.
 
 Upload your price list, tender or invoice extract on **Ingest** with one
 row per item per period; map your columns to period, item, category and
-price (and weight, if you have expenditure by item). Compile. Use a custom
+price (and weight, quantity or expenditure, if you have them: quantities
+unlock Fisher and the other superlative formulae). Compile. Use a custom
 formula only if you need one, knowing every export will be marked
 non-standard ([methodology/custom.md](methodology/custom.md)). Use the
 **Quality adjustment** page when a supplier substitutes a product: the

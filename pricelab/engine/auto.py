@@ -44,7 +44,13 @@ def infer_schema(df: pd.DataFrame) -> Schema:
                 date = c
                 break
 
-    price = find("price", "value", "cost", "amount")
+    price = find("price", "value", "cost", "amount",
+                 exclude=("quantity", "qty", "expend", "spend", "turnover", "revenue"))
+    quantity = find("quantity", "qty", "volume", "units_sold", "units sold",
+                    exclude=("price", "value"))
+    expenditure = find("expenditure", "spend", "turnover", "revenue", "sales_value",
+                       "sales value", exclude=("weight",))
+    unit = find("unit", exclude=("price", "sold", "quantity", "qty", "value", "cost"))
     name = find("item_name", "name", "description", "product", exclude=("category", "group"))
     item_id = find("item_id", "itemid", "product_id", "sku", "id",
                    exclude=("category", "group", "class"))
@@ -79,7 +85,10 @@ def infer_schema(df: pd.DataFrame) -> Schema:
                   item_name=name or (item_id or cols[0]),
                   category=category or (item_id or cols[0]),
                   price=price or cols[-1],
-                  weight=find("weight", "expenditure"))
+                  weight=find("weight"),
+                  quantity=quantity,
+                  expenditure=expenditure,
+                  unit=unit)
 
 
 def auto_configure(df: pd.DataFrame, label: str = "") -> tuple[RunConfig, list[str]]:

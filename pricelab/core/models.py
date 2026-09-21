@@ -59,6 +59,12 @@ class PriceQuote(BaseModel):
     any sentinel recoding or repair."""
     weight: float | None = None
     """Expenditure weight, if one was supplied."""
+    quantity: float | None = None
+    """Quantity transacted, if supplied (or derived from expenditure / price)."""
+    expenditure: float | None = None
+    """Expenditure (price x quantity), if supplied."""
+    unit: str | None = None
+    """Unit of measurement of the quantity, if supplied."""
 
 
 class QualityFlag(BaseModel):
@@ -130,6 +136,9 @@ PRICE_QUOTE_COLUMNS = [
     ColumnSpec(name="item_name", dtype_check=_is_text, required=False),
     ColumnSpec(name="price_reported", dtype_check=_is_numeric),
     ColumnSpec(name="weight", dtype_check=_is_numeric, required=False),
+    ColumnSpec(name="quantity", dtype_check=_is_numeric, required=False),
+    ColumnSpec(name="expenditure", dtype_check=_is_numeric, required=False),
+    ColumnSpec(name="unit", dtype_check=_is_text, required=False),
 ]
 
 IMPUTATION_COLUMNS = [

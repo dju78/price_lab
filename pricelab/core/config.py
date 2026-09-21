@@ -55,6 +55,19 @@ class Schema(BaseModel):
     """Name of the column holding the observed price, in the collection's currency."""
     weight: str | None = None
     """Name of the column holding an expenditure weight, if one was supplied."""
+    quantity: str | None = None
+    """Name of the column holding the quantity transacted (scanner and
+    transaction data), if one was supplied. What the quantity-basket and
+    superlative formulae need."""
+    expenditure: str | None = None
+    """Name of the column holding expenditure (price x quantity), if one was
+    supplied. With both present the two are checked against each other;
+    with expenditure alone, quantity is derived as expenditure / price and
+    flagged as derived."""
+    unit: str | None = None
+    """Name of the column holding the unit of measurement the quantity is in
+    ("kg", "litre", "pack"), if one was supplied; carried for the unit value
+    index's homogeneity judgement."""
 
 
 class QualityConfig(BaseModel):
@@ -72,6 +85,10 @@ class QualityConfig(BaseModel):
     """Rescale a flagged fault back onto its item's level rather than deleting it."""
     residual_tolerance: float = 0.5
     """Post-repair check, in log10 units: evidence the repair rule was correctly specified."""
+    expenditure_tolerance: float = 0.01
+    """Relative tolerance for `expenditure == price x quantity` when a
+    collection carries both; a row outside it is reported, never resolved
+    by silently preferring one of the two."""
 
 
 class IndexConfig(BaseModel):
@@ -140,6 +157,12 @@ class IndexConfig(BaseModel):
     """Index level assigned to the index reference period."""
     min_matched_items: int = 2
     """Below this many matched items, the index holds its level and flags insufficiency."""
+    homogeneity_justification: str | None = None
+    """Required by `formula = "unit_value"`: the compiler's stated grounds
+    for treating each category's items as one homogeneous product whose
+    quantities are additive (CPI Manual 2020, para. 8.87). Recorded so a
+    reviewer can judge the assertion; a unit value index is never computed
+    without it."""
 
     @model_validator(mode="after")
     def _custom_formula_is_coherent_and_parses(self) -> IndexConfig:
@@ -152,6 +175,11 @@ class IndexConfig(BaseModel):
         through a compile, after the quality and imputation stages have
         already run.
         """
+        if self.formula == "unit_value" and not (self.homogeneity_justification or "").strip():
+            raise ValueError(
+                'formula is "unit_value" but homogeneity_justification is empty: a unit value '
+                "index is only defined over strictly homogeneous items, and the assertion that "
+                "they are is recorded with the run (engine.elementary.unit_value)")
         if self.formula == "custom" and not (self.custom_formula or "").strip():
             raise ValueError(
                 'formula is "custom" but custom_formula is empty: there is no expression '

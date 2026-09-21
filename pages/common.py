@@ -25,7 +25,9 @@ IMPUTATION_METHODS = ["none", "class_mean", "carry_forward", "seasonal_hold",
 #: "custom" is last deliberately: it is the escape hatch, not a peer
 #: of the four named formulae, and a run using it is marked
 #: non-standard everywhere it is exported.
-INDEX_FORMULAS = ["jevons", "dutot", "carli", "laspeyres", "custom"]
+INDEX_FORMULAS = ["jevons", "dutot", "carli", "laspeyres", "paasche", "fisher", "tornqvist",
+                  "walsh", "marshall_edgeworth", "geometric_laspeyres", "geometric_paasche",
+                  "unit_value", "custom"]
 
 LIFECYCLE_STAGES = (
     "Ingest", "Quality", "Imputation", "Quality adjustment", "Index build", "Findings",

@@ -23,7 +23,8 @@ from ..core.config import Schema
 from ..core.db import Base
 from ..engine.auto import infer_schema
 
-CANONICAL_FIELDS = ("date", "item_id", "item_name", "category", "price", "weight")
+CANONICAL_FIELDS = ("date", "item_id", "item_name", "category", "price", "weight",
+                    "quantity", "expenditure", "unit")
 
 
 @dataclass
@@ -48,6 +49,7 @@ class MappingSuggestion:
 _DEFAULT_NAMES = {
     "date": "date", "item_id": "item_id", "item_name": "item_name",
     "category": "category", "price": "reported_price", "weight": "weight",
+    "quantity": "quantity", "expenditure": "expenditure", "unit": "unit",
 }
 
 #: The same keyword lists `infer_schema` matches on, kept here only to
@@ -58,7 +60,10 @@ _KEYWORDS = {
     "item_name": ("item_name", "name", "description", "product"),
     "category": ("category", "group", "class", "division"),
     "price": ("price", "value", "cost", "amount"),
-    "weight": ("weight", "expenditure"),
+    "weight": ("weight",),
+    "quantity": ("quantity", "qty", "volume", "units_sold"),
+    "expenditure": ("expenditure", "spend", "turnover", "revenue", "sales_value"),
+    "unit": ("unit",),
 }
 
 
@@ -69,6 +74,7 @@ def suggest_column_mapping(df: pd.DataFrame) -> dict[str, MappingSuggestion]:
     guessed = {
         "date": guess.date, "item_id": guess.item_id, "item_name": guess.item_name,
         "category": guess.category, "price": guess.price, "weight": guess.weight,
+        "quantity": guess.quantity, "expenditure": guess.expenditure, "unit": guess.unit,
     }
     suggestions = {}
     for field in CANONICAL_FIELDS:

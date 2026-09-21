@@ -70,7 +70,9 @@ signed off, not a re-upload of a possibly different file.
    the item continuity a matched index depends on. A residual check afterwards is
    the evidence the rule was correctly specified.
 5. **Builds a matched-model index.** Jevons by default, chained, with the formula,
-   chaining and imputation all overridable.
+   chaining and imputation all overridable. Uploads carrying quantities (or
+   expenditure) unlock Laspeyres, Paasche, Fisher, Törnqvist, Walsh,
+   Marshall-Edgeworth, the geometric forms and the unit value.
 6. **Writes the findings.** Ranks what it found by materiality, states each with the
    number behind it, and names an action.
 7. **Exports.** A slide deck with speaker notes, a Word report with the full method
@@ -107,7 +109,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 568 tests
+make test        # 583 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/ and data/
 ```
@@ -215,8 +217,10 @@ pricelab/
     quality.py         sentinel recoding, mechanism classification, fault repair
     imputation.py       none | carry_forward | class_mean | seasonal_hold |
                         targeted_mean | overall_mean, with response rates
-    index.py            jevons | dutot | carli | laspeyres | custom, matched,
-                        chained or fixed
+    index.py            jevons | dutot | carli | custom, and with quantities
+                        laspeyres | paasche | fisher | tornqvist | walsh |
+                        marshall_edgeworth | geometric_* | unit_value;
+                        matched, chained or fixed
     elementary.py       the elementary aggregates, each returning its sample
                         size and imputation count alongside the value
     bilateral.py        laspeyres | paasche | fisher | tornqvist | walsh |
@@ -253,7 +257,7 @@ migrations/       Alembic; six revisions covering users, sessions, audit events,
                   index runs (with the registered headline and data vintage),
                   the classification tree, validation overrides, column
                   mappings and the quality adjustment ledger
-tests/            568 tests
+tests/            583 tests
 scripts/
   generate_synthetic_data.py   the test fixture, not the product
   create_user.py               bootstraps a login (no self-registration)

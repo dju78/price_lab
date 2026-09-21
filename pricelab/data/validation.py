@@ -82,6 +82,7 @@ def assess(
     classification_codes: Iterable[str] | None = None,
     reference_date: pd.Timestamp | None = None,
     stale_after_periods: int = 3,
+    expenditure_tolerance: float = 0.01,
 ) -> DataQualityAssessment:
     """Run every validation dimension over a standardised price panel.
 
@@ -107,6 +108,7 @@ def assess(
         findings.extend(_timeliness(df, reference_date, stale_after_periods))
         findings.extend(_conformity(df, classification_codes))
         findings.extend(_plausibility(df))
+        findings.extend(_quantities(df, expenditure_tolerance))
 
     return DataQualityAssessment(findings=findings)
 
@@ -270,6 +272,67 @@ def record_override(
     session.add(record)
     session.flush()
     return record
+
+
+# ---------------------------------------------------------------------
+# Quantities and expenditure (the superlative formulae's inputs)
+# ---------------------------------------------------------------------
+def expenditure_inconsistencies(df: pd.DataFrame, tolerance: float = 0.01) -> pd.DataFrame:
+    """Rows where expenditure and price x quantity disagree by more than
+    `tolerance` (relative to expenditure). Empty when the panel carries
+    only one of the two, or they agree. Never resolves the disagreement:
+    which figure is wrong is a question for the person who collected them.
+    """
+    if not {"price_reported", "quantity", "expenditure"} <= set(df.columns):
+        return pd.DataFrame(columns=[*df.columns, "implied_expenditure", "relative_gap"])
+    both = df.dropna(subset=["price_reported", "quantity", "expenditure"]).copy()
+    both["implied_expenditure"] = both["price_reported"] * both["quantity"]
+    denominator = both["expenditure"].abs().where(both["expenditure"] != 0, np.nan)
+    both["relative_gap"] = (both["expenditure"] - both["implied_expenditure"]).abs() / denominator
+    both.loc[both["expenditure"] == 0, "relative_gap"] = np.where(
+        both.loc[both["expenditure"] == 0, "implied_expenditure"] == 0, 0.0, np.inf)
+    return both[both["relative_gap"] > tolerance]
+
+
+def _quantities(df: pd.DataFrame, tolerance: float) -> list[ValidationFinding]:
+    out: list[ValidationFinding] = []
+    has_q, has_e = "quantity" in df.columns, "expenditure" in df.columns
+    if not (has_q or has_e):
+        return out
+    for col in [c for c in ("quantity", "expenditure") if c in df.columns]:
+        missing = int(df[col].isna().sum())
+        if missing:
+            out.append(ValidationFinding(
+                "completeness", Severity.MEDIUM,
+                f"{col!r} is missing for {missing} of {len(df)} rows; those rows carry a price "
+                "but cannot enter a quantity-weighted comparison", missing))
+        zeros = int((df[col] == 0).sum())
+        if zeros:
+            out.append(ValidationFinding(
+                "validity", Severity.LOW,
+                f"{col!r} is zero for {zeros} rows (an item priced but not sold); they are "
+                "priced in the elementary index and carry no weight in a quantity-weighted one",
+                zeros))
+    if has_q and has_e:
+        bad = expenditure_inconsistencies(df, tolerance)
+        if len(bad):
+            examples = ", ".join(
+                f"{row['item_id']} @ {pd.Timestamp(str(row['period'])):%Y-%m}: expenditure "
+                f"{float(row['expenditure']):g} vs price x quantity "
+                f"{float(row['implied_expenditure']):g}"
+                for _, row in bad.head(3).iterrows())
+            out.append(ValidationFinding(
+                "consistency", Severity.HIGH,
+                f"{len(bad)} rows where expenditure differs from price x quantity by more than "
+                f"{tolerance:.0%} (e.g. {examples}); neither figure has been preferred -- the "
+                "quantity column is used as given and these rows are listed on the Quality page",
+                len(bad)))
+    elif has_e and not has_q:
+        out.append(ValidationFinding(
+            "conformity", Severity.LOW,
+            "expenditure was supplied without quantity: quantity is derived as expenditure / "
+            "price for the quantity-weighted formulae and flagged as derived", len(df)))
+    return out
 
 
 # ---------------------------------------------------------------------

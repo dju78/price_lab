@@ -47,9 +47,14 @@ def read_price_data(path: str, sheet_name: int | str = 0, schema: Schema | None 
 
     from .loaders import read_upload
 
-    schema = schema or Schema()
     file_path = Path(path)
     loaded = read_upload(file_path.read_bytes(), file_path.name, sheet_name=sheet_name)
+    if schema is None:
+        # Infer the mapping the way the Ingest page proposes it, so a file
+        # with quantity or expenditure columns keeps them.
+        from ..engine.auto import infer_schema
+
+        schema = infer_schema(loaded.df)
     return standardise(loaded.df, schema)
 
 
@@ -65,6 +70,12 @@ def standardise(df: pd.DataFrame, schema: Schema | None = None) -> pd.DataFrame:
     }
     if schema.weight:
         mapping[schema.weight] = "weight"
+    if schema.quantity:
+        mapping[schema.quantity] = "quantity"
+    if schema.expenditure:
+        mapping[schema.expenditure] = "expenditure"
+    if schema.unit:
+        mapping[schema.unit] = "unit"
 
     present = {k: v for k, v in mapping.items() if k in df.columns}
     out = df.rename(columns=present).copy()
@@ -73,17 +84,21 @@ def standardise(df: pd.DataFrame, schema: Schema | None = None) -> pd.DataFrame:
         out["period"] = pd.to_datetime(out["period"])
     if "price_reported" in out:
         out["price_reported"] = pd.to_numeric(out["price_reported"], errors="coerce")
+    for col in ("quantity", "expenditure"):
+        if col in out:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
     if "item_id" in out:
         out["item_id"] = out["item_id"].astype(str)
     # A category or item name that happens to look numeric ("01", a
     # classification code) is still a label. Left as an integer it fails
     # the column contract and, worse, "01" and "1" would silently merge.
-    for col in ("category", "item_name"):
+    for col in ("category", "item_name", "unit"):
         if col in out and not pd.api.types.is_string_dtype(out[col]):
             out[col] = out[col].where(out[col].isna(), out[col].astype(str))
 
     keep = [c for c in ["period", "category", "item_id", "item_name",
-                        "price_reported", "weight"] if c in out.columns]
+                        "price_reported", "weight", "quantity", "expenditure", "unit"]
+            if c in out.columns]
     return out[keep].sort_values(["item_id", "period"]).reset_index(drop=True)
 
 
@@ -121,6 +136,9 @@ def validate(df: pd.DataFrame) -> ValidationReport:
 
     if (df["price_reported"] < 0).sum():
         r.error(f"{int((df['price_reported'] < 0).sum())} negative prices")
+    for col in ("quantity", "expenditure"):
+        if col in df.columns and (df[col] < 0).sum():
+            r.error(f"{int((df[col] < 0).sum())} negative {col} values")
 
     # An item mapping to more than one name usually means a reused identifier,
     # which silently corrupts item matching across a relaunch.

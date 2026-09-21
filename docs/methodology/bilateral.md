@@ -37,7 +37,23 @@ quantified — all property-based with Hypothesis (`tests/test_axioms.py`).
 
 ## Scope note
 
-`engine.index.laspeyres`, the formula the interface offers, is the *Young*
-form (a share-weighted mean of relatives) and falls back to Jevons with no
-weights. The quantity-basket forms here are library-level: the upload schema
-carries no quantities yet, so they are not selectable from the Ingest page.
+Every formula on this page is selectable from the Ingest page when the
+upload carries quantities: a mapped `quantity` column, or an `expenditure`
+column from which quantity is derived as expenditure / price (and the run
+says so). Without either, the Ingest page still lists them, labelled with
+what they need rather than hidden, and refuses to compile them. The unit
+value index additionally needs the compiler's homogeneity assertion, which
+is recorded with the run.
+
+`engine.index.laspeyres` has two forms and the data decides which: with
+quantities it is the quantity-basket Laspeyres above; on a price-only
+collection it is the *Young* form (a share-weighted mean of relatives over
+the supplied weights) and falls back to Jevons with no weights. The method
+note names the form used.
+
+Where a collection carries both quantity and expenditure, the validation
+engine checks `expenditure ~= price x quantity` to a relative tolerance
+(1% by default) and reports the rows outside it as a high-severity
+consistency finding, listed in full on the Quality page. Neither figure is
+preferred: the quantity column is used as given and the discrepancy is
+left to whoever collected the data.

@@ -17,6 +17,7 @@ from .core.models import (
 )
 from .data.classification import parent_map_for
 from .data.upload import ValidationReport, read_price_data, standardise, validate
+from .data.validation import expenditure_inconsistencies
 from .engine import diagnostics
 from .engine.imputation import run_imputation
 from .engine.index import (
@@ -99,6 +100,10 @@ def run_pipeline(df, config: RunConfig = None, *, compute_impact: bool = True):
 
         result = {
             "validation": report,
+            # Rows where expenditure and price x quantity disagree: reported
+            # with the run, never resolved by preferring one of them.
+            "expenditure_check": expenditure_inconsistencies(
+                df, config.quality.expenditure_tolerance),
             "clean": clean,
             "quality": quality,
             "link_log": link_log,

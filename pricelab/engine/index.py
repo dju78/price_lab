@@ -83,6 +83,97 @@ def laspeyres(a: pd.Series, b: pd.Series, w: pd.Series | None = None) -> float:
 
 FORMULAE = {"jevons": jevons, "dutot": dutot, "carli": carli, "laspeyres": laspeyres}
 
+#: The quantity-weighted formulae (`engine.bilateral`, plus the unit value
+#: index from `engine.elementary`) a run may name, with what each needs
+#: beyond prices: quantities at the reference period, the current period,
+#: or both. "laspeyres" is listed too because with quantities it is the
+#: manual's quantity basket rather than the share-weighted Young form the
+#: price-only path computes.
+QUANTITY_FORMULAE: dict[str, tuple[str, ...]] = {
+    "laspeyres": ("q0",),
+    "paasche": ("qt",),
+    "fisher": ("q0", "qt"),
+    "tornqvist": ("q0", "qt"),
+    "walsh": ("q0", "qt"),
+    "marshall_edgeworth": ("q0", "qt"),
+    "geometric_laspeyres": ("q0",),
+    "geometric_paasche": ("qt",),
+    "unit_value": ("q0", "qt"),
+}
+ELEMENTARY_FORMULAE_NAMES = ("jevons", "dutot", "carli")
+
+
+def quantity_series(df: pd.DataFrame, price_col: str = "price_imputed") -> pd.Series | None:
+    """The quantity behind each row, or None when the panel carries none.
+
+    A `quantity` column is used as given. With only `expenditure`, quantity
+    is derived as expenditure / price -- and the derivation is visible: the
+    returned series is named "quantity_derived" rather than "quantity", so a
+    result built on it says so. Where both exist, `quantity` wins and the
+    disagreement, if any, is a validation finding, never resolved here.
+    """
+    if "quantity" in df.columns and df["quantity"].notna().any():
+        return pd.to_numeric(df["quantity"], errors="coerce").rename("quantity")
+    if "expenditure" in df.columns and df["expenditure"].notna().any():
+        price = pd.to_numeric(df[price_col] if price_col in df.columns else df["price_reported"],
+                              errors="coerce")
+        with np.errstate(divide="ignore", invalid="ignore"):
+            derived = pd.to_numeric(df["expenditure"], errors="coerce") / price
+        return derived.where(np.isfinite(derived)).rename("quantity_derived")
+    return None
+
+
+def formula_availability(df: pd.DataFrame) -> dict[str, str | None]:
+    """Every formula a run may name, mapped to None when the panel supports
+    it or to the reason it does not. The interface shows the reason rather
+    than hiding the formula, so a compiler learns what a Fisher needs
+    instead of wondering where it went."""
+    quantities = quantity_series(df)
+    has_q = quantities is not None and quantities.notna().any()
+    out: dict[str, str | None] = {name: None for name in ELEMENTARY_FORMULAE_NAMES}
+    for name in QUANTITY_FORMULAE:
+        if name == "laspeyres":
+            out[name] = None    # always computable: weights or the Jevons fallback
+            continue
+        if has_q:
+            out[name] = None
+        else:
+            out[name] = ("needs a quantity column (or expenditure, from which quantity is "
+                         "derived) mapped on upload; this collection carries prices only"
+                         + (" -- unit value also needs a homogeneity assertion" if name == "unit_value"
+                            else ""))
+    out["custom"] = None
+    return out
+
+
+def _bilateral_link(formula: str, a: np.ndarray, b: np.ndarray, qa: np.ndarray | None,
+                    qb: np.ndarray | None, items: pd.Index,
+                    justification: str | None) -> tuple[float, int]:
+    """One quantity-weighted comparison, through `engine.bilateral` (or
+    `engine.elementary.unit_value`), which is the tested implementation of
+    each formula; this only adapts the period loop's arrays to it."""
+    from . import bilateral
+    from .elementary import unit_value as _unit_value
+
+    p0, pt = pd.Series(a, index=items), pd.Series(b, index=items)
+    q0 = pd.Series(qa, index=items) if qa is not None else None
+    qt = pd.Series(qb, index=items) if qb is not None else None
+    if formula == "unit_value":
+        assert q0 is not None and qt is not None
+        r = _unit_value(p0, pt, q0, qt, homogeneous=True,
+                        homogeneity_justification=justification or "")
+        return r.value, r.n_items
+    needs = QUANTITY_FORMULAE[formula]
+    args: list[pd.Series] = [p0, pt]
+    if "q0" in needs:
+        assert q0 is not None
+        args.append(q0)
+    if "qt" in needs:
+        assert qt is not None
+        args.append(qt)
+    result = getattr(bilateral, formula)(*args)
+    return result.value, result.n_items
+
 
 def _custom_np(a: np.ndarray, b: np.ndarray, expression: str) -> float:
     """Evaluate an analyst-defined elementary formula over one matched
@@ -209,6 +300,22 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
     price_by_period = {p: row for p, row in zip(pivot.index, pivot.to_numpy(dtype=float), strict=True)}
     empty_row = np.full(pivot.shape[1], np.nan)
 
+    quantities = quantity_series(d, price_col)
+    quantity_by_period: dict[pd.Timestamp, np.ndarray] | None = None
+    use_quantities = cfg.formula in QUANTITY_FORMULAE and quantities is not None and (
+        cfg.formula != "laspeyres" or quantities.notna().any())
+    if cfg.formula in QUANTITY_FORMULAE and cfg.formula != "laspeyres" and quantities is None:
+        raise ValueError(
+            f"formula {cfg.formula!r} needs quantities and this collection carries none; "
+            "map a quantity or expenditure column on upload, or choose an elementary formula")
+    if use_quantities:
+        assert quantities is not None
+        qpivot = (d.assign(_q=quantities.to_numpy()).pivot(index="period", columns="item_id",
+                                                             values="_q")
+                  .reindex(columns=pivot.columns).sort_index())
+        quantity_by_period = {
+            p: qrow for p, qrow in zip(qpivot.index, qpivot.to_numpy(dtype=float), strict=True)}
+
     weight_by_period: dict[pd.Timestamp, np.ndarray] | None = None
     if "weight" in d.columns:
         wpivot = (d.pivot(index="period", columns="item_id", values="weight")
@@ -221,6 +328,20 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
 
     def weight_row(p: pd.Timestamp) -> np.ndarray | None:
         return weight_by_period.get(p, empty_row) if weight_by_period is not None else None
+
+    def quantity_row(p: pd.Timestamp) -> np.ndarray:
+        return quantity_by_period.get(p, empty_row) if quantity_by_period is not None else empty_row
+
+    def compare(p_from: pd.Timestamp, p_to: pd.Timestamp) -> tuple[float, int]:
+        """The link (or fixed-base relative) from p_from to p_to, by the
+        formula: the numpy elementary path as before, or the quantity-
+        weighted path when the formula and the data call for it."""
+        if use_quantities:
+            return _bilateral_link(cfg.formula, row(p_from), row(p_to), quantity_row(p_from),
+                                   quantity_row(p_to), pivot.columns, cfg.homogeneity_justification)
+        return _formula_np(cfg.formula, row(p_from), row(p_to),
+                           weight_row(p_from) if cfg.formula == "laspeyres" else None,
+                           cfg.custom_formula)
 
     # The price reference period is the denominator of every price relative
     # in a fixed-base (non-chained) comparison; it has no bearing on a
@@ -254,10 +375,7 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
                 matched, insufficient = np.nan, False
             else:
                 prev = periods[i - 1]
-                rel, matched = _formula_np(
-                    cfg.formula, row(prev), row(p),
-                    weight_row(prev) if cfg.formula == "laspeyres" else None,
-                    cfg.custom_formula)
+                rel, matched = compare(prev, p)
                 insufficient = matched < cfg.min_matched_items
                 if insufficient:
                     rel = np.nan        # hold the level, flagged below
@@ -272,10 +390,7 @@ def build_index(d: pd.DataFrame, cfg: IndexConfig | None = None,
             # and Young, this phase), that hardcode published a fabricated
             # 100 for a period whose real level relative to the price
             # reference is perfectly computable.
-            rel, matched = _formula_np(
-                cfg.formula, row(price_ref), row(p),
-                weight_row(price_ref) if cfg.formula == "laspeyres" else None,
-                cfg.custom_formula)
+            rel, matched = compare(price_ref, p)
             insufficient = matched < cfg.min_matched_items
             if p == price_ref:
                 # Definitionally base_value: an index at its own price

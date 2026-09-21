@@ -5,7 +5,53 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
-## Unreleased — Phase 10: reporting, provenance and production hardening (2026-09-21)
+## Unreleased — Quantity and expenditure ingestion (2026-09-21)
+
+### Added
+- **Canonical schema** carries optional `quantity`, `expenditure` and `unit`
+  (`core/config.Schema`, `core/models.PriceQuote`, `PRICE_QUOTE_COLUMNS`);
+  the column mapping suggests them, the upload standardises and checks them
+  (negative values are structural errors), and because the raw layer,
+  transformation log, vintage stamp and registry hash are built from the
+  whole frame and the whole configuration, the fields are traceable from
+  the first commit that carries them.
+- **Expenditure consistency check** (`data/validation.expenditure_inconsistencies`,
+  `QualityConfig.expenditure_tolerance`, 1% by default): rows where
+  expenditure differs from price x quantity are a high-severity consistency
+  finding, carried in the run as `expenditure_check` and listed on the
+  Quality page; neither figure is preferred.
+- **Quantity-weighted formulae on the interface**: Paasche, Fisher,
+  Törnqvist, Walsh, Marshall-Edgeworth, geometric Laspeyres and Paasche and
+  the unit value index are selectable on Ingest (`engine.index.QUANTITY_FORMULAE`,
+  `formula_availability`, `quantity_series`); unavailable ones are labelled
+  with the reason rather than hidden. Laspeyres uses the quantity basket
+  when quantities exist and the Young form otherwise. Quantity derived from
+  expenditure / price is flagged as derived. The unit value index is gated
+  behind `IndexConfig.homogeneity_justification`, required and recorded.
+- **Tests on ingested data** (`tests/test_quantity_ingestion.py`, fixture
+  `tests/fixtures/quantity_panel.csv`): Laspeyres > Fisher > Paasche
+  ordering and substitution bias every period, Fisher = sqrt(L x P), factor
+  reversal per category, all formulae compile and the superlatives agree;
+  page-level AppTest for upload with quantities -> Fisher -> result, for the
+  unit value assertion, for the price-only labels and for the inconsistent
+  expenditure warning and table.
+
+### Changed
+- `engine.auto.infer_schema` no longer reads an expenditure column as the
+  weight; it maps quantity, expenditure and unit and excludes them from the
+  price guess. `data.upload.read_price_data` infers the schema when none is
+  given.
+- The method note states which Laspeyres form was used and where the
+  quantities came from.
+
+## Phase 10.5 — wiring audit and production verification (`a1ee8a4`, `8accbf1`, `9524b2e`, `ed3682d`, 2026-09-21)
+- Every library path unreachable from the product wired with a page-level
+  test (`tests/test_wiring.py`); the suite runs against PostgreSQL as well as
+  SQLite (`tests/dbtarget.py`); the bulletin rendered to images and fixed;
+  a cold start on a clean checkout and the administrator guide corrected by
+  it. Details in `docs/backlog.md`.
+
+## Phase 10 — reporting, provenance and production hardening (`05d6bdf`, 2026-09-21)
 
 ### Added
 - **Provenance stamp** (`core/provenance.py`): one function builds the run

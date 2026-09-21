@@ -32,7 +32,11 @@ Upload `supermarket_price_collection.xlsx`, worksheet `Price_Data`.
 - **Automatic diagnosis.** Missing code `0`; a 13-period reference window;
   `class_mean` imputation for nine categories and `seasonal_hold` for
   Strawberries, because its gaps are calendar-aligned. Leave them.
-- **Formula.** Jevons, chained. Compile.
+- **Formula.** Jevons, chained. Compile. (Fisher and the other
+  quantity-weighted formulae are listed but labelled unavailable: this
+  collection carries prices only. `tests/fixtures/quantity_panel.csv` is a
+  small collection with quantities and expenditure if you want to see them
+  compile.)
 
 Behind the scenes: the upload was written once to `store/raw/<content
 hash>.parquet` with a receipt naming you, the file and the time; the

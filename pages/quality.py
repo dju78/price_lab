@@ -42,6 +42,19 @@ def render() -> None:
         show["last"] = pd.to_datetime(show["last"]).dt.strftime("%b %Y")
         st.dataframe(show, use_container_width=True, hide_index=True)
 
+    check = res.get("expenditure_check")
+    if check is not None and len(check):
+        st.markdown("**Expenditure inconsistent with price x quantity**")
+        st.caption(f"{len(check)} rows where the supplied expenditure differs from price x "
+                   f"quantity by more than {res['config'].quality.expenditure_tolerance:.0%}. "
+                   "Neither figure was preferred: the quantity column is used as given, and "
+                   "these rows are for whoever collected them to resolve.")
+        shown = check[["period", "category", "item_id", "price_reported", "quantity",
+                       "expenditure", "implied_expenditure", "relative_gap"]].copy()
+        numeric = ["price_reported", "quantity", "expenditure", "implied_expenditure", "relative_gap"]
+        shown[numeric] = shown[numeric].round(4)
+        st.dataframe(shown, use_container_width=True, hide_index=True)
+
     st.markdown("**Every altered observation**")
     st.caption("Nothing is changed silently. Adjust the method on the Ingest page and the "
                "whole analysis updates.")

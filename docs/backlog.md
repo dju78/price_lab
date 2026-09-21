@@ -446,8 +446,8 @@ wired with a page-level AppTest test (tests/test_wiring.py): data.loaders
 behind Ingest (encoding, delimiter, header-row inference, Parquet/JSON,
 memory cap); the three reference periods, which had no control anywhere in
 the interface; models.validate_frame as the boundary and stage contract;
-non-critical validation findings, never displayed, and conformity, never
-checked; the weighted aggregate, contributions and tree roll-up; the
+non-critical validation findings, listed under the automatic decisions
+but without conformity, which was never checked; the weighted aggregate, contributions and tree roll-up; the
 Lowe/Young price-updating report; custom aggregate formulae; response
 rates; the thresholded chain-drift diagnostic; the hedonic imputation
 variant and characteristics-price index; registry corrections; an Audit
@@ -480,6 +480,45 @@ repository config made the server headless; a restore needs everything
 holding the database stopped, probe server included, and the scripts now
 refuse with a message rather than a traceback; `backup.py` refuses
 PostgreSQL outright (the guide had said it still copied the store).
+
+## Quantity and expenditure ingestion (done, 2026-09-21)
+
+The canonical schema now carries optional quantity, expenditure and unit
+(config Schema, PriceQuote, PRICE_QUOTE_COLUMNS); mapping suggests them,
+standardise coerces and keeps them, validate rejects negatives, and the
+raw layer, transformation log, vintage stamp and registry hash carry them
+because they are built from the whole frame and the whole configuration
+(tests prove each). Where both quantity and expenditure are present the
+validation engine checks expenditure ~= price x quantity to
+QualityConfig.expenditure_tolerance (1%) and reports the offending rows
+as a high consistency finding, carried in the run as expenditure_check
+and listed on the Quality page; the index is unchanged by them and neither
+figure is preferred. Expenditure alone derives quantity as expenditure /
+price and the series is named quantity_derived so every result says so.
+
+engine.index gained QUANTITY_FORMULAE, quantity_series,
+formula_availability and a _bilateral_link adapter that routes the period
+loop to engine.bilateral (or elementary.unit_value) -- the tested
+implementations, no new formulae. Laspeyres is the quantity basket with
+quantities and the Young form without. The Ingest selector lists every
+formula and labels the unavailable ones with the reason; unit value needs
+the homogeneity assertion, enforced in IndexConfig and on the page and
+recorded with the run. The method note names the form and the quantity
+source.
+
+tests/test_quantity_ingestion.py (14 tests) on the generated fixture
+tests/fixtures/quantity_panel.csv: price-only fixture unchanged against
+the Phase 3 baseline; L > F > P and substitution bias every period;
+Fisher = sqrt(L x P); factor reversal per category; every formula
+compiles; provenance in each layer; AppTest upload -> Fisher -> result,
+unit value assertion, price-only labels, inconsistent expenditure on
+Ingest and Quality. Suite green on SQLite (582 passed, 1 skipped) and
+PostgreSQL (579 passed, 4 skipped); engine coverage 95%.
+
+Not done: `unit` is carried and shown but not used to reject a unit value
+index over mixed units (the assertion is the compiler's, as the manual
+puts it); a per-category homogeneity assertion; quantities in the Excel
+pack's Weights sheet beyond the source-data sheet.
 
 ## Deferred (not in the agreed scope; revisit if asked)
 
