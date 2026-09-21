@@ -270,3 +270,79 @@ def record_override(
     session.add(record)
     session.flush()
     return record
+
+
+# ---------------------------------------------------------------------
+# Characteristics files (the hedonic module's second input)
+# ---------------------------------------------------------------------
+def assess_characteristics(
+    chars: pd.DataFrame, price_item_ids: Iterable[str] | None = None
+) -> DataQualityAssessment:
+    """The validation dimensions that apply to a characteristics table:
+    one row per item, `item_id` plus one column per characteristic.
+
+    uniqueness   a duplicated item_id is critical: two rows of
+                 characteristics for one item would make the hedonic fit
+                 depend on which row a merge happened to keep.
+    completeness a characteristic missing for some items (those items
+                 drop out of the fit) or for every item (the column is
+                 useless and probably mis-mapped).
+    validity     a column that is numeric for most items but not all,
+                 which is nearly always a typing slip rather than a
+                 genuine categorical.
+    conformity   items in the file with no prices in the collection (they
+                 cannot enter the fit) and priced items with no
+                 characteristics (they cannot be valued hedonically).
+    """
+    findings: list[ValidationFinding] = []
+    if "item_id" not in chars.columns:
+        findings.append(ValidationFinding(
+            "validity", Severity.CRITICAL, "the characteristics file has no item_id column", 1))
+        return DataQualityAssessment(findings=findings)
+    ids = chars["item_id"].astype(str).str.strip()
+    dupes = int(ids.duplicated().sum())
+    if dupes:
+        findings.append(ValidationFinding(
+            "uniqueness", Severity.CRITICAL,
+            f"{dupes} item_id value(s) appear more than once; each item may have one row of "
+            "characteristics", dupes))
+    characteristics = [c for c in chars.columns if c != "item_id"]
+    if not characteristics:
+        findings.append(ValidationFinding(
+            "completeness", Severity.CRITICAL, "no characteristic columns beyond item_id", 1))
+    for col in characteristics:
+        missing = int(chars[col].isna().sum())
+        if missing == len(chars):
+            findings.append(ValidationFinding(
+                "completeness", Severity.HIGH, f"{col!r} is empty for every item", missing))
+        elif missing:
+            findings.append(ValidationFinding(
+                "completeness", Severity.MEDIUM,
+                f"{col!r} is missing for {missing} item(s), which cannot enter a fit that uses it",
+                missing))
+        if not pd.api.types.is_numeric_dtype(chars[col]):
+            non_null = chars[col].dropna()
+            numeric = pd.to_numeric(non_null, errors="coerce")
+            n_num, n_text = int(numeric.notna().sum()), int(numeric.isna().sum())
+            if n_num and n_text and n_num >= 3 * n_text:
+                findings.append(ValidationFinding(
+                    "validity", Severity.HIGH,
+                    f"{col!r} is numeric for {n_num} item(s) but not for {n_text}; a mostly "
+                    "numeric column with a few text values is usually a typing slip", n_text))
+    if price_item_ids is not None:
+        priced = {str(i) for i in price_item_ids}
+        in_file = set(ids)
+        orphans = sorted(in_file - priced)
+        unvalued = sorted(priced - in_file)
+        if orphans:
+            findings.append(ValidationFinding(
+                "conformity", Severity.MEDIUM,
+                f"{len(orphans)} item(s) in the characteristics file have no prices in the "
+                f"collection and cannot enter the fit (e.g. {', '.join(orphans[:5])})",
+                len(orphans)))
+        if unvalued:
+            findings.append(ValidationFinding(
+                "conformity", Severity.LOW,
+                f"{len(unvalued)} priced item(s) have no characteristics and cannot be valued "
+                f"hedonically (e.g. {', '.join(unvalued[:5])})", len(unvalued)))
+    return DataQualityAssessment(findings=findings)

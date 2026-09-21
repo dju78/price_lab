@@ -17,10 +17,12 @@ already imported this module being stuck talking to the previous database.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
@@ -34,12 +36,66 @@ _engine: Engine | None = None
 _session_factory: sessionmaker[Session] | None = None
 
 
+def _make_engine(url: str) -> Engine:
+    """Connection pooling and query timeouts, per backend.
+
+    SQLite: `timeout` is the busy timeout (how long a writer waits for a
+    lock before failing rather than hanging); a progress handler aborts
+    any single statement that runs past `db_statement_timeout_ms`, with
+    the deadline armed per statement by the cursor-execute events below.
+    PostgreSQL and other server databases: a real pool (`pool_size`,
+    `max_overflow`, `pool_timeout`), `pool_pre_ping` so a connection the
+    server dropped is replaced rather than handed out, and the server's
+    own `statement_timeout`.
+    """
+    settings = get_settings()
+    timeout_s = settings.db_statement_timeout_ms / 1000.0
+    if url.startswith("sqlite"):
+        engine = create_engine(
+            url, connect_args={"check_same_thread": False, "timeout": timeout_s},
+            pool_pre_ping=True)
+
+        @event.listens_for(engine, "connect")
+        def _sqlite_connect(dbapi_conn: Any, record: Any) -> None:
+            dbapi_conn.execute(f"PRAGMA busy_timeout={settings.db_statement_timeout_ms}")
+            state: dict[str, float | None] = {"deadline": None}
+            record.info["pricelab_deadline"] = state
+
+            def _abort_if_late() -> int:
+                deadline = state["deadline"]
+                return 1 if deadline is not None and time.monotonic() > deadline else 0
+
+            dbapi_conn.set_progress_handler(_abort_if_late, 1000)
+
+        @event.listens_for(engine, "before_cursor_execute")
+        def _arm(conn: Any, cursor: Any, statement: Any, parameters: Any, context: Any,
+                 executemany: Any) -> None:
+            state = conn.connection.info.get("pricelab_deadline")
+            if state is not None:
+                state["deadline"] = time.monotonic() + timeout_s
+
+        @event.listens_for(engine, "after_cursor_execute")
+        def _disarm(conn: Any, cursor: Any, statement: Any, parameters: Any, context: Any,
+                    executemany: Any) -> None:
+            state = conn.connection.info.get("pricelab_deadline")
+            if state is not None:
+                state["deadline"] = None
+
+        return engine
+
+    connect_args: dict[str, Any] = {}
+    if url.startswith("postgresql"):
+        connect_args["options"] = f"-c statement_timeout={settings.db_statement_timeout_ms}"
+    return create_engine(
+        url, connect_args=connect_args, pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow, pool_timeout=settings.db_pool_timeout_seconds,
+        pool_pre_ping=True)
+
+
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
-        url = get_settings().database_url
-        connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-        _engine = create_engine(url, connect_args=connect_args)
+        _engine = _make_engine(get_settings().database_url)
     return _engine
 
 

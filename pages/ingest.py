@@ -29,6 +29,7 @@ from pricelab import (
 from pricelab.core import audit, db, ledger
 from pricelab.core.config import QualityAdjustmentConfig, get_settings
 from pricelab.core.models import Role
+from pricelab.core.ratelimit import RateLimited, upload_limiter
 from pricelab.core.security import FormulaError, require_role
 from pricelab.data import mapping, store, validation
 from pricelab.engine.custom import (
@@ -154,6 +155,18 @@ def render() -> None:
         st.error(upload_error)
         return
 
+    # Rate limit, per signed-in user, checked before the bytes are read:
+    # the same file re-rendering on every Streamlit rerun is one upload,
+    # keyed by name and size, not one per rerun.
+    upload_key = f"{upload.name}:{upload.size}"
+    if st.session_state.get("counted_upload") != upload_key:
+        try:
+            upload_limiter().acquire(common.current_username())
+        except RateLimited as exc:
+            st.error(f"Upload refused: {exc}")
+            return
+        st.session_state["counted_upload"] = upload_key
+
     file_bytes = upload.getvalue()
     st.session_state["file_bytes"] = file_bytes
     st.session_state["file_name"] = upload.name
@@ -213,6 +226,18 @@ def render() -> None:
 
     content_hash = store.content_hash_of(df)
     st.session_state["content_hash"] = content_hash
+    # The immutable raw layer and the vintage receipt: written once per
+    # distinct content (idempotent), so every later export can name the
+    # file, the hash, the receipt time and who supplied it.
+    if st.session_state.get("data_vintage_hash") != content_hash:
+        vintage = store.record_upload(
+            df, kind="prices", file_name=upload.name, file_bytes=file_bytes,
+            actor=common.current_username(), directory=settings.store_dir)
+        st.session_state["data_vintage"] = vintage.to_dict()
+        st.session_state["data_vintage_hash"] = content_hash
+        common.record(audit.DATA_LOAD, upload.name, {
+            "content_hash": content_hash, "file_sha256": vintage.file_sha256,
+            "raw_path": vintage.raw_path, "rows": len(df), "kind": "prices"})
     assessment = validation.assess(df, reference_date=pd.Timestamp.now())
     with db.session_scope() as s:
         already_overridden = {

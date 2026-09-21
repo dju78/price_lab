@@ -50,6 +50,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pricelab.engine import bilateral as bi
 from pricelab.engine import elementary as el
 
 #: CPI Manual 2020, Table 8.1, "Item A Prices". Columns are the base
@@ -197,39 +198,95 @@ def test_table_8_3_chained_dutot_is_also_transitive():
 # ---------------------------------------------------------------------
 # What is deliberately not asserted
 # ---------------------------------------------------------------------
-def test_no_superlative_golden_values_are_asserted():
-    """A placeholder that records a negative finding rather than leaving a
-    silent gap in the coverage.
+def test_superlative_indices_against_a_hand_calculated_two_good_example():
+    """Two goods, two periods, every number chosen so the arithmetic can
+    be followed on paper. Replaces the earlier skip: the CPI Manual 2020
+    prints no reproducible superlative worked example (Chapter 8 defines
+    Fisher, Tornqvist and Walsh at paragraph 8.91 without one, and Table
+    10.1's data grid is not machine-readable), so the proof is built here
+    from the definitions rather than borrowed from a number nobody
+    published.
 
-    The phase asked for golden values from the CPI Manual 2020 chapters on
-    elementary aggregation *and* superlative indices. The elementary ones
-    are above. The superlative ones are not, because the 2020 volume does
-    not contain a reproducible worked example of one:
+    Prices and quantities (good A, good B):
 
-      - Chapter 8 defines Fisher, Tornqvist and Walsh (paragraph 8.91) but
-        prints no numerical example of any of them.
-      - Every table in the volume that names Fisher, Walsh or Tornqvist
-        (Tables 8.10, 9.1 and 10.1) was checked. Table 10.1 is the closest
-        -- a two-item, nine-period chained Tornqvist ending at 78.18 --
-        but its data grid is not machine-readable in the published PDF and
-        the surrounding prose gives the discounted prices only in words
-        and the quantities not at all, so the 78.18 cannot be reproduced
-        from what is printed.
-      - The volume defers index theory to a companion, published in 2025
-        as Consumer Price Index Manual: Theory. Its worked examples run on
-        large empirical data sets (scanner data, Israeli fresh fruit) that
-        are summarised rather than printed, so they are not reproducible
-        either.
+        period 0:  p = (2, 5)    q = (10, 4)
+        period t:  p = (3, 4)    q = ( 8, 6)
 
-    Rather than invent expected values, the superlative formulae are
-    verified by the exact algebraic identities in `tests/test_axioms.py`:
-    factor reversal for Fisher, time reversal for Fisher and Tornqvist,
-    the Laspeyres/Fisher/Paasche ordering under substitution, and
-    Tornqvist as the geometric mean of the geometric Laspeyres and
-    geometric Paasche. Those verify the same arithmetic without borrowing
-    authority from a number nobody published.
+    A rose 50% and B fell 20%; buyers shifted from A to B, the substitution
+    the superlative formulae are meant to credit.
+
+    Laspeyres  = sum(p_t q_0) / sum(p_0 q_0)
+               = (3*10 + 4*4) / (2*10 + 5*4) = (30 + 16) / (20 + 20) = 46/40 = 1.15
+    Paasche    = sum(p_t q_t) / sum(p_0 q_t)
+               = (3*8 + 4*6) / (2*8 + 5*6)   = (24 + 24) / (16 + 30) = 48/46 = 1.0434782609
+    Fisher     = sqrt(1.15 * 48/46) = sqrt(1.2) = 1.0954451150
+
+    Expenditure shares:
+        period 0: e = (20, 20), total 40 -> s_0 = (0.5, 0.5)
+        period t: e = (24, 24), total 48 -> s_t = (0.5, 0.5)
+    Tornqvist  = prod (p_t/p_0)^((s_0+s_t)/2) = 1.5^0.5 * 0.8^0.5 = sqrt(1.2) = 1.0954451150
+      (with equal shares in both periods, Tornqvist equals Fisher here
+      exactly, which is itself a check: sqrt(46/40 * 48/46) = sqrt(48/40)
+      = sqrt(1.2).)
+
+    Walsh      = sum(p_t sqrt(q_0 q_t)) / sum(p_0 sqrt(q_0 q_t))
+        sqrt(10*8) = sqrt(80) = 8.9442719, sqrt(4*6) = sqrt(24) = 4.8989795
+               = (3*8.9442719 + 4*4.8989795) / (2*8.9442719 + 5*4.8989795)
+               = (26.8328157 + 19.5959179) / (17.8885438 + 24.4948974)
+               = 46.4287336 / 42.3834412 = 1.0954451150   (also sqrt(1.2): the
+        two goods' quantities scale by 0.8 and 1.5 = the inverse of their
+        price relatives, the unit-elastic case where every superlative
+        formula agrees)
+
+    Marshall-Edgeworth = sum(p_t (q_0+q_t)) / sum(p_0 (q_0+q_t))
+               = (3*18 + 4*10) / (2*18 + 5*10) = (54 + 40) / (36 + 50) = 94/86 = 1.0930232558
+
+    Fisher quantity = sqrt( sum(q_t p_0)/sum(q_0 p_0) * sum(q_t p_t)/sum(q_0 p_t) )
+               = sqrt( 46/40 * 48/46 ) = sqrt(1.2)
+    Value ratio = 48/40 = 1.2 = Fisher price x Fisher quantity = 1.2   (factor reversal)
     """
-    pytest.skip(
-        "no reproducible superlative worked example exists in the CPI Manual 2020; "
-        "see this test's docstring, and tests/test_axioms.py for the algebraic "
-        "identities used instead")
+    p0 = pd.Series([2.0, 5.0], index=["A", "B"])
+    pt = pd.Series([3.0, 4.0], index=["A", "B"])
+    q0 = pd.Series([10.0, 4.0], index=["A", "B"])
+    qt = pd.Series([8.0, 6.0], index=["A", "B"])
+
+    assert bi.laspeyres(p0, pt, q0).value == pytest.approx(1.15, abs=1e-6)
+    assert bi.paasche(p0, pt, qt).value == pytest.approx(48 / 46, abs=1e-6)
+    assert bi.fisher(p0, pt, q0, qt).value == pytest.approx(1.0954451150, abs=1e-6)
+    assert bi.tornqvist(p0, pt, q0, qt).value == pytest.approx(1.0954451150, abs=1e-6)
+    assert bi.walsh(p0, pt, q0, qt).value == pytest.approx(1.0954451150, abs=1e-6)
+    assert bi.marshall_edgeworth(p0, pt, q0, qt).value == pytest.approx(94 / 86, abs=1e-6)
+    assert bi.fisher_quantity(p0, pt, q0, qt).value == pytest.approx(1.0954451150, abs=1e-6)
+    assert bi.value_ratio(p0, pt, q0, qt) == pytest.approx(1.2, abs=1e-6)
+    assert bi.fisher(p0, pt, q0, qt).value * bi.fisher_quantity(p0, pt, q0, qt).value ==         pytest.approx(1.2, abs=1e-6)
+    legs = bi.fisher(p0, pt, q0, qt).components
+    assert legs["laspeyres"] == pytest.approx(1.15, abs=1e-6)
+    assert legs["paasche"] == pytest.approx(48 / 46, abs=1e-6)
+
+
+def test_superlative_indices_on_a_second_hand_example_where_they_differ():
+    """The first example is the unit-elastic case where every superlative
+    formula coincides, which proves the arithmetic but not that the
+    formulae are distinct. A second example with unequal shares:
+
+        period 0:  p = (1, 2)    q = (6, 3)      e = (6, 6),  s_0 = (0.5, 0.5)
+        period t:  p = (2, 2)    q = (2, 5)      e = (4, 10), s_t = (2/7, 5/7)
+
+    Laspeyres  = (2*6 + 2*3) / (1*6 + 2*3) = 18/12 = 1.5
+    Paasche    = (2*2 + 2*5) / (1*2 + 2*5) = 14/12 = 1.1666666667
+    Fisher     = sqrt(1.5 * 14/12) = sqrt(1.75) = 1.3228756555
+    Tornqvist  = 2^((0.5 + 2/7)/2) * 1^((0.5 + 5/7)/2) = 2^(11/28) = 1.3130352855
+    Walsh      = (2*sqrt(12) + 2*sqrt(15)) / (1*sqrt(12) + 2*sqrt(15))
+               = (6.9282032 + 7.7459667) / (3.4641016 + 7.7459667)
+               = 14.6741699 / 11.2100683 = 1.3090170
+    """
+    p0 = pd.Series([1.0, 2.0], index=["A", "B"])
+    pt = pd.Series([2.0, 2.0], index=["A", "B"])
+    q0 = pd.Series([6.0, 3.0], index=["A", "B"])
+    qt = pd.Series([2.0, 5.0], index=["A", "B"])
+    assert bi.laspeyres(p0, pt, q0).value == pytest.approx(1.5, abs=1e-9)
+    assert bi.paasche(p0, pt, qt).value == pytest.approx(14 / 12, abs=1e-9)
+    assert bi.fisher(p0, pt, q0, qt).value == pytest.approx(1.3228756555, abs=1e-9)
+    assert bi.tornqvist(p0, pt, q0, qt).value == pytest.approx(2 ** (11 / 28), abs=1e-9)
+    assert bi.walsh(p0, pt, q0, qt).value == pytest.approx(1.3090170, abs=1e-6)
+    assert bi.fisher(p0, pt, q0, qt).value != pytest.approx(bi.tornqvist(p0, pt, q0, qt).value)

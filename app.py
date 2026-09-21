@@ -28,6 +28,7 @@ import pages.quality_adjustment
 import pages.reports
 from pages import common
 from pricelab.core import audit, db
+from pricelab.core.logging import configure_logging
 from pricelab.core.models import Role
 from pricelab.core.security import (
     AccessDenied,
@@ -63,6 +64,7 @@ st.markdown("""
 # exist and is a no-op otherwise. A deployed environment runs the Alembic
 # migration in migrations/ instead, which is what actually owns schema
 # evolution; this call never drops or alters a column.
+configure_logging()
 db.init_db()
 
 

@@ -104,7 +104,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 513 tests
+make test        # 551 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/ and data/
 ```
@@ -237,22 +237,31 @@ pricelab/
     charts.py           one chart factory serving both the screen and the exports
     deck.py             automatic slide deck, structured by what was actually found
     report.py           Word and Markdown report, plus the method note
+    excel.py            the Excel evidence pack, nine sheets, sanitised
+    bulletin.py         the PDF statistical bulletin, headline from the registry
+    exports.py          the publication table with disclosure control; stamped
+                        CSV; SDMX-ML 2.1 validated against the standard's XSDs
+    readback.py         reads the provenance stamp back out of every format
 pages/            one module per lifecycle stage; app.py wires them into
                   role-filtered st.navigation
   ingest.py, quality.py, imputation.py, quality_adjustment.py, index_build.py,
   findings.py, diagnostics.py, reports.py, common.py (shared session-state helpers)
-migrations/       Alembic; five revisions covering users, sessions, audit events,
-                  index runs, the classification tree, validation overrides,
-                  column mappings and the quality adjustment ledger
-tests/            513 tests
+migrations/       Alembic; six revisions covering users, sessions, audit events,
+                  index runs (with the registered headline and data vintage),
+                  the classification tree, validation overrides, column
+                  mappings and the quality adjustment ledger
+tests/            551 tests
 scripts/
   generate_synthetic_data.py   the test fixture, not the product
   create_user.py               bootstraps a login (no self-registration)
+  backup.py, restore.py        the database and the Parquet store, with a manifest
 app.py            auth gate, shared chrome, page registry; no analytical logic
 Dockerfile        lint, type-check and tests all run during the build
 docker-compose.yml the container plus a named volume for the SQLite file
 docs/backlog.md   the phased plan for growing this into a governed,
                   multi-domain index platform
+docs/methodology/ one note per engine module: formula, citation, assumptions, biases
+docs/user_guide.md, docs/admin_guide.md, docs/tutorial.md, CHANGELOG.md
 ```
 
 The package is organised into four subpackages so it can grow without losing

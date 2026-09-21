@@ -166,7 +166,17 @@ def compile_and_store(df: Any, cfg: Any, label: str, file_bytes: bytes, *,
         cache.set(key, cached)
         record(audit.CALCULATION_RUN, label, {
             "formula": cfg.index.formula, "chained": cfg.index.chained, "rows": len(df),
-            "quality_adjustments": len(cfg.quality_adjustment.entries), "trigger": trigger})
+            "quality_adjustments": len(cfg.quality_adjustment.entries), "trigger": trigger,
+            "correlation_id": cached["result"].get("correlation_id"),
+            "content_hash": st.session_state.get("content_hash")})
+        # The cleaned layer and its transformation log, beside the raw
+        # layer the upload wrote: the raw-to-cleaned step is now on disk
+        # and replayable for this run's exact configuration.
+        if "indices" in cached["result"]:
+            from pricelab.core.config import get_settings
+            from pricelab.data import store
+
+            store.write_cleaned_layer(df, cfg, get_settings().store_dir)
 
     st.session_state["analysis"] = {**cached, "label": label}
     st.session_state["input_df"] = df

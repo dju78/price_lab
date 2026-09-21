@@ -31,7 +31,7 @@ from importlib.metadata import version as pkg_version
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import Boolean, Integer, LargeBinary, String
+from sqlalchemy import Boolean, Float, Integer, LargeBinary, String
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from . import audit
@@ -61,6 +61,18 @@ class IndexRunORM(Base):
     price_reference_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
     weight_reference_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
     index_reference_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # The published number, recorded at registration (Phase 10) so a
+    # bulletin reads it from here rather than recomputing it, and so a
+    # later reproduction can be checked against what was actually
+    # registered. NULL for runs registered before these columns existed.
+    headline_series: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    headline_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    headline_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    headline_reference_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Where the input data came from and when it was received: the data
+    # vintage, alongside `input_hash` which is its content.
+    data_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    data_received_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 def _code_version() -> str:
@@ -96,11 +108,40 @@ def _hash_dataframe(df: pd.DataFrame) -> str:
     return hashlib.sha256(row_hashes.tobytes()).hexdigest()
 
 
-def register_run(session: Session, df: pd.DataFrame, config: RunConfig, label: str) -> IndexRunORM:
+def headline_of(indices: pd.DataFrame, config: RunConfig) -> dict[str, Any]:
+    """The one number a release leads with: the aggregate series' level at
+    the final period, with the period it is for and the period it reads
+    `base_value` at. The "All items" column when there is one, else the
+    single series the collection has."""
+    from ..engine.index import resolve_index_reference_period
+
+    series = "All items" if "All items" in indices.columns else str(indices.columns[0])
+    final = pd.Timestamp(indices.index[-1])
+    return {
+        "series": series,
+        "period": str(final.date()),
+        "value": float(indices[series].iloc[-1]),
+        "reference_period": str(
+            resolve_index_reference_period(config.index, indices.index).date()),
+    }
+
+
+def register_run(
+    session: Session, df: pd.DataFrame, config: RunConfig, label: str,
+    *, result: dict[str, Any] | None = None,
+    data_source: str | None = None, data_received_at: str | None = None,
+) -> IndexRunORM:
     """Register a run's input and parameters. Idempotent: registering the
     same data under the same configuration again returns the existing
     record rather than creating a duplicate, because the whole point of a
-    content hash is that identical inputs are recognised as identical."""
+    content hash is that identical inputs are recognised as identical.
+
+    The headline figure is recorded with the run. `result` is the pipeline
+    output already computed for this data and configuration, when the
+    caller has it; otherwise the pipeline is run here, because a registry
+    entry without the number it published is a record of an input, not of
+    a release.
+    """
     input_hash = _hash_dataframe(df)
     config_json = config.to_json()
     content_hash = hashlib.sha256((input_hash + config_json).encode("utf-8")).hexdigest()
@@ -109,6 +150,11 @@ def register_run(session: Session, df: pd.DataFrame, config: RunConfig, label: s
     existing = session.query(IndexRunORM).filter_by(run_id=run_id).one_or_none()
     if existing is not None:
         return existing
+
+    if result is None:
+        from .. import run_pipeline
+        result = run_pipeline(df, config)
+    headline = headline_of(result["indices"], config) if "indices" in result else None
 
     buf = io.BytesIO()
     df.to_parquet(buf, index=False)
@@ -131,6 +177,12 @@ def register_run(session: Session, df: pd.DataFrame, config: RunConfig, label: s
         price_reference_period=config.index.price_reference_period,
         weight_reference_period=config.index.weight_reference_period,
         index_reference_period=config.index.index_reference_period,
+        headline_series=headline["series"] if headline else None,
+        headline_period=headline["period"] if headline else None,
+        headline_value=headline["value"] if headline else None,
+        headline_reference_period=headline["reference_period"] if headline else None,
+        data_source=data_source,
+        data_received_at=data_received_at,
     )
     session.add(run)
     session.flush()
@@ -162,7 +214,8 @@ def correct_run(
     if not original.approved:
         raise ValueError(f"run {run_id!r} is not approved; edit or re-register it directly")
 
-    new_run = register_run(session, df, config, label)
+    new_run = register_run(session, df, config, label, data_source=original.data_source,
+                           data_received_at=original.data_received_at)
     if new_run.run_id == original.run_id:
         raise ValueError("the correction is byte-identical to the run it corrects")
     new_run.vintage = original.vintage + 1

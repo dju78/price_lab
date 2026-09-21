@@ -23,6 +23,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import pandas as pd
 from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -123,3 +124,24 @@ def verify_chain(session: Session) -> tuple[bool, int | None]:
             return False, event.id
         prev_hash = event.hash
     return True, None
+
+
+def extract_for_run(session: Session, *, label: str, content_hash: str | None = None,
+                    run_id: str | None = None, correlation_id: str | None = None) -> pd.DataFrame:
+    """The audit events that concern one run, as a table: every event whose
+    target is the run's label or registry id, or whose parameters name the
+    input data's content hash, the run id or the pipeline correlation id.
+    This is the "audit extract" sheet of the evidence pack and the chain a
+    bulletin's headline is traced through in tests/test_end_to_end.py.
+    """
+    needles = [n for n in (content_hash, run_id, correlation_id) if n]
+    rows = []
+    for e in session.query(AuditEventORM).order_by(AuditEventORM.id).all():
+        hit = e.target in {label, f"run {run_id}"} or (run_id and run_id in e.target) \
+            or any(n in e.params_json for n in needles)
+        if hit:
+            rows.append({"id": e.id, "created_at": e.created_at, "actor": e.actor,
+                         "action": e.action, "target": e.target, "params": e.params_json,
+                         "hash": e.hash, "prev_hash": e.prev_hash})
+    return pd.DataFrame(rows, columns=["id", "created_at", "actor", "action", "target", "params",
+                                       "hash", "prev_hash"])

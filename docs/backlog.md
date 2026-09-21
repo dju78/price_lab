@@ -356,12 +356,86 @@ same, and it keeps `price_reported` untouched. A run loaded from the
 registry cannot have its ledger changed from the page -- that is a
 correction, and goes through `correct_run`.
 
-## Phase 10 - Reporting and hardening
+## Phase 10 - Reporting, provenance and production hardening (done)
 
-Extend the existing PPTX/DOCX builders (`reporting/deck.py`,
-`reporting/report.py`) with a PDF bulletin and run-identifier/vintage/code-
-version stamping on every export, now that `core/registry.py` actually has
-that information to stamp with.
+Task 0a, characteristics provenance -- what the upload already satisfied:
+**none of the four.** The hedonic characteristics file was read straight
+from the widget into a DataFrame: no raw Parquet layer, no transformation
+log, no validation, no vintage stamp. And, found while checking: the price
+upload did not pass through the raw layer or the transformation log in the
+*interface* either -- `data/store.py` existed as a tested library that
+`pages/ingest.py` never called (validation and the content hash were
+applied; the vintage stamp existed only for connectors). Both now go
+through the same path. Prices: `store.record_upload` writes the raw layer
+once per content hash with a `.vintage.json` receipt (file, SHA-256 of the
+bytes as received, actor, time) and `compile_and_store` writes the cleaned
+layer and its transformation log after every compile; the log's replay
+now includes the quality-adjustment link step, matching the pipeline's
+order. Characteristics: `validation.assess_characteristics` (uniqueness of
+`item_id` critical; completeness, validity, conformity against the priced
+items), the raw layer and receipt, `standardise_characteristics` with its
+steps logged and `replay_characteristics` proving the replay, and the
+vintage set on the fit (`HedonicResult.data_vintage`) so it rides in the
+parameters of every hedonic adjustment, hence in the ledger, the config
+JSON and the registry hash. Task 0b: the superlative skip is a proof --
+two hand-calculated two-good, two-period examples with the arithmetic in
+the test (one unit-elastic where every superlative coincides, one where
+they differ).
+
+Provenance (Task 4) first, because everything else carries it:
+`core/provenance.py` builds one `ProvenanceStamp` (run id or
+"unregistered", data vintage = input content hash, source and receipt,
+git commit, PriceLab version, environment fingerprint, the full config,
+suppression rules, non-standard flag and expression, ledger count,
+headline, vintage/supersedes/correction/approval, timestamp);
+`reporting/readback.py` reads it back out of CSV (comment line), Markdown
+(fenced block), docx (tagged paragraph -- core properties cap at 255
+characters), pptx (provenance slide's notes), xlsx (Provenance sheet),
+PDF (keywords and text), SDMX (dataset annotation). The registry gained
+the headline and data-vintage columns (migration 0006) so a bulletin
+reads its number from the registry. Excel evidence pack (Task 1): nine
+sheets as specified, written through `sanitize_dataframe` headers included
+and stored as values, suppressed cells labelled with their rule. PDF
+bulletin (Task 2, reportlab): headline from `IndexRunORM.headline_value`,
+refused if the live result disagrees; key points, charts, tables,
+methodology note, revision statement from the registry's vintage chain,
+contact and release block from settings, provenance page. Machine-readable
+(Task 3): `publication_table` applies primary and secondary suppression to
+every published table (secondary because the equally weighted geometric
+aggregate would otherwise give a lone suppressed cell away); stamped CSV;
+SDMX-ML 2.1 GenericData **validated against the standard's own schema set**
+-- the SDMX TWG's 59 XSDs (1.1 MB) vendored under `tests/fixtures/sdmx_2_1`
+via `sdmx1.install_schemas`, with a test that the validator rejects a
+broken message. Hardening (Task 5): pooling and `pool_pre_ping` for server
+databases, PostgreSQL `statement_timeout`, and for SQLite a busy timeout
+plus a per-statement deadline enforced through a progress handler (a
+runaway statement is interrupted in a test); stale-if-error on
+`BaseConnector.fetch` -- the last good response is kept without a lifetime
+and served on any `ConnectorError` with `stale=True`, its age and the
+reason, audited as `served_stale` (a test simulates the outage); per-user
+sliding-window rate limit on upload before `getvalue()`; session timeout
+proven end to end (an idle token lands on the sign-in form and is
+deleted); stdlib JSON logging with a `ContextVar` correlation id bound by
+`run_pipeline`, on every line and in the `CALCULATION_RUN` audit event;
+liveness and readiness probes (database answers and is at migration head,
+store writable) as CLI, HTTP server and the Docker healthcheck; backup
+(SQLite online backup API + store copy + hashed manifest) and restore
+(verify, refuse non-empty targets) with the test that destroys and
+restores and reproduces an identical index. `pyarrow>=14.0,<25` with the
+reason. Documentation (Task 6): `docs/methodology/` (twelve notes),
+`docs/user_guide.md` by the five user types, `docs/admin_guide.md`,
+`docs/tutorial.md`, `CHANGELOG.md`.
+
+Also fixed on the way: Word report tables, the Markdown index-levels and
+ledger tables, and deck text runs were not routed through the export
+sanitiser -- found by the new injection sweep, which now covers every
+format and headers.
+
+Not verified directly: the PostgreSQL pool and `statement_timeout` paths
+are configured but this environment has no PostgreSQL to run them
+against; PDF pages were checked by text extraction, not rendered (no
+poppler on this machine). 551 tests; engine/ coverage 95%; ruff and mypy
+strict at zero.
 
 ## Deferred (not in the agreed scope; revisit if asked)
 

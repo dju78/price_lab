@@ -63,6 +63,9 @@ def test_migration_upgrades_head_cleanly_and_seeds_coicop(tmp_path, monkeypatch)
     index_run_columns = {c["name"] for c in inspector.get_columns("index_runs")}
     assert {"price_reference_period", "weight_reference_period",
             "index_reference_period"} <= index_run_columns
+    # 0006 (Phase 10): the registered headline and the data vintage.
+    assert {"headline_series", "headline_period", "headline_value", "headline_reference_period",
+            "data_source", "data_received_at"} <= index_run_columns
 
     get_settings.cache_clear()
 

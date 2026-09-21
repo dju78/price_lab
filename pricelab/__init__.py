@@ -4,7 +4,10 @@ Built around one idea: every number it produces can be traced back to a
 recorded configuration and an inspectable set of flagged observations.
 """
 
+import time
+
 from .core.config import ImputationConfig, IndexConfig, QualityConfig, RunConfig, Schema
+from .core.logging import get_logger, run_context
 from .data.upload import ValidationReport, read_price_data, standardise, validate
 from .engine import diagnostics
 from .engine.imputation import run_imputation
@@ -24,6 +27,7 @@ from .engine.quality import run_quality
 from .engine.quality_adjustment import apply_adjustments, impact_report
 
 __version__ = "0.1.0"
+log = get_logger("pricelab.pipeline")
 
 
 def run_pipeline(df, config: RunConfig = None, *, compute_impact: bool = True):
@@ -40,37 +44,52 @@ def run_pipeline(df, config: RunConfig = None, *, compute_impact: bool = True):
     those inner re-runs avoid computing an impact report of their own.
     """
     config = config or RunConfig()
+    with run_context() as correlation_id:
+        started = time.monotonic()
+        log.info("pipeline.start", extra={"rows": int(len(df)), "label": config.label,
+                                          "formula": config.index.formula,
+                                          "quality_adjustments": len(config.quality_adjustment.entries)})
+        report = validate(df)
+        if not report.passed:
+            log.warning("pipeline.validation_failed",
+                        extra={"errors": len(getattr(report, "errors", []) or [])})
+            return {"validation": report, "config": config, "correlation_id": correlation_id}
 
-    report = validate(df)
-    if not report.passed:
-        return {"validation": report, "config": config}
+        clean, quality = run_quality(df, config.quality)
+        log.info("pipeline.quality", extra={"scale_errors_detected": quality["scale_errors_detected"],
+                                            "scale_errors_repaired": quality["scale_errors_repaired"]})
+        # Approved replacements are linked onto the old item's series here,
+        # after fault repair and before imputation, so the imputation and the
+        # matched-model index see one continuing item where the collection
+        # saw two. `link_log` lists every row that was moved or dropped to do
+        # it, and the linked rows are flagged in `clean` and everything
+        # downstream of it.
+        clean, link_log = apply_adjustments(clean, config.quality_adjustment.entries)
+        imputed = run_imputation(clean, config.imputation)
+        log.info("pipeline.imputation", extra={"imputed_values": int((imputed["imputation"] != "").sum())})
+        indices, matched = build_all(imputed, config.index)
+        log.info("pipeline.index", extra={"periods": int(len(indices)), "series": int(len(indices.columns)),
+                                          "elapsed_ms": round((time.monotonic() - started) * 1000)})
 
-    clean, quality = run_quality(df, config.quality)
-    # Approved replacements are linked onto the old item's series here,
-    # after fault repair and before imputation, so the imputation and the
-    # matched-model index see one continuing item where the collection
-    # saw two. `link_log` lists every row that was moved or dropped to do
-    # it, and the linked rows are flagged in `clean` and everything
-    # downstream of it.
-    clean, link_log = apply_adjustments(clean, config.quality_adjustment.entries)
-    imputed = run_imputation(clean, config.imputation)
-    indices, matched = build_all(imputed, config.index)
-
-    result = {
-        "validation": report,
-        "clean": clean,
-        "quality": quality,
-        "link_log": link_log,
-        "imputed": imputed,
-        "indices": indices,
-        "matched_counts": matched,
-        "inflation": year_on_year(indices),
-        "config": config,
-    }
-    if compute_impact and config.quality_adjustment.entries:
-        result["quality_adjustment_impact"] = impact_report(
-            df, config, run=lambda d, c: run_pipeline(d, c, compute_impact=False))
-    return result
+        result = {
+            "validation": report,
+            "clean": clean,
+            "quality": quality,
+            "link_log": link_log,
+            "imputed": imputed,
+            "indices": indices,
+            "matched_counts": matched,
+            "inflation": year_on_year(indices),
+            "config": config,
+            "correlation_id": correlation_id,
+        }
+        if compute_impact and config.quality_adjustment.entries:
+            result["quality_adjustment_impact"] = impact_report(
+                df, config, run=lambda d, c: run_pipeline(d, c, compute_impact=False))
+            log.info("pipeline.impact_report", extra={
+                "adjustment_effect_points": result["quality_adjustment_impact"].adjustment_effect_points})
+        log.info("pipeline.done", extra={"elapsed_ms": round((time.monotonic() - started) * 1000)})
+        return result
 
 from .engine.auto import analyse, auto_configure, infer_schema
 from .engine.insights import Finding, Narrative, build_narrative

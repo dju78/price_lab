@@ -152,6 +152,11 @@ class HedonicResult:
     out_of_sample: dict[str, float] = field(default_factory=dict)
     """`rmse_transformed` (k-fold RMSE in the regression's own scale),
     `mape_pct` (mean absolute percentage error in price levels), `folds`."""
+    data_vintage: dict[str, Any] = field(default_factory=dict)
+    """Provenance of the characteristics the fit used -- content hash, file,
+    receipt -- set by the caller that loaded them (`data.store.record_upload`)
+    and carried into every adjustment read from this fit, so a ledger entry
+    names the characteristics vintage as well as the method."""
 
     # -- reading the fit ------------------------------------------------
     @property
@@ -564,7 +569,8 @@ def _hedonic_parameters(result: HedonicResult, variant: str) -> dict[str, Any]:
             "categorical": list(result.spec.categorical),
             "n_obs": result.n_obs, "adj_r_squared": result.adj_r_squared,
             "max_vif": float(result.vif.replace(np.inf, np.nan).max()) if len(result.vif) else float("nan"),
-            "multicollinearity_warning": bool(result.warnings)}
+            "multicollinearity_warning": bool(result.warnings),
+            "characteristics_vintage": dict(result.data_vintage)}
 
 
 def hedonic_adjustment(

@@ -13,6 +13,8 @@ from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 
 from ..core.config import IndexConfig
+from ..core.provenance import STAMP_KEY, ProvenanceStamp, build_stamp
+from ..core.security import sanitize_cell
 from ..engine.custom import non_standard_notice
 from ..engine.index import resolve_index_reference_period
 from ..engine.insights import Narrative
@@ -168,7 +170,21 @@ def quality_adjustment_tables(res: dict) -> tuple[pd.DataFrame, pd.DataFrame] | 
 
 
 # ----------------------------------------------------------------------
-def build_markdown(res: dict, nar: Narrative, label: str = "") -> str:
+def provenance_markdown(stamp: ProvenanceStamp) -> str:
+    """The stamp as a Markdown section: a readable table, then the JSON
+    in a fenced block tagged with the stamp key so it can be read back
+    mechanically (`reporting.readback.from_markdown`)."""
+    lines = ["## Provenance", "", "| Field | Value |", "|:--|:--|"]
+    for k, v in stamp.rows():
+        cell = str(sanitize_cell(v)).replace("|", "\\|").replace("\n", " ")
+        lines.append(f"| {k} | {cell} |")
+    lines += ["", f"```{STAMP_KEY}", stamp.to_json(), "```", ""]
+    return "\n".join(lines)
+
+
+def build_markdown(res: dict, nar: Narrative, label: str = "",
+                   stamp: ProvenanceStamp | None = None) -> str:
+    stamp = stamp or build_stamp(res, label)
     I = res["indices"]
     lines = [f"# {nar.headline}", "", f"*{label or res['config'].label}*", "",
              nar.subtitle, "",
@@ -193,16 +209,19 @@ def build_markdown(res: dict, nar: Narrative, label: str = "") -> str:
             if f.action:
                 lines += [f"**Action.** {f.action}", ""]
 
+    from ..core.security import sanitize_dataframe
+
     lines += ["## Index levels", "",
-              I.iloc[-1].round(2).rename(f"Index at {I.index[-1]:%b %Y}")
-              .to_frame().to_markdown(), ""]
+              sanitize_dataframe(I.iloc[-1].round(2).rename(f"Index at {I.index[-1]:%b %Y}")
+                                 .to_frame()).to_markdown(), ""]
     tables = quality_adjustment_tables(res)
     if tables is not None:
         ledger, scenarios = tables
         lines += ["## Quality adjustment", "", quality_adjustment_note(res), "",
-                  "### Ledger", "", ledger.to_markdown(index=False), "",
-                  "### Impact on the headline", "", scenarios.to_markdown(), ""]
-    lines += ["## Method note", "", method_note(res).replace("**", "**")]
+                  "### Ledger", "", sanitize_dataframe(ledger).to_markdown(index=False), "",
+                  "### Impact on the headline", "", sanitize_dataframe(scenarios).to_markdown(), ""]
+    lines += ["## Method note", "", method_note(res).replace("**", "**"), "",
+              provenance_markdown(stamp)]
     return "\n".join(lines)
 
 
@@ -233,12 +252,17 @@ def _rich(p, text):
 
 
 def _table(doc, df: pd.DataFrame, max_rows=15):
-    d = df.head(max_rows)
+    # A Word table is one paste away from a spreadsheet, so its cells and
+    # headers go through the same sanitiser as every other tabular export.
+    from ..core.security import sanitize_dataframe
+
+    d = sanitize_dataframe(df.head(max_rows))
     t = doc.add_table(rows=1, cols=len(d.columns))
     t.style = "Light Grid Accent 1"
     for i, c in enumerate(d.columns):
         cell = t.rows[0].cells[i]
-        cell.text = str(c).replace("_", " ").title()
+        header = str(c)
+        cell.text = header if header.startswith("'") else header.replace("_", " ").title()
         for para in cell.paragraphs:
             for run in para.runs:
                 run.bold = True
@@ -253,8 +277,11 @@ def _table(doc, df: pd.DataFrame, max_rows=15):
     doc.add_paragraph()
 
 
-def build_docx(res: dict, nar: Narrative, charts: dict, label: str = "") -> bytes:
+def build_docx(res: dict, nar: Narrative, charts: dict, label: str = "",
+               stamp: ProvenanceStamp | None = None) -> bytes:
     from .charts import to_png
+
+    stamp = stamp or build_stamp(res, label)
 
     doc = Document()
     _style(doc)
@@ -326,11 +353,25 @@ def build_docx(res: dict, nar: Narrative, charts: dict, label: str = "") -> byte
     for block in method_note(res).split("\n\n"):
         _rich(doc.add_paragraph(), block.strip())
 
-    doc.add_heading("Reproducibility", level=2)
+    doc.add_heading("Provenance", level=2)
+    _table(doc, pd.DataFrame(stamp.rows(), columns=["Field", "Value"]), max_rows=40)
+    # Machine-readable copy as its own paragraph, tagged with the stamp
+    # key so `reporting.readback.from_docx` finds it without parsing the
+    # table; the document properties cap a field at 255 characters, so
+    # they carry only the run identifier.
     para = doc.add_paragraph()
-    run = para.add_run(res["config"].to_json())
+    run = para.add_run(f"{STAMP_KEY} {stamp.to_json()}")
     run.font.name = "Courier New"
-    run.font.size = Pt(7.5)
+    run.font.size = Pt(6)
+    run.font.color.rgb = MUTED
+    doc.core_properties.subject = f"{STAMP_KEY}:{stamp.run_id}"[:255]
+
+    # Same rule as the deck: a paragraph whose first run begins with a
+    # formula leader is user data at the start of a line, one paste away
+    # from a spreadsheet cell.
+    for para in doc.paragraphs:
+        if para.runs:
+            para.runs[0].text = str(sanitize_cell(para.runs[0].text))
 
     buf = io.BytesIO()
     doc.save(buf)

@@ -1,0 +1,235 @@
+"""Machine-readable exports: the publication table with disclosure
+control applied, a stamped CSV, and an SDMX-ML 2.1 generic data message.
+
+One publication table
+---------------------
+`publication_table` is the long-form series every machine-readable export
+and the Excel evidence pack write from: one row per period and series,
+with the index level, the matched quote count behind it, and disclosure
+control applied through `core.security.suppress_with_secondary`. A
+suppressed cell is written as the word "suppressed" plus the rule that
+suppressed it, never as a blank: a blank is indistinguishable from a
+missing observation, and the reader has to be able to tell "we did not
+have this number" from "we have it and are not allowed to publish it".
+
+Primary suppression removes any cell built from fewer than the
+deployment's `suppression_min_count` matched quotes. Secondary
+suppression then protects each period: the all-items aggregate is an
+equally weighted geometric mean of the category series, so a period that
+published its aggregate and every category but one would let a reader
+back out the suppressed one, and the smallest remaining published cell in
+that period is suppressed too. That is the single-total case
+`suppress_with_secondary` certifies.
+
+SDMX-ML
+-------
+`to_sdmx_ml` writes a GenericData message in SDMX-ML 2.1, validated in
+`tests/test_exports.py` against the standard's own XSDs (the SDMX
+Technical Working Group's published schema set, vendored under
+tests/fixtures/sdmx_2_1), not merely shaped like one. The data structure
+is PriceLab's own, declared in the header (`PRICELAB:PRICELAB_CPI(1.0)`):
+one series dimension, `SERIES`, keyed on the category label; time at the
+observation level; `OBS_STATUS` "C" on a suppressed observation, whose
+value is omitted; and the provenance stamp as a dataset-level annotation.
+"""
+
+from __future__ import annotations
+
+import io
+from collections.abc import Mapping
+from typing import Any
+
+import pandas as pd
+from lxml import etree
+
+from ..core.provenance import STAMP_KEY, ProvenanceStamp
+from ..core.security import safe_csv, sanitize_cell, sanitize_dataframe, suppress_with_secondary
+
+SUPPRESSED = "suppressed"
+
+NS = {
+    "message": "http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message",
+    "generic": "http://www.sdmx.org/resources/sdmxml/schemas/v2_1/data/generic",
+    "common": "http://www.sdmx.org/resources/sdmxml/schemas/v2_1/common",
+}
+SDMX_AGENCY = "PRICELAB"
+SDMX_STRUCTURE_ID = "PRICELAB_CPI"
+SDMX_STRUCTURE_VERSION = "1.0"
+
+
+def publication_table(res: Mapping[str, Any], min_count: int | None = None) -> pd.DataFrame:
+    """Long-form publication table with disclosure control applied.
+
+    Columns: period, series, index (float, NaN where suppressed),
+    matched_items, suppressed (bool), suppression_rule (str, empty where
+    published), published (the value to print: the number, or the word
+    "suppressed").
+    """
+    indices: pd.DataFrame = res["indices"]
+    matched: pd.DataFrame = res["matched_counts"]
+    rows = []
+    for series in indices.columns:
+        counts = matched[series] if series in matched.columns else None
+        for period in indices.index:
+            rows.append({
+                "period": pd.Timestamp(period), "series": str(series),
+                "index": float(indices.loc[period, series]),
+                "matched_items": (float(counts.loc[period]) if counts is not None
+                                  and period in counts.index else float("nan")),
+            })
+    table = pd.DataFrame(rows)
+    if table.empty:
+        return table.assign(suppressed=False, suppression_rule="", published="")
+
+    categories = table[table["series"] != "All items"].copy()
+    aggregate = table[table["series"] == "All items"].copy()
+    # The aggregate is not a cell built from quotes; it is derived from
+    # the categories and is protected through them (secondary suppression
+    # below), so it is never itself primary-suppressed on a count.
+    if len(categories):
+        protected = suppress_with_secondary(
+            categories, group_col="period", value_col="index", count_col="matched_items",
+            min_count=min_count)
+    else:
+        protected = categories.assign(suppressed=False, secondary_suppressed=False)
+    from ..core.config import get_settings
+    threshold = min_count if min_count is not None else get_settings().suppression_min_count
+    protected["suppression_rule"] = ""
+    primary = protected["suppressed"] & ~protected["secondary_suppressed"]
+    protected.loc[primary, "suppression_rule"] = (
+        f"primary: built from fewer than {threshold} matched quotes")
+    protected.loc[protected["secondary_suppressed"], "suppression_rule"] = (
+        "secondary: smallest remaining cell in a period with one primary-suppressed cell, "
+        "so the suppressed value cannot be recovered from the all-items aggregate")
+    aggregate = aggregate.assign(suppressed=False, secondary_suppressed=False, suppression_rule="")
+    out = pd.concat([protected, aggregate], ignore_index=True)
+    out = out.sort_values(["series", "period"]).reset_index(drop=True)
+    out["published"] = [
+        SUPPRESSED if s else (f"{v:.6f}" if pd.notna(v) else "")
+        for s, v in zip(out["suppressed"], out["index"], strict=True)]
+    return out.drop(columns=["secondary_suppressed"])
+
+
+def wide_publication(table: pd.DataFrame) -> pd.DataFrame:
+    """The publication table pivoted to one row per period, one column per
+    series, with suppressed cells carrying the word rather than a blank."""
+    if table.empty:
+        return pd.DataFrame()
+    wide = table.pivot(index="period", columns="series", values="published")
+    wide.index = pd.DatetimeIndex(wide.index).strftime("%Y-%m-%d")
+    wide.index.name = "period"
+    ordered = [c for c in wide.columns if c != "All items"] + (
+        ["All items"] if "All items" in wide.columns else [])
+    return wide[ordered]
+
+
+# ---------------------------------------------------------------------
+# CSV
+# ---------------------------------------------------------------------
+def stamped_csv(df: pd.DataFrame, stamp: ProvenanceStamp, notice: str = "", **kwargs: Any) -> str:
+    """`safe_csv` with the provenance stamp as the first comment line and an
+    optional notice as the second. `#` comment lines are what every
+    mainstream CSV reader skips and every text editor shows."""
+    lines = [f"# {STAMP_KEY} {stamp.to_json()}"]
+    if notice:
+        lines.append(f"# {sanitize_cell(notice)}")
+    kwargs.setdefault("index", False)
+    return "\n".join(lines) + "\n" + safe_csv(df, **kwargs)
+
+
+def index_csv(res: Mapping[str, Any], stamp: ProvenanceStamp, notice: str = "") -> str:
+    """The publication table as a stamped CSV."""
+    table = publication_table(res).copy()
+    table["period"] = table["period"].dt.strftime("%Y-%m-%d")
+    return stamped_csv(table, stamp, notice)
+
+
+# ---------------------------------------------------------------------
+# SDMX-ML 2.1
+# ---------------------------------------------------------------------
+def _sub(parent: etree._Element, ns: str, tag: str, text: str | None = None,
+         **attrs: str) -> etree._Element:
+    el = etree.SubElement(parent, f"{{{NS[ns]}}}{tag}", **attrs)
+    if text is not None:
+        el.text = text
+    return el
+
+
+def to_sdmx_ml(res: Mapping[str, Any], stamp: ProvenanceStamp, *, message_id: str | None = None,
+               sender_name: str = "PriceLab") -> bytes:
+    """An SDMX-ML 2.1 GenericData message of the publication table.
+
+    Every string that came from user data (series names, the label) goes
+    through the same sanitiser as every other export: an XML attribute is
+    not a spreadsheet cell, but the file will be opened by tools that turn
+    it into one.
+    """
+    table = publication_table(res)
+    root = etree.Element(f"{{{NS['message']}}}GenericData", nsmap=NS)
+    header = _sub(root, "message", "Header")
+    _sub(header, "message", "ID", message_id or f"PRICELAB_{stamp.run_id}"[:64])
+    _sub(header, "message", "Test", "false")
+    _sub(header, "message", "Prepared", stamp.generated_at.replace("+00:00", ""))
+    sender = _sub(header, "message", "Sender", id=SDMX_AGENCY)
+    name = _sub(sender, "common", "Name", sender_name)
+    name.set("{http://www.w3.org/XML/1998/namespace}lang", "en")
+    structure = _sub(header, "message", "Structure", structureID=SDMX_STRUCTURE_ID,
+                     dimensionAtObservation="TIME_PERIOD")
+    ref_holder = _sub(structure, "common", "Structure")
+    etree.SubElement(ref_holder, "Ref", agencyID=SDMX_AGENCY, id=SDMX_STRUCTURE_ID,
+                     version=SDMX_STRUCTURE_VERSION)
+
+    dataset = _sub(root, "message", "DataSet", structureRef=SDMX_STRUCTURE_ID, action="Information")
+    annotations = _sub(dataset, "common", "Annotations")
+    annotation = _sub(annotations, "common", "Annotation")
+    _sub(annotation, "common", "AnnotationTitle", STAMP_KEY)
+    _sub(annotation, "common", "AnnotationType", "provenance")
+    text = _sub(annotation, "common", "AnnotationText", stamp.to_json())
+    text.set("{http://www.w3.org/XML/1998/namespace}lang", "en")
+    ds_attrs = _sub(dataset, "generic", "Attributes")
+    _sub(ds_attrs, "generic", "Value", id="RUN_ID", value=str(sanitize_cell(stamp.run_id)))
+    _sub(ds_attrs, "generic", "Value", id="DATA_VINTAGE", value=stamp.data_vintage)
+    _sub(ds_attrs, "generic", "Value", id="CODE_VERSION", value=stamp.code_version)
+    _sub(ds_attrs, "generic", "Value", id="NON_STANDARD_FORMULA",
+         value="true" if stamp.non_standard_formula else "false")
+
+    for series_name, group in table.groupby("series", sort=False):
+        series = _sub(dataset, "generic", "Series")
+        key = _sub(series, "generic", "SeriesKey")
+        _sub(key, "generic", "Value", id="SERIES", value=str(sanitize_cell(series_name)))
+        attrs = _sub(series, "generic", "Attributes")
+        _sub(attrs, "generic", "Value", id="UNIT_MEASURE", value="INDEX")
+        head = stamp.headline or {}
+        _sub(attrs, "generic", "Value", id="BASE_PER",
+             value=str(head.get("reference_period", "")))
+        for row in group.sort_values("period").itertuples(index=False):
+            obs = _sub(series, "generic", "Obs")
+            _sub(obs, "generic", "ObsDimension", value=pd.Timestamp(row.period).strftime("%Y-%m"))
+            if row.suppressed:
+                obs_attrs = _sub(obs, "generic", "Attributes")
+                _sub(obs_attrs, "generic", "Value", id="OBS_STATUS", value="C")
+                _sub(obs_attrs, "generic", "Value", id="OBS_COMMENT",
+                     value=str(sanitize_cell(row.suppression_rule)))
+            elif pd.notna(row.index):
+                _sub(obs, "generic", "ObsValue", value=f"{row.index:.6f}")
+            else:
+                obs_attrs = _sub(obs, "generic", "Attributes")
+                _sub(obs_attrs, "generic", "Value", id="OBS_STATUS", value="M")
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", pretty_print=True)
+
+
+def validate_sdmx_ml(document: bytes, schema_dir: str) -> tuple[bool, list[str]]:
+    """Validate an SDMX-ML message against the standard's schema set
+    (`SDMXMessage.xsd` and the files it imports, in `schema_dir`)."""
+    from pathlib import Path
+
+    schema = etree.XMLSchema(etree.parse(str(Path(schema_dir) / "SDMXMessage.xsd")))
+    doc = etree.parse(io.BytesIO(document))
+    ok = bool(schema.validate(doc))
+    return ok, [str(e.message) for e in schema.error_log]
+
+
+def sanitised(df: pd.DataFrame) -> pd.DataFrame:
+    """Re-exported for exporters that write tables through a library
+    rather than through `safe_csv`."""
+    return sanitize_dataframe(df)

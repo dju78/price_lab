@@ -16,6 +16,8 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
+from ..core.provenance import STAMP_KEY, ProvenanceStamp, build_stamp
+from ..core.security import sanitize_cell
 from ..engine.custom import non_standard_notice
 from ..engine.index import annualised_rate, resolve_index_reference_period, years_span
 from ..engine.insights import Finding, Narrative
@@ -314,9 +316,45 @@ def slide_method(prs, res: dict, nar: Narrative):
 
 
 # ----------------------------------------------------------------------
-def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "") -> bytes:
+def slide_provenance(prs, stamp: ProvenanceStamp):
+    """The stamp, rendered where a reader of the deck would look for it:
+    the last slide, in full, with the JSON copy in the notes and in the
+    file's core properties."""
+    s = _blank(prs)
+    _text(s, M, 0.55, 11, 0.8,
+          [{"text": "Provenance", "size": 32, "bold": True, "font": HEAD_FONT}])
+    y = 1.5
+    for k, v in stamp.rows():
+        if k == "Parameters (JSON)":
+            continue
+        _text(s, M, y, 3.4, 0.32, [{"text": k, "size": 10, "bold": True, "colour": PRIMARY}])
+        _text(s, M + 3.5, y, W - 2 * M - 3.5, 0.32,
+              [{"text": str(sanitize_cell(v))[:160], "size": 10, "colour": INK}])
+        y += 0.33
+    s.notes_slide.notes_text_frame.text = f"{STAMP_KEY} {stamp.to_json()}"
+    return s
+
+
+def _neutralise_leading_formulas(prs) -> None:
+    """A text run that *begins* with a spreadsheet formula leader is user
+    data placed at the start of a line (a label, a category name), and a
+    slide's text is one copy-paste from a spreadsheet cell. Prose never
+    begins with "=" or "@", so only such runs are touched, through the
+    same `sanitize_cell` every other export uses."""
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    for run in para.runs:
+                        run.text = str(sanitize_cell(run.text))
+
+
+def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "",
+               stamp: ProvenanceStamp | None = None) -> bytes:
     """Assemble the deck from whatever the narrative actually found."""
     from .charts import to_png
+
+    stamp = stamp or build_stamp(res, label)
 
     png = {k: to_png(v) for k, v in charts.items()}
     prs = Presentation()
@@ -408,6 +446,11 @@ def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "") -> byte
 
     slide_actions(prs, nar)
     slide_method(prs, res, nar)
+    slide_provenance(prs, stamp)
+    # python-pptx caps a core property at 255 characters, so the full JSON
+    # lives in the provenance slide's notes; the subject just names the run.
+    prs.core_properties.subject = f"{STAMP_KEY}:{stamp.run_id}"[:255]
+    _neutralise_leading_formulas(prs)
 
     buf = io.BytesIO()
     prs.save(buf)

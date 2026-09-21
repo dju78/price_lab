@@ -17,10 +17,18 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "argon2-cffi>=23.1",
-    "pyarrow>=14.0",
+    # Pinned below 25: on the development machine (Windows 11 with Smart App
+    # Control on) pyarrow 25.0.1's _fs.pyd is refused by the Application
+    # Control policy ("DLL load failed while importing _fs"), which breaks
+    # every Parquet read and write; 24.0.0 loads. Lift the ceiling once a
+    # 25.x wheel passes on that machine. Linux CI and the Docker image are
+    # unaffected either way.
+    "pyarrow>=14.0,<25",
     "requests>=2.31",
     "statsmodels>=0.14",
     "scipy>=1.11",
+    "reportlab>=4.0",
+    "lxml>=5.0",
 ]
 
 [project.optional-dependencies]

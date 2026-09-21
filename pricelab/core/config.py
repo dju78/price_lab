@@ -412,6 +412,37 @@ class Settings(BaseSettings):
     session_timeout_minutes: int = 60
     """Idle minutes after which a login session is no longer accepted."""
 
+    store_dir: str = Field(default_factory=lambda: str(Path(__file__).resolve().parents[2] / "store"))
+    """Directory of the Parquet store: the immutable raw layer, the cleaned
+    layer and the vintage sidecars (`data.store`). Anchored to the
+    repository by default for the same reason the database is."""
+
+    release_organisation: str = "PriceLab"
+    """Named on the bulletin's title block and contact block."""
+    release_contact_name: str = "Statistical enquiries"
+    release_contact_email: str = "not configured"
+    release_contact_phone: str = ""
+
+    upload_rate_limit_per_minute: int = 10
+    """Uploads one signed-in user may start per minute; the next is
+    refused with the wait time stated, before any bytes are read."""
+
+    db_pool_size: int = 5
+    """Connections kept open in the pool (server databases only; SQLite
+    uses its own single-file locking)."""
+    db_max_overflow: int = 5
+    db_pool_timeout_seconds: float = 30.0
+    """How long a request waits for a pooled connection before failing
+    rather than hanging."""
+    db_statement_timeout_ms: int = 30_000
+    """Per-statement timeout: PostgreSQL's `statement_timeout`; for SQLite,
+    the busy timeout on a locked database and a progress-handler abort on
+    a statement running past this long."""
+
+    log_json: bool = True
+    """Structured JSON log lines (one object per line) rather than text."""
+    log_level: str = "INFO"
+
 
 @functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:

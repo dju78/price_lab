@@ -9,6 +9,7 @@ services:
       # so the default works with no configuration at all.
       PRICELAB_ENVIRONMENT: production
       PRICELAB_DATABASE_URL: sqlite:////data/pricelab.db
+      PRICELAB_STORE_DIR: /data/store
     volumes:
       # Named volume, not a bind mount: the audit log, the run registry and
       # user accounts live in this SQLite file, and it must survive
@@ -16,11 +17,10 @@ services:
       # would, rather than resetting on every rebuild.
       - pricelab-data:/data
     healthcheck:
-      test: ["CMD", "python", "-c",
-             "import urllib.request;urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      test: ["CMD", "python", "-m", "pricelab.core.health", "--ready"]
       interval: 30s
-      timeout: 5s
-      start_period: 20s
+      timeout: 10s
+      start_period: 30s
       retries: 3
 
 volumes:

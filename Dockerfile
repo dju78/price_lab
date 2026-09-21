@@ -15,6 +15,7 @@ COPY migrations/ ./migrations/
 COPY alembic.ini .
 COPY tests/ ./tests/
 COPY app.py ./
+COPY scripts/ ./scripts/
 COPY .streamlit/ ./.streamlit/
 
 # Fail the build rather than ship a broken image.
@@ -27,7 +28,8 @@ ENV PYTHONUNBUFFERED=1 \
     STREAMLIT_SERVER_HEADLESS=true \
     STREAMLIT_SERVER_PORT=8501 \
     PRICELAB_ENVIRONMENT=production \
-    PRICELAB_DATABASE_URL=sqlite:////data/pricelab.db
+    PRICELAB_DATABASE_URL=sqlite:////data/pricelab.db \
+    PRICELAB_STORE_DIR=/data/store
 
 # A named volume mounted here (see docker-compose.yml) is what makes the
 # audit log, the run registry and user accounts survive a container
@@ -36,7 +38,10 @@ ENV PYTHONUNBUFFERED=1 \
 VOLUME ["/data"]
 
 EXPOSE 8501
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-    CMD python -c "import urllib.request;urllib.request.urlopen('http://localhost:8501/_stcore/health')"
+# Readiness, not just liveness: the database answers and is at the
+# migration head, the Parquet store is writable. Streamlit's own
+# /_stcore/health only says the web process is up.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+    CMD python -m pricelab.core.health --ready || exit 1
 
 CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]

@@ -20,7 +20,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -89,6 +89,27 @@ class ConnectorResult:
     data: pd.DataFrame
     vintage: Vintage
     from_cache: bool = False
+    stale: bool = False
+    """True when the live fetch failed and this is the last good response,
+    served past its cache lifetime rather than failing the caller."""
+    age: timedelta | None = None
+    """How old the served response is, measured from its retrieval."""
+    degraded_reason: str | None = None
+    """Why the live fetch failed, when `stale` is True."""
+
+    @property
+    def message(self) -> str:
+        """What to tell the person looking at the data."""
+        retrieved = f"{self.vintage.retrieved_at:%Y-%m-%d %H:%M} UTC"
+        if self.stale and self.age is not None:
+            hours = self.age.total_seconds() / 3600.0
+            when = f"{hours:.1f} hours" if hours < 48 else f"{hours / 24:.1f} days"
+            return (f"{self.vintage.source}: live fetch failed ({self.degraded_reason}); showing "
+                    f"the last successful response, retrieved {when} ago at {retrieved}. "
+                    "Figures may be out of date.")
+        if self.from_cache:
+            return f"{self.vintage.source}: served from cache (retrieved {retrieved})."
+        return f"{self.vintage.source}: retrieved live at {retrieved}."
 
 
 class BaseConnector(ABC):
@@ -162,6 +183,7 @@ class BaseConnector(ABC):
         audit_session: Session | None = None,
         actor: str = "system",
         use_cache: bool = True,
+        allow_stale: bool = True,
         **kwargs: Any,
     ) -> ConnectorResult:
         """Fetch, validate, parse and stamp one response.
@@ -170,30 +192,44 @@ class BaseConnector(ABC):
         `EXTERNAL_FETCH_FAILURE` event for every call, cache hits included:
         a cache hit is still a fact about what this run used, and belongs
         in the trail a published figure can be traced through.
+
+        Graceful degradation: when the live fetch fails (timeout, HTTP
+        error, rate limit exhausted, schema change) and `allow_stale` is
+        set, the last successful response for this query is returned with
+        `stale=True`, its age, and the reason -- so an outage upstream
+        shows the user yesterday's figures labelled as yesterday's rather
+        than nothing. The last good response is kept without a lifetime,
+        separately from the fresh cache entry that expires; the failure
+        is still audited, marked `served_stale`.
         """
         url, params = self._request(**kwargs)
         safe_query = self._redact_query(params)
         key = content_key(self.source_name, url, str(sorted(safe_query.items())))
+        last_good_key = key + ":last_good"
 
         if use_cache and self._cache is not None:
             cached = self._cache.get(key)
             if cached is not None:
-                hit = ConnectorResult(data=cached.data, vintage=cached.vintage, from_cache=True)
+                hit = ConnectorResult(data=cached.data, vintage=cached.vintage, from_cache=True,
+                                      age=datetime.now(UTC) - cached.vintage.retrieved_at)
                 self._audit(audit_session, actor, True, safe_query, cache_hit=True)
                 return hit
 
         try:
             raw, response_text = self._get_with_retry(url, params)
-        except ConnectorError as exc:
-            self._audit(audit_session, actor, False, safe_query, error=str(exc))
-            raise
-
-        try:
             self._validate(raw)
             df = self._parse(raw, **kwargs)
-        except ConnectorSchemaError as exc:
-            self._audit(audit_session, actor, False, safe_query, error=str(exc))
-            raise
+        except ConnectorError as exc:
+            stale = (self._cache.get(last_good_key)
+                     if (allow_stale and self._cache is not None) else None)
+            if stale is None:
+                self._audit(audit_session, actor, False, safe_query, error=str(exc))
+                raise
+            degraded = ConnectorResult(
+                data=stale.data, vintage=stale.vintage, from_cache=True, stale=True,
+                age=datetime.now(UTC) - stale.vintage.retrieved_at, degraded_reason=str(exc))
+            self._audit(audit_session, actor, False, safe_query, error=str(exc), served_stale=True)
+            return degraded
 
         vintage = Vintage(
             source=self.source_name,
@@ -206,6 +242,7 @@ class BaseConnector(ABC):
 
         if use_cache and self._cache is not None:
             self._cache.set(key, result, ttl_seconds=self._cache_ttl_seconds)
+            self._cache.set(last_good_key, result, ttl_seconds=None)
 
         self._audit(audit_session, actor, True, safe_query, cache_hit=False)
         return result
@@ -219,6 +256,7 @@ class BaseConnector(ABC):
         *,
         cache_hit: bool = False,
         error: str | None = None,
+        served_stale: bool = False,
     ) -> None:
         if session is None:
             return
@@ -226,6 +264,8 @@ class BaseConnector(ABC):
         params: dict[str, Any] = {"query": query, "cache_hit": cache_hit}
         if error is not None:
             params["error"] = error
+        if served_stale:
+            params["served_stale"] = True
         audit.record_event(session, actor, action, self.source_name, params)
 
     def _get_with_retry(self, url: str, params: dict[str, Any]) -> tuple[Any, str]:

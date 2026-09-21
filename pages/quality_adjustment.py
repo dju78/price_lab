@@ -27,9 +27,10 @@ import pandas as pd
 import streamlit as st
 
 from pricelab.core import audit, db, ledger
-from pricelab.core.config import QualityAdjustmentConfig
+from pricelab.core.config import QualityAdjustmentConfig, get_settings
 from pricelab.core.models import Role
 from pricelab.core.security import require_role, safe_csv
+from pricelab.data import store, validation
 from pricelab.engine import hedonic
 from pricelab.engine import quality_adjustment as qa
 from pricelab.reporting import charts
@@ -100,12 +101,43 @@ def _fit_hedonic_section(clean: pd.DataFrame) -> hedonic.HedonicResult | None:
     if upload is None:
         return st.session_state.get("hedonic_fit")
     raw = upload.getvalue()
-    chars = (pd.read_csv(io.BytesIO(raw)) if upload.name.lower().endswith(".csv")
-             else pd.read_excel(io.BytesIO(raw)))
-    if "item_id" not in chars.columns:
+    chars_raw = (pd.read_csv(io.BytesIO(raw)) if upload.name.lower().endswith(".csv")
+                 else pd.read_excel(io.BytesIO(raw)))
+    if "item_id" not in chars_raw.columns:
         st.error("The characteristics file needs an `item_id` column.")
         return None
-    chars["item_id"] = chars["item_id"].astype(str)
+    # The same provenance path as a price upload: validated, written to
+    # the immutable raw layer with a vintage receipt, standardised through
+    # a logged transformation, and the cleaned table hashed. The vintage
+    # travels with every adjustment read from the fit (and so into the
+    # ledger, the configuration and the registry hash).
+    assessment = validation.assess_characteristics(
+        chars_raw, price_item_ids=clean["item_id"].astype(str).unique())
+    for finding in assessment.findings:
+        (st.error if finding.severity == validation.Severity.CRITICAL else
+         st.warning if finding.severity == validation.Severity.HIGH else st.caption)(
+            f"{finding.dimension} ({finding.severity}): {finding.message}")
+    if assessment.blocking:
+        st.error("Fix the critical finding(s) above; a characteristics file with them cannot "
+                 "be used.")
+        return None
+    settings = get_settings()
+    content_hash = store.content_hash_of(chars_raw)
+    if st.session_state.get("characteristics_hash") != content_hash:
+        vintage = store.record_upload(
+            chars_raw, kind="characteristics", file_name=upload.name, file_bytes=raw,
+            actor=common.current_username(), directory=settings.store_dir)
+        _raw_path, _cleaned_path, log = store.write_characteristics_layers(
+            chars_raw, settings.store_dir)
+        st.session_state["characteristics_vintage"] = {
+            **vintage.to_dict(), "cleaned_content_hash": log.cleaned_content_hash,
+            "transformation_steps": log.steps}
+        st.session_state["characteristics_hash"] = content_hash
+        common.record(audit.DATA_LOAD, upload.name, {
+            "content_hash": content_hash, "file_sha256": vintage.file_sha256,
+            "raw_path": vintage.raw_path, "rows": len(chars_raw), "kind": "characteristics",
+            "cleaned_content_hash": log.cleaned_content_hash})
+    chars, _steps = store.standardise_characteristics(chars_raw)
     st.session_state["characteristics"] = chars
     candidates = [c for c in chars.columns if c != "item_id"]
     numeric = [c for c in candidates if pd.api.types.is_numeric_dtype(chars[c])]
@@ -135,8 +167,10 @@ def _fit_hedonic_section(clean: pd.DataFrame) -> hedonic.HedonicResult | None:
     except hedonic.HedonicError as exc:
         st.error(f"The model could not be fitted: {exc}")
         return None
+    fit.data_vintage = dict(st.session_state.get("characteristics_vintage", {}))
     st.session_state["hedonic_fit"] = fit
     common.record(audit.CONFIGURATION_CHANGE, "hedonic fit", {
+        "characteristics_vintage": fit.data_vintage,
         "functional_form": form, "characteristics": continuous, "categorical": categorical,
         "n_obs": fit.n_obs, "adj_r_squared": fit.adj_r_squared,
         "multicollinearity_warning": bool(fit.warnings)})
