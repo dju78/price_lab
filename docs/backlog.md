@@ -520,10 +520,88 @@ index over mixed units (the assertion is the compiler's, as the manual
 puts it); a per-category homogeneity assertion; quantities in the Excel
 pack's Weights sheet beyond the source-data sheet.
 
+## Phase 5 - Multilateral methods for transaction and scanner data (done, 2026-09-22)
+
+`engine/multilateral.py` delivers the six methods the phase asks for.
+GEKS takes Fisher or Tornqvist as its bilateral block (`engine.bilateral`,
+the tested implementations, not reimplemented) and is computed in logs as
+one level per period -- `g(t) = mean over bridges of ln P(l,t)`, with the
+comparison between any two periods a difference of two fixed numbers -- so
+transitivity holds to machine precision and a test asserts it rather than
+approximating it. The time product dummy and its expenditure-weighted form
+are sparse least squares (`scipy.sparse.linalg.lsqr`), because a dense
+design over a real window is tens of thousands of columns; the time dummy
+hedonic is an adapter over `engine.hedonic`'s `time_dummy` variant and its
+`time_dummy_index`, so the regression, the dummy encoding, the robust
+standard errors and the Kennedy correction are the ones already tested;
+Geary-Khamis iterates reference prices and period levels to a tolerance and
+reports its iteration count, returning its last iterate with a warning
+rather than vanishing from a comparison view if it does not settle.
+
+Window extension delivers movement, window, half and mean splice, FBEW and
+FBMW, with a configurable window (25 by default) and anchor month. The four
+rolling rules are one implementation over the same dictionary of candidate
+links, differing only in which of them is taken, because that is what they
+are; FBEW and FBMW are the two ends of the same candidate set over an
+expanding window from the anchor. `splice_spread_pp` reports the gap between
+the highest and lowest candidate per period, which is the size of the
+judgement the rule made -- a "revision against the previous window" measured
+at the splice point is zero by construction for whichever rule was used and
+would have flattered every choice equally.
+
+The comparison view (`method_comparison`, `comparison_spread`, and the
+Multilateral page) computes every method on every window under every rule
+and reports the spread in index points and in points of annualised rate,
+listing a method this data cannot support with its reason rather than
+dropping it. `drift_against_chained` scores the chained bilateral against
+the transitive series through the same `engine.splicing.chain_drift` the
+bilateral engine uses. `MultilateralConfig` on `RunConfig` carries method,
+window, splice, anchor month and minimum matched items, so two runs
+differing only in their splice hash differently; disabled by default, and a
+config saved before the phase loads unchanged with no schema version bump.
+
+Acceptance: Appendix 2's test 5 passes on a panel whose prices and
+quantities return exactly to their starting values after twelve periods --
+a chained Tornqvist drifts by more than twenty index points, every
+multilateral method returns to exactly 100, and the diagnostic reports the
+magnitude. On `tests/fixtures/scanner_transactions.csv` (30 periods, 63% of
+the period x product grid empty, promotions with an asymmetric quantity
+response, a spine of staples so the window stays connected) the chained
+Tornqvist ends more than ten points above every multilateral series. The
+six splices reproduce their published relationships on a worked example
+where no window disagrees with the last: all six give one identical series,
+equal to the direct index; on churning data mean splice lies between the
+single-point rules, as its definition requires. A hundred thousand
+transactions over a twenty-five month window complete in under a second per
+method against the thirty the criterion allows.
+
+Found on the way: GEKS's matched-model requirement bites harder than
+expected on a fixture with no long-lived products at all -- no period can
+bridge to every other and the method is genuinely undefined. The engine
+says so and names the time product dummy as the alternative; the fixture
+grew a spine of staples, which is what real transaction data has.
+
+84 new tests (`tests/test_multilateral.py`); 667 in the suite on SQLite
+(663 passed and 4 skipped on PostgreSQL, the SQLite-only backup tests, as
+before); engine coverage 95%, `multilateral.py` 95%.
+
+Also fixed on the way, because the Multilateral page surfaces hedonic
+warnings to the reader: the multicollinearity warning read "severe
+multicollinearity: none above threshold" whenever only the design condition
+number tripped, contradicting itself in its first clause and leaving the
+reader unable to tell which diagnostic to go and look at. It now names
+whichever test fired, with the thresholds.
+
+Not done: a per-category window length or method; a multilateral series
+rolled up through the classification tree (the weighted aggregate still
+operates on bilateral category indices); seasonal multilateral variants
+(a year-over-year window, the seasonal GEKS forms); standard errors on a
+multilateral level; and the multilateral series is not yet carried into the
+report, the deck or the publication export.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
-Multilateral methods (GEKS, TPD, Geary-Khamis) for scanner/transaction data;
-seasonal adjustment via X-13ARIMA-SEATS/STL beyond the current seasonal-hold
+Seasonal adjustment via X-13ARIMA-SEATS/STL beyond the current seasonal-hold
 imputation; outlier review queue (today's scale-error detection is automatic,
 not a reviewable queue); revision vintages and bootstrap/variance uncertainty;
 decomposition (contributions, core inflation measures, base effects,

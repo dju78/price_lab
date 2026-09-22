@@ -24,6 +24,7 @@ import pages.findings
 import pages.imputation
 import pages.index_build
 import pages.ingest
+import pages.multilateral
 import pages.quality
 import pages.quality_adjustment
 import pages.reports
@@ -166,6 +167,7 @@ _PAGE_SPECS = [
     (pages.imputation.render, "Imputation", "🧩", "imputation"),
     (pages.quality_adjustment.render, "Quality adjustment", "🔁", "quality-adjustment"),
     (pages.index_build.render, "Index build", "📈", "index-build"),
+    (pages.multilateral.render, "Multilateral", "🧮", "multilateral"),
     (pages.findings.render, "Findings", "🗒️", "findings"),
     (pages.diagnostics.render, "Diagnostics", "🔎", "diagnostics"),
     (pages.reports.render, "Reports", "📤", "reports"),

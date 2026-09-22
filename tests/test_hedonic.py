@@ -218,6 +218,32 @@ def test_severe_multicollinearity_warns_rather_than_reporting_silently(panel):
     assert adj.parameters["multicollinearity_warning"] is True
 
 
+
+def test_the_multicollinearity_warning_names_whichever_test_fired():
+    """The message used to read "severe multicollinearity: none above
+    threshold" when only the design condition number tripped, which
+    contradicts itself and leaves the reader unable to tell which diagnostic
+    to look at."""
+    rng = np.random.default_rng(77)
+    n = 200
+    # One characteristic on a scale far from the others: the condition number
+    # rises without any individual VIF doing so.
+    size = rng.uniform(1, 4, n)
+    volume = rng.uniform(900, 1100, n)
+    frame = pd.DataFrame({
+        "period": np.repeat(pd.date_range("2022-01-01", periods=4, freq="MS"), n // 4),
+        "item_id": [f"I{i}" for i in range(n)],
+        "price": np.exp(1 + 0.2 * size + 0.0002 * volume + rng.normal(0, 0.05, n)),
+        "size": size, "volume": volume})
+    spec = h.HedonicSpec(characteristics=("size", "volume"), functional_form="semi_log",
+                         condition_threshold=2.0)
+    with pytest.warns(h.HedonicMulticollinearityWarning) as caught:
+        h.fit_hedonic(frame, spec, variant="time_dummy")
+    message = str(caught[0].message)
+    assert "none above threshold" not in message
+    assert "design condition number of" in message
+    assert "no individual VIF above" in message
+
 def test_moderate_collinearity_below_threshold_does_not_warn(panel):
     with warnings.catch_warnings():
         warnings.simplefilter("error")

@@ -21,6 +21,7 @@ the standard recommends and why.
 | `engine/bilateral.py` | [bilateral.md](bilateral.md) | Laspeyres, Paasche, Fisher, Törnqvist, Walsh, Marshall-Edgeworth, Lowe, Young, geometric forms; price updating |
 | `engine/aggregation.py` | [aggregation.md](aggregation.md) | Weighted roll-up through a classification tree; additive contributions |
 | `engine/splicing.py` | [splicing.md](splicing.md) | Rebasing, link factors, splicing, chaining, chain drift |
+| `engine/multilateral.py` | [multilateral.md](multilateral.md) | GEKS-Fisher and GEKS-Törnqvist, time product dummy and its weighted form, time dummy hedonic, Geary-Khamis; window extension by movement, window, half and mean splice, FBEW and FBMW |
 | `engine/quality_adjustment.py` | [quality_adjustment.md](quality_adjustment.md) | Overlap, direct comparison, quantity, option cost, class/targeted/overall mean; the ledger; the impact report |
 | `engine/hedonic.py` | [hedonic.md](hedonic.md) | Time dummy, characteristics price and imputation hedonics; functional forms; diagnostics |
 | `engine/custom.py` | [custom.md](custom.md) | Analyst-defined formulae through the restricted evaluator; the non-standard mark |

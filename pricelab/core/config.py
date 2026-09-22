@@ -317,6 +317,77 @@ class QualityAdjustmentConfig(BaseModel):
         return self
 
 
+class MultilateralConfig(BaseModel):
+    """Method, window and extension rule for a multilateral index.
+
+    Separate from `IndexConfig` rather than folded into it because a
+    multilateral index is not a choice of formula, it is a different object:
+    it has no price reference period, it is computed over a window rather
+    than period by period, and its published series depends on an extension
+    rule that a bilateral index has no equivalent of. Conflating the two
+    settings would make `IndexConfig.formula` mean two incompatible things
+    depending on a flag elsewhere, which is exactly the conflation the
+    reference-period split was made to undo.
+
+    Carried on `RunConfig` so a multilateral compilation is covered by
+    everything that already covers a run: the registry's content hash, the
+    cache key, the audit trail and the config JSON of every saved run. Two
+    runs that differ only in their splice are different runs, and the hash
+    must say so.
+    """
+
+    enabled: bool = False
+    """Whether this run computes a multilateral index alongside the
+    bilateral one. Off by default: most collections are price quotes with
+    no quantities, where every method here is unavailable, and a setting
+    that silently does nothing is worse than one that must be asked for."""
+
+    method: str = "geks_fisher"
+    """One of `engine.multilateral.METHODS`."""
+
+    window: int = 25
+    """Periods in the estimation window. `engine.multilateral.DEFAULT_WINDOW`
+    is the same number and the reason for it; repeated as a literal here
+    because a pydantic default must not import the engine."""
+
+    splice: str = "mean"
+    """One of `engine.multilateral.SPLICES`. Mean splice rather than the
+    movement splice most often described first, because it is the rule least
+    exposed to a single unrepresentative month and this default is applied
+    to data nobody has looked at yet."""
+
+    anchor_month: int = 12
+    """Calendar month that restarts the expanding window under FBEW and
+    FBMW. Ignored by the other four rules."""
+
+    min_matched_items: int = 2
+    """Below this many products in common, a bilateral comparison inside
+    GEKS is discarded rather than computed on one item."""
+
+    @model_validator(mode="after")
+    def _method_and_splice_are_known(self) -> MultilateralConfig:
+        """Checked here rather than at compile time, so a typo in a saved
+        config surfaces when the config is loaded rather than part-way
+        through a run. The names are duplicated from
+        `engine.multilateral` deliberately: core must not import engine.
+        `tests/test_multilateral.py` asserts the two lists stay equal."""
+        methods = ("geks_fisher", "geks_tornqvist", "tpd", "wtpd", "tdh", "geary_khamis")
+        splices = ("movement", "window", "half", "mean", "fbew", "fbmw")
+        if self.method not in methods:
+            raise ValueError(
+                f"unknown multilateral method {self.method!r}; available: {', '.join(methods)}")
+        if self.splice not in splices:
+            raise ValueError(
+                f"unknown splice {self.splice!r}; available: {', '.join(splices)}")
+        if self.window < 2:
+            raise ValueError(
+                f"a multilateral window of {self.window} periods has nothing to compare; it "
+                "needs at least two")
+        if not 1 <= self.anchor_month <= 12:
+            raise ValueError(f"anchor_month must be a calendar month 1-12, not {self.anchor_month}")
+        return self
+
+
 class RunConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -339,6 +410,13 @@ class RunConfig(BaseModel):
     before this field existed, and an empty ledger applies nothing, so a
     schema_version 2 config without the key loads unchanged: no version
     bump, because no old field was renamed or reinterpreted."""
+    multilateral: MultilateralConfig = Field(default_factory=MultilateralConfig)
+    """Multilateral method, window and extension rule (Phase 5). Disabled by
+    default, and a disabled section changes nothing, so a schema_version 2
+    config saved without the key loads and compiles exactly as before: no
+    version bump, because no old field was renamed or reinterpreted -- the
+    same reasoning as `quality_adjustment` above."""
+
     label: str = "unnamed run"
 
     legacy_upconverted: bool = Field(default=False, exclude=True)

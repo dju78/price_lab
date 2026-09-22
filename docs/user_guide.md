@@ -62,6 +62,19 @@ percentage points of annual inflation ([methodology/quality_adjustment.md](metho
 findings in plain English, and the consequences of your choices
 (sensitivity to formula, chain drift, matched versus unmatched).
 
+**Multilateral.** Only if your collection carries quantities or
+expenditure, and only worth it if it is transaction or scanner data:
+products churning, prices bouncing between shelf and promotion, quantities
+following. A chained bilateral index on data like that accumulates the
+bounce as inflation. Pick a method (GEKS-Fisher, GEKS-Törnqvist, the time
+product dummy weighted or not, the time dummy hedonic if you have uploaded
+characteristics, or Geary-Khamis), a window and an extension rule, and the
+page computes the series, the gap to the chained bilateral, and the spread
+across every method and rule at once. Read the spread before you read the
+number: on churning data the choice of method can move the answer by more
+than the inflation you are measuring
+([methodology/multilateral.md](methodology/multilateral.md)).
+
 **Reports.** Register the run: the registry records the input's content
 hash, the complete configuration, the code version, the environment and
 the headline figure. An administrator approves it, after which it is
@@ -86,6 +99,12 @@ range within which method rather than prices determines the answer.
 
 **Index build.** Year-on-year rates, the three reference periods the series
 was compiled under, and the "= 100" period every label refers to.
+
+**Multilateral.** Where the run carries quantities, the comparison table is
+the honest statement of how much of the headline is method rather than
+price: six methods, two window lengths and six extension rules on one
+collection, with the spread in index points and in percentage points of
+the annualised rate.
 
 Take away: the Markdown or Word report with its method note, and the CSV
 publication table with disclosure control applied.

@@ -392,9 +392,24 @@ def fit_hedonic(
     notes: list[str] = []
     severe = vif[vif > spec.vif_threshold].dropna()
     if len(severe) or condition > spec.condition_threshold:
-        which = ", ".join(f"{k} (VIF {v:.1f})" for k, v in severe.items()) or "none above threshold"
+        # Name whichever of the two tests actually fired. "severe
+        # multicollinearity: none above threshold" -- what this said when only
+        # the condition number tripped -- contradicts itself in its first
+        # clause, and a reader cannot tell from it which diagnostic to go and
+        # look at.
+        if len(severe):
+            which = ("VIF above " f"{spec.vif_threshold:g} for "
+                     + ", ".join(f"{k} ({v:.1f})" for k, v in severe.items()))
+            if condition > spec.condition_threshold:
+                which += f", and a design condition number of {condition:.1f}"
+            else:
+                which += f" (design condition number {condition:.1f})"
+        else:
+            which = (f"a design condition number of {condition:.1f}, above "
+                     f"{spec.condition_threshold:g}, with no individual VIF above "
+                     f"{spec.vif_threshold:g}")
         message = (
-            f"severe multicollinearity: {which}; design condition number {condition:.1f}. "
+            f"severe multicollinearity: {which}. "
             "Individual coefficients -- and any quality adjustment read from them -- are "
             "unstable; fitted prices may still be usable. Drop or combine the collinear "
             "characteristics, or use the imputation variant, which needs only fitted prices.")

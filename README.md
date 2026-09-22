@@ -39,7 +39,8 @@ in production — every query goes through SQLAlchemy, so that is the entire mig
 
 Four roles, enforced from inside each page's own code, not by hiding a sidebar
 entry: `administrator` and `compiler` can use Ingest, Quality, Imputation, Quality
-adjustment and Index build (compiling a run); `analyst` additionally reaches Findings and Diagnostics
+adjustment and Index build (compiling a run); `analyst` additionally reaches Findings,
+Diagnostics and Multilateral
 (interpreting one); `viewer` reaches only Reports, which is also where a compiled
 run gets registered and, by an administrator, approved. Every login, logout, data
 load, configuration change, calculation run, quality or imputation override, and
@@ -109,7 +110,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 583 tests
+make test        # 667 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/ and data/
 ```
@@ -228,6 +229,10 @@ pricelab/
     aggregation.py      weighted roll-up through the classification tree, with
                         exactly additive contributions
     splicing.py         rebasing, link factors, chaining, chain drift
+    multilateral.py     geks_fisher | geks_tornqvist | tpd | wtpd | tdh |
+                        geary_khamis over a window, with window extension by
+                        movement | window | half | mean splice, FBEW and FBMW,
+                        and the spread across every combination
     custom.py           analyst-defined formulae via the restricted evaluator
     quality_adjustment.py
                         overlap, direct comparison, quantity, option cost,
@@ -252,14 +257,17 @@ pricelab/
 pages/            one module per lifecycle stage; app.py wires them into
                   role-filtered st.navigation
   ingest.py, quality.py, imputation.py, quality_adjustment.py, index_build.py,
-  findings.py, diagnostics.py, reports.py, common.py (shared session-state helpers)
+  multilateral.py, findings.py, diagnostics.py, reports.py, sources.py,
+  audit_log.py, common.py (shared session-state helpers)
 migrations/       Alembic; six revisions covering users, sessions, audit events,
                   index runs (with the registered headline and data vintage),
                   the classification tree, validation overrides, column
                   mappings and the quality adjustment ledger
-tests/            583 tests
+tests/            667 tests
 scripts/
-  generate_synthetic_data.py   the test fixture, not the product
+  generate_synthetic_data.py   the price-quote fixture, not the product
+  generate_scanner_data.py     the scanner transaction fixture, with churn,
+                               promotions and a quality gradient
   create_user.py               bootstraps a login (no self-registration)
   backup.py, restore.py        the database and the Parquet store, with a manifest
 app.py            auth gate, shared chrome, page registry; no analytical logic

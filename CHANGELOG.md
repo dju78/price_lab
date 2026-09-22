@@ -5,6 +5,65 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## Unreleased — Phase 5: multilateral methods (2026-09-22)
+
+### Added
+- **`engine/multilateral.py`**: GEKS with Fisher or Törnqvist as the
+  bilateral block (the latter is CCDI), the time product dummy and its
+  expenditure-weighted form, the time dummy hedonic (fitted through
+  `engine/hedonic.py`, not reimplemented) and Geary-Khamis solved
+  iteratively for quality-adjusted unit values. GEKS is computed in logs as
+  one level per period, so transitivity is exact rather than approximate;
+  the regressions are sparse least squares, so a hundred thousand
+  transactions over a twenty-five month window takes under a second.
+- **Window extension**: movement, window, half and mean splice, FBEW and
+  FBMW, with a configurable window length (25 periods by default) and a
+  configurable anchor month for the two fixed-base rules. All six are one
+  implementation over the same set of candidate links, because that is what
+  the literature says they are.
+- **`splice_spread_pp`**: per published period, the gap between the highest
+  and lowest level the period could have taken had the link been made
+  elsewhere in the overlap — the size of the judgement the rule made,
+  rather than a revision measured at the splice point, which is zero by
+  construction for whichever rule was used.
+- **The comparison view** (`method_comparison`, `comparison_spread`, and the
+  new **Multilateral** page): the same collection under every method, window
+  and rule, with the spread reported in index points of the final level and
+  percentage points of the annualised rate. A method this data cannot
+  support is listed with its reason, never dropped.
+- **`drift_against_chained`**: the chained bilateral index scored against
+  the transitive one through the same `engine/splicing.chain_drift` the
+  bilateral engine already uses — a multilateral series *is* the direct
+  comparison.
+- **`MultilateralConfig`** on `RunConfig` (method, window, splice, anchor
+  month, minimum matched items), so two runs differing only in their splice
+  hash differently. Disabled by default; a config saved before this phase
+  loads unchanged, with no schema version bump.
+- **`scripts/generate_scanner_data.py`** and the fixtures it writes
+  (`tests/fixtures/scanner_transactions.csv`, `scanner_characteristics.csv`):
+  30 monthly periods, 63% of the period × product grid empty, promotions
+  with an asymmetric quantity response, a spine of staples so the window
+  stays connected, and a known quality gradient for the hedonic to recover.
+- **`docs/methodology/multilateral.md`**: the thirteenth methodology note.
+
+### Notes
+- Appendix 2's chain drift test now passes on data where prices and
+  quantities return exactly to their starting values after twelve periods: a
+  chained Törnqvist drifts by more than twenty index points, every
+  multilateral method returns to exactly 100, and the diagnostic reports the
+  magnitude.
+- On the scanner fixture the chained Törnqvist ends more than ten index
+  points above every multilateral series, and the methods disagree among
+  themselves by several points — which is the point of the comparison view.
+- **Fixed**: `engine/hedonic.py`'s multicollinearity warning read "severe
+  multicollinearity: none above threshold" when only the design condition
+  number tripped. It now names whichever test fired, with its threshold —
+  found because the Multilateral page puts hedonic warnings in front of the
+  reader.
+- Not done: a per-category window or method, a multilateral series rolled up
+  through the classification tree, seasonal multilateral variants, and
+  standard errors on a multilateral level.
+
 ## Unreleased — Quantity and expenditure ingestion (2026-09-21)
 
 ### Added
