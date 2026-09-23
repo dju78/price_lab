@@ -39,7 +39,9 @@ component changes under these weights equals the aggregate's change
 exactly -- which is what makes a zero-trim trimmed mean equal the headline,
 and what the tests check. Across a chain link (a year-on-year comparison
 spanning December in an annually re-weighted index, for example) one set of
-fixed weights is an approximation, and results that span one say so.
+fixed weights is an approximation, and results that span one say so;
+`ribe_contributions` gives the exact contributions across the link by the
+published treatment (`RIBE_SOURCE`).
 """
 
 from __future__ import annotations
@@ -56,16 +58,19 @@ from .aggregation import aggregate_tree, contributions, weighted_aggregate
 __all__ = [
     "BaseEffects",
     "CORE_MEASURES",
+    "ChainLinkContributions",
     "CoreMeasure",
     "DecompositionError",
     "TreeContributions",
     "base_effects",
+    "chain_linked_aggregate",
     "contributions_over_time",
     "core_measure_availability",
     "dispersion",
     "diffusion",
     "exclusion_measure",
     "rates",
+    "ribe_contributions",
     "sticky_price_measure",
     "tree_contributions",
     "trimmed_mean",
@@ -299,6 +304,161 @@ def contributions_over_time(components: pd.DataFrame, weights: Mapping[str, floa
     if not rows:
         return pd.DataFrame(columns=components.columns, dtype=float)
     return pd.DataFrame(rows).T
+
+
+# ---------------------------------------------------------------------
+# Contributions across a chain link (Ribe)
+# ---------------------------------------------------------------------
+#: The published treatment implemented by `ribe_contributions`.
+RIBE_SOURCE = (
+    "OECD, 'OECD calculation of contributions to overall annual inflation' (May 2018, "
+    "updated March 2022), section 3, following Walschots (2016), 'Contributions to and "
+    "impacts on inflation', Statistics Netherlands; named the Ribe contribution by Balk and "
+    "Mehrhoff, 'Index calculation', chapter 8 of Eurostat's HICP Methodological Manual. "
+    "Eurostat's published HICP contributions (dataset prc_hicp_ctrb) use it.")
+
+
+@dataclass(frozen=True)
+class ChainLinkContributions:
+    """Contributions to the annual rate of an annually chain-linked index."""
+
+    contributions: pd.DataFrame
+    """Per period (rows) and component (columns), percentage points."""
+    since_link: pd.DataFrame
+    """The part from December of last year to this month, on this year's
+    weights (the OECD note's terms 1-3)."""
+    before_link: pd.DataFrame
+    """The part from this month last year to December of last year, on last
+    year's weights (terms 4-6). Zero in December."""
+    aggregate: pd.Series
+    annual_rate_pct: pd.Series
+    residual_pp: float
+    """The largest gap between the sum of the contributions and the annual
+    rate. Zero to rounding when the aggregate is the one the components and
+    weights produce; not zero when a published aggregate compiled from
+    unrounded data is supplied, and then it is reported, not absorbed."""
+    link_month: int
+    source: str = RIBE_SOURCE
+
+
+def chain_linked_aggregate(components: pd.DataFrame,
+                           weights_by_year: Mapping[int, Mapping[str, float]], *,
+                           link_month: int = 12) -> pd.Series:
+    """The annually chain-linked Laspeyres-type aggregate of `components`.
+
+    Within each year y the aggregate moves with the weighted mean of the
+    components' relatives to the link month (December) of y - 1, on the
+    weights for year y -- the weights "used for the link from December of
+    year y - 1 until December of year y" in the OECD note's words -- and the
+    links are multiplied together. The first link month in the data is
+    100.
+    """
+    frame = components.sort_index()
+    index = pd.DatetimeIndex(frame.index)
+    links = [t for t in index if t.month == link_month]
+    if not links:
+        raise DecompositionError(f"no link month ({link_month}) in the component indices")
+    level = {links[0]: 100.0}
+    values: dict[pd.Timestamp, float] = {links[0]: 100.0}
+    for t in index[index > links[0]]:
+        link = pd.Timestamp(t.year - 1 if t.month <= link_month else t.year, link_month, 1)
+        year = link.year + 1
+        if link not in level or year not in weights_by_year:
+            continue
+        w = _normalised(weights_by_year[year], frame.columns)
+        relatives = _row(frame, t, list(w)) / _row(frame, link, list(w))
+        values[t] = level[link] * float((relatives * pd.Series(w)).sum())
+        if t.month == link_month:
+            level[t] = values[t]
+    return pd.Series(values, dtype=float).reindex(index)
+
+
+def _row(frame: pd.DataFrame, period: pd.Timestamp, columns: list[str]) -> pd.Series:
+    """One period's values for the named columns, as a float Series."""
+    return pd.Series(frame.loc[period, columns], dtype=float)
+
+
+def _normalised(weights: Mapping[str, float], columns: pd.Index) -> dict[str, float]:
+    usable = {str(c): float(weights[str(c)]) for c in columns
+              if str(c) in weights and np.isfinite(weights[str(c)])}
+    total = sum(usable.values())
+    if total <= 0:
+        raise DecompositionError("the weights for a year sum to zero or are missing")
+    return {c: v / total for c, v in usable.items()}
+
+
+def ribe_contributions(components: pd.DataFrame,
+                       weights_by_year: Mapping[int, Mapping[str, float]], *,
+                       aggregate: pd.Series | None = None,
+                       link_month: int = 12) -> ChainLinkContributions:
+    """Contributions to the annual rate across the annual re-weighting.
+
+    For month m of year y, with P the chain-linked indices, W the
+    normalised weights (W^{y-1,12} used from December y-1, W^{y-2,12} from
+    December y-2) and TOT the aggregate:
+
+        C_j = [P_TOT(y-1,12) / P_TOT(y-1,m)] W_j^{y-1,12} [P_j(y,m) - P_j(y-1,12)] / P_j(y-1,12)
+            + [P_TOT(y-2,12) / P_TOT(y-1,m)] W_j^{y-2,12} [P_j(y-1,12) - P_j(y-1,m)] / P_j(y-2,12)
+
+    The first bracket is the movement since the link, on this year's
+    weights; the second the movement from this month last year up to the
+    link, on last year's. They sum over j to the aggregate's annual rate
+    exactly, because the aggregate is built from the same weights over the
+    same two links -- which is why this, and not a year-on-year
+    contribution on one set of weights, is the treatment for a comparison
+    that spans a re-weighting. `RIBE_SOURCE` names the published sources.
+
+    `aggregate` defaults to `chain_linked_aggregate` of the same components
+    and weights. Passing a published aggregate reproduces the published
+    contributions, and the residual against its own annual rate is then
+    reported rather than forced to zero.
+    """
+    frame = components.sort_index().astype(float)
+    total = aggregate if aggregate is not None else chain_linked_aggregate(
+        frame, weights_by_year, link_month=link_month)
+    total = pd.Series(total, dtype=float)
+    total.index = pd.DatetimeIndex(total.index)
+    frame.index = pd.DatetimeIndex(frame.index)
+    since: dict[pd.Timestamp, pd.Series] = {}
+    before: dict[pd.Timestamp, pd.Series] = {}
+    rate: dict[pd.Timestamp, float] = {}
+    for t in frame.index:
+        year, month = t.year, t.month
+        # The two links the comparison spans: the last one before t, and
+        # the one before that. For December the comparison is exactly one
+        # link long and the second part is zero.
+        link_1 = pd.Timestamp(year - 1 if month <= link_month else year, link_month, 1)
+        link_0 = pd.Timestamp(link_1.year - 1, link_month, 1)
+        year_ago = pd.Timestamp(year - 1, month, 1)
+        needed = (link_1, link_0, year_ago)
+        weights_1, weights_0 = link_1.year + 1, link_0.year + 1
+        if any(p not in frame.index or p not in total.index for p in needed) \
+                or weights_1 not in weights_by_year or weights_0 not in weights_by_year:
+            continue
+        w1 = pd.Series(_normalised(weights_by_year[weights_1], frame.columns))
+        w0 = pd.Series(_normalised(weights_by_year[weights_0], frame.columns))
+        cols = list(w1.index)
+        denominator = float(total[year_ago])
+        now, at_link, at_link_0, then = (_row(frame, p, cols)
+                                         for p in (t, link_1, link_0, year_ago))
+        since[t] = float(total[link_1]) / denominator * w1 * (now - at_link) / at_link * 100.0
+        w0 = w0.reindex(cols).fillna(0.0)
+        before[t] = (float(total[link_0]) / denominator * w0 * (at_link - then) / at_link_0
+                     * 100.0)
+        rate[t] = (float(total[t]) / denominator - 1.0) * 100.0
+    if not since:
+        raise DecompositionError(
+            "no period has the two links, the year-ago month and both years' weights that a "
+            "contribution across a chain link needs: supply at least two years of weights and "
+            "indices from December two years before the first month to decompose")
+    first = pd.DataFrame(since).T
+    second = pd.DataFrame(before).T
+    both = first + second
+    annual = pd.Series(rate)
+    residual = float((both.sum(axis=1) - annual).abs().max())
+    return ChainLinkContributions(
+        contributions=both, since_link=first, before_link=second,
+        aggregate=total, annual_rate_pct=annual, residual_pp=residual, link_month=link_month)
 
 
 # ---------------------------------------------------------------------

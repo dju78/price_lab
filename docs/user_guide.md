@@ -108,6 +108,42 @@ the result. The same page converts values at purchasing power parities, and
 asks before holding an annual PPP constant through the months
 ([methodology/deflation.md](methodology/deflation.md)).
 
+The Decomposition page, on the published HICP, also shows each division's
+contribution to the **annual** rate across the December re-weighting, by the
+published (Ribe) treatment: this year's weights since December, last year's
+before. These are the numbers Eurostat publishes, and they add up to the
+annual rate exactly. The bulletin, the Word report and the deck now carry a
+"Contributions to the change" table for your run too, with the level of the
+tree and the residual shown.
+
+**Spatial comparison.** Upload one price per region and product. Choose
+country product dummy (works with gaps, gives standard errors) or
+Geary-Khamis (needs quantities; weights large regions more). Read the
+matched-products table before the parities: a region sharing fewer products
+than the threshold is shown but not published, and is not converted
+([methodology/spatial.md](methodology/spatial.md)).
+
+**Trade prices.** Upload transactions with a flow (export or import), a
+product, a value and a quantity. The page gives the price index and, beside
+it, the unit value index with the gap between them. A unit value index is
+only a price index when the products pooled are homogeneous and their mix
+is stable; the page says so every time it shows one
+([methodology/trade.md](methodology/trade.md)).
+
+**Construction.** Two different indices: the input cost index (what the
+builder's inputs cost) and the output price index (what the client pays for
+finished work of fixed specification). The page states which is which
+before either number, and the gap between them is margins and
+productivity, not an error ([methodology/construction.md](methodology/construction.md)).
+
+**Contract escalation.** Pick the index — a series of your run, an official
+series, or an uploaded one with its vintage stated — set the clause (lag,
+averaging, indexed share, dead band, trigger, cap, collar) and the payment
+periods. Read the summary above the schedule: it restates the clause in
+words and names every month in which a cap or collar bound, with the payment
+it would otherwise have been. Download it beside the CSV for the contract
+file ([methodology/escalation.md](methodology/escalation.md)).
+
 **Multilateral.** Only if your collection carries quantities or
 expenditure, and only worth it if it is transaction or scanner data:
 products churning, prices bouncing between shelf and promotion, quantities

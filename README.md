@@ -110,7 +110,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 862 tests
+make test        # 907 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/, data/ and reporting/
 ```
@@ -255,6 +255,16 @@ pricelab/
     deflation.py        deflation with explicit frequency alignment (a
                         mismatch raises, never resamples); real wages and
                         income; constant prices and volume indices; PPPs
+    spatial.py          country product dummy and Geary-Khamis parities, the
+                        matched products for every region pair, thin overlap
+                        reported and withheld, conversion at the parities
+    trade.py            import and export price indices, unit value indices
+                        with their bias stated on every result, terms of trade
+    construction.py     construction input cost and output price indices, with
+                        the difference between them stated on every result
+    escalation.py       contract indexation (lag, averaging, dead band, trigger,
+                        indexed share, cap, collar) with a payment schedule and
+                        a plain-language summary of the clause as applied
     custom.py           analyst-defined formulae via the restricted evaluator
     quality_adjustment.py
                         overlap, direct comparison, quantity, option cost,
@@ -283,7 +293,8 @@ pages/            one module per lifecycle stage; app.py wires them into
                   role-filtered st.navigation
   ingest.py, quality.py, outliers.py, imputation.py, quality_adjustment.py,
   index_build.py, multilateral.py, seasonal.py, decomposition.py,
-  deflation.py, findings.py, diagnostics.py,
+  deflation.py, spatial.py, trade.py, construction.py, escalation.py,
+  findings.py, diagnostics.py,
   reports.py, sources.py, revisions.py, audit_log.py,
   common.py (shared session-state helpers)
 migrations/       Alembic; seven revisions covering users, sessions, audit events,
@@ -291,7 +302,7 @@ migrations/       Alembic; seven revisions covering users, sessions, audit event
                   the classification tree, validation overrides, column
                   mappings, the quality adjustment ledger and the outlier
                   review queue's decisions
-tests/            862 tests
+tests/            907 tests
 scripts/
   generate_synthetic_data.py   the price-quote fixture, not the product
   generate_scanner_data.py     the scanner transaction fixture, with churn,

@@ -68,6 +68,56 @@ is an equally weighted geometric mean, which has no exact additive
 decomposition. The module says so and computes no contributions, rather than
 decomposing an arithmetic aggregate under the geometric headline's name.
 
+## Contributions across a chain link
+
+A year-on-year comparison in an annually re-weighted index spans the
+December link, where the weights change. One set of weights across it is an
+approximation, and on a real re-weighting it can be a poor one: on the
+constructed case in `tests/test_chain_link_contributions.py` it misses a
+component's contribution by more than a percentage point.
+`ribe_contributions` implements the published treatment instead. For month
+m of year y, with P the chain-linked indices, W the normalised weights used
+from December of the year before, and TOT the aggregate:
+
+    C_j = [P_TOT(y-1,12)/P_TOT(y-1,m)] W_j(y-1,12) [P_j(y,m) − P_j(y-1,12)] / P_j(y-1,12)
+        + [P_TOT(y-2,12)/P_TOT(y-1,m)] W_j(y-2,12) [P_j(y-1,12) − P_j(y-1,m)] / P_j(y-2,12)
+
+The first term is the movement since December on this year's weights, the
+second the movement from this month last year up to December on last
+year's. They sum to the aggregate's annual rate exactly, and in December the
+second term is zero, leaving the fixed-basket contribution.
+
+**Source.** OECD, *OECD calculation of contributions to overall annual
+inflation* (May 2018, updated March 2022), section 3, which follows
+Walschots (2016), *Contributions to and impacts on inflation*, Statistics
+Netherlands. Balk and Mehrhoff name it the "Ribe" contribution in chapter 8
+("Index calculation") of Eurostat's *HICP Methodological Manual*, and
+Eurostat's published HICP contributions (dataset `prc_hicp_ctrb`) use it.
+
+**Verified two ways.** A constructed two-component case whose answer is
+derived by hand in the test's docstring (A contributes 5.12/102.5 and B
+0.50/102.5 of an annual rate of 5.62/102.5, exactly). And against Eurostat's
+own published contributions to euro-area inflation for every division and
+every month of 2025, recomputed from the recorded index and weight
+responses: the largest difference is 0.0056 percentage points, which is the
+rounding of Eurostat's two-decimal publication and of the one- and
+two-decimal indices behind it. With the aggregate rebuilt from the
+components the contributions sum to the annual rate to 1e-14; with
+Eurostat's published all-items index they miss its rate by the rounding in
+the published divisions (under 0.01 pp), which is reported, not forced to
+zero.
+
+## In the release
+
+The bulletin, the Word and Markdown reports and the deck each carry a
+"Contributions to the change" section (`reporting/report.contributions_summary`):
+every category's contribution to the change in All items on the same period
+a year earlier, the level of the tree it is at (level 1, the run's
+categories), and the residual between the sum and the published change as a
+row of the table. A run's weights are fixed across its span, so the
+decomposition there is exact rather than an approximation across a
+re-weighting. A run without weights gets the reason in place of the table.
+
 ## Core and underlying measures
 
 Every weighted measure uses **effective weights**, w_i × I_i(t−h) — the
@@ -76,7 +126,7 @@ h. Under them the weighted mean of component changes *is* the aggregate's
 change, so a zero-trim trimmed mean equals the headline exactly (tested on the
 HICP). Over a year-on-year horizon in an annually re-weighted index one set of
 weights spans a chain link and is an approximation; results that do so say
-it.
+it, and for contributions the exact treatment is above.
 
 | Measure | Parameters | Needs |
 |---|---|---|
@@ -157,10 +207,9 @@ We Think So", Federal Reserve Bank of Cleveland Economic Commentary (2010).
 
 ## What the module does not do
 
-Contributions are for fixed-weight (within-link) comparisons. Contributions
-to a change spanning a chain link in an annually re-weighted index (the
-"Ribe" decomposition) are not computed; a year-on-year contribution across
-December uses one set of weights and is labelled an approximation. Core
+`tree_contributions` is for fixed-weight comparisons; a comparison spanning
+an annual re-weighting uses `ribe_contributions`, which is implemented for
+one level (the components supplied) rather than the whole tree at once. Core
 measures are computed on the components supplied, at the level supplied: a
 trimmed mean over 12 divisions and one over 90 classes are different
 measures, and the level is the analyst's choice. No seasonal adjustment is

@@ -832,12 +832,80 @@ are analyst tools with their own downloads, not part of a run's publication,
 and wiring them into the release outputs is a publication decision rather than
 a methodological one.
 
+## Phase 7b - Spatial, trade, construction and contract escalation (done, 2026-09-23)
+
+**Task 0a, contributions in the release.** `report.contributions_summary`
+builds one table -- each category's contribution to the change in All items
+on the same period a year earlier, at level 1 of the tree (the run's
+categories), ending with the sum, the published change and the residual --
+and the bulletin, the Word and Markdown reports and the deck all print it.
+The residual is a row, not absorbed into any category; a test replaces the
+headline with one the categories do not add up to and checks the residual
+row shows it. The Excel pack was left alone (its sheet list is pinned by
+`test_exports.py`, and the prompt named the bulletin, Word and deck). A run
+without weights gets the reason in place of the table.
+
+**Task 0b, contributions across a chain link.** The prompt's stop condition
+was not met: a published treatment exists and was obtained. It is the OECD
+note "OECD calculation of contributions to overall annual inflation" (May
+2018, updated March 2022), section 3, which follows Walschots (2016,
+Statistics Netherlands) and is the formula Balk and Mehrhoff call the "Ribe"
+contribution in chapter 8 of Eurostat's HICP Methodological Manual; Eurostat's
+own published contributions (`prc_hicp_ctrb`) use it. `ribe_contributions`
+implements it on chain-linked indices with each year's weights. Tested on a
+constructed case derived by hand, and against Eurostat's published
+contributions for every euro-area division and month of 2025 (recorded
+fixture): largest gap 0.0056 pp, the rounding of the publication. A single
+weight set across the link misses the hand case by over a percentage point,
+which is why it is not good enough. On the Decomposition page for the HICP.
+
+**Task 1, spatial.** `engine/spatial.py`: CPD by weighted or unweighted least
+squares on region and product dummies, with standard errors; Geary-Khamis by
+iteration. Both recover a known solution to 1e-9 with gaps and free
+quantities, and a two-region two-product case solved by hand (3 against √8,
+the quantity-versus-count difference). The overlap matrix is on every
+result; a region whose best pairing shares fewer than `min_overlap` products
+(default 5) is withheld from the published parities and from conversion, with
+its estimate and the reason shown; a region with no chain to the base is
+refused.
+
+**Task 2, trade.** `engine/trade.py`: price indices over products with
+`engine/bilateral`'s Fisher, Laspeyres and Paasche; unit value indices that
+always carry the bias and the conditions; `unit_value_bias`; terms of trade
+that refuse mismatched kinds or bases and reconcile to the ratio exactly.
+The demonstration: unchanged prices, a composition shift, a unit value index
+of 478.95 against a price index of 100 -- a gap of 378.95 points.
+
+**Task 3, construction.** `engine/construction.py`: input cost index (cost
+shares that must match the inputs exactly), output price index (a fixed bill
+of quantities at tender rates; a period missing an item is not priced), and
+their ratio as the implied margin and productivity movement. The concepts are
+stated on every result and first on the page.
+
+**Task 4, escalation.** `engine/escalation.py`: the clause applied in a
+stated order (reading, movement, dead band, trigger, indexed share, cap and
+collar), a schedule with the payment with and without the limits, and a
+summary for a non-specialist that names the index, the vintage, the lag and
+every period in which a limit changed the payment. The page leads with the
+summary, offers it as a text download, and requires a stated vintage for an
+uploaded index; a session compilation is named as not a registered vintage.
+
+**Tests.** New: `test_chain_link_contributions.py` 8,
+`test_release_contributions.py` 5, `test_spatial.py` 10, `test_trade.py` 7,
+`test_construction.py` 6, `test_escalation.py` 9; 45 in all, 907 in the suite.
+
+**Deferred.** Ribe contributions for the whole tree at once (they are
+computed for one level, the components supplied); GEKS/EKS parities,
+basic-heading structure and time linking of spatial comparisons; chained or
+survey-price trade indices; hedonic or repeat-tender construction output
+indices; multi-index escalation formulas and provisional-then-final payments
+when a lagged index is revised.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
-Bootstrap and variance-based uncertainty measures; spatial price levels
-(regional PPPs); asset, trade and construction indices; forecasting and
-scenario tooling; OIDC (would require hosting beyond Streamlit Community
-Cloud); an in-app user-management page; CPA, NACE and HS classification
-reference data (no authoritative, machine-readable source verified yet --
-the generic loader that would take one already exists); a cascading
-(multi-total) secondary-suppression solver.
+Bootstrap and variance-based uncertainty measures; asset price indices;
+forecasting and scenario tooling; OIDC (would require hosting beyond
+Streamlit Community Cloud); an in-app user-management page; CPA, NACE and HS
+classification reference data (no authoritative, machine-readable source
+verified yet -- the generic loader that would take one already exists); a
+cascading (multi-total) secondary-suppression solver.

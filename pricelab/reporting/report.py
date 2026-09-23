@@ -284,6 +284,75 @@ def with_index_column(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.rename_axis(name).reset_index()
 
 
+CONTRIBUTIONS_TITLE = "Contributions to the change"
+
+
+def contributions_summary(res: dict[str, Any], periods_per_year: int = 12
+                          ) -> tuple[str, pd.DataFrame]:
+    """What drove the headline: each category's contribution to its change,
+    as (note, table), for the bulletin, the Word and Markdown reports and
+    the deck.
+
+    The comparison is the latest period on the same period a year earlier
+    where the run is long enough, and first to last period otherwise. The
+    level of the tree is stated -- the run's categories, directly beneath
+    All items -- and the table ends with the sum of the contributions, the
+    headline's own published change, and the gap between them. The gap is
+    shown, never absorbed: it is zero to floating-point precision when the
+    headline is the weighted arithmetic mean of the categories, and it is
+    exactly what a reader needs to see when it is not (an analyst-defined
+    aggregate formula, say).
+
+    A run without expenditure weights gets a note and an empty table: its
+    headline is an equally weighted geometric mean, which has no additive
+    decomposition, and a release that silently omitted the section would
+    look like one that had forgotten it.
+    """
+    from ..engine import decomposition as dc
+
+    components = dc.components_from_run(res)
+    columns = ["Weight", "Change, %", "Contribution, pp"]
+    if components.weights is None:
+        return (" ".join(components.notes) or "Contributions were not computed.",
+                pd.DataFrame(columns=columns))
+    levels = components.indices.dropna(how="all")
+    if len(levels) < 2:
+        return ("The run has a single period, so there is no change to decompose.",
+                pd.DataFrame(columns=columns))
+    end = pd.Timestamp(levels.index[-1])
+    year_ago = end - pd.DateOffset(months=12 // periods_per_year * periods_per_year)
+    start = year_ago if year_ago in levels.index else pd.Timestamp(levels.index[0])
+    span = ("on the same period a year earlier" if start == year_ago else
+            f"since {start:%B %Y}, the first period (the run is shorter than a year)")
+    result = dc.tree_contributions(components.indices, components.weights,
+                                   components.parent_of, start, end)
+    top = result.children(result.root).sort_values("contribution_to_headline_pp",
+                                                   ascending=False)
+    headline = res["indices"]["All items"]
+    published = (float(headline[end]) / float(headline[start]) - 1.0) * 100.0
+    total = float(top["contribution_to_headline_pp"].sum())
+    residual = total - published
+    table = pd.DataFrame({
+        "Weight": top["weight"].round(4),
+        "Change, %": top["change_pct"].round(4),
+        "Contribution, pp": top["contribution_to_headline_pp"].round(6),
+    })
+    table.index.name = "Category"
+    footer = pd.DataFrame({
+        "Weight": [float("nan")] * 3, "Change, %": [float("nan")] * 3,
+        "Contribution, pp": [round(total, 6), round(published, 6), residual]},
+        index=pd.Index(["Sum of contributions", "All items change, % (as published)",
+                        "Residual, pp (sum minus published change)"], name="Category"))
+    note = (f"Contributions to the change in All items in {end:%B %Y} {span}, in percentage "
+            f"points, at level 1 of the classification tree: the run's "
+            f"{len(top)} categories, directly beneath All items. They sum to {total:+.6f}; "
+            f"the headline's published change is {published:+.6f}%, and the residual of "
+            f"{residual:.1e} pp is shown in the table rather than absorbed into any category. "
+            "One set of weights spans the comparison, so the decomposition is exact rather "
+            "than an approximation across a re-weighting.")
+    return note, pd.concat([table, footer])
+
+
 def supplementary_tables(res: dict[str, Any]) -> list[tuple[str, str, pd.DataFrame]]:
     """The Phase 6 sections, as (title, note, table), in one list.
 
@@ -395,6 +464,11 @@ def build_markdown(res: dict[str, Any], nar: Narrative, label: str = "",
     lines += ["## Index levels", "",
               sanitize_dataframe(I.iloc[-1].round(2).rename(f"Index at {I.index[-1]:%b %Y}")
                                  .to_frame()).to_markdown(), ""]
+    if "All items" in I.columns:
+        note, contributions = contributions_summary(res)
+        lines += [f"## {CONTRIBUTIONS_TITLE}", "", note, ""]
+        if len(contributions):
+            lines += [sanitize_dataframe(contributions).to_markdown(), ""]
     tables = quality_adjustment_tables(res)
     if tables is not None:
         ledger, scenarios = tables
@@ -522,6 +596,13 @@ def build_docx(res: dict[str, Any], nar: Narrative, charts: dict[str, Any], labe
     I = res["indices"]
     _table(doc, I.iloc[-1].round(2).rename("Index").to_frame()
            .reset_index(names="Category"), max_rows=30)
+
+    if "All items" in I.columns:
+        note, contributions = contributions_summary(res)
+        doc.add_heading(CONTRIBUTIONS_TITLE, level=2)
+        doc.add_paragraph(note)
+        if len(contributions):
+            _table(doc, contributions.reset_index(), max_rows=40)
 
     tables = quality_adjustment_tables(res)
     if tables is not None:

@@ -234,6 +234,22 @@ def build_bulletin(
             f"{stamp.suppression_rules.get('min_count')} matched quotes).", st["small"]),
     ]))
 
+    # What drove the headline. A release that gives the movement without
+    # saying what drove it is incomplete, so this section is always present:
+    # the contributions with their residual, or the reason there are none.
+    from .report import CONTRIBUTIONS_TITLE, contributions_summary
+
+    note, contributions = contributions_summary(dict(res))
+    contribution_block: list[Any] = [Paragraph(CONTRIBUTIONS_TITLE, st["h2"]), Paragraph(_t(note), st["small"])]
+    if len(contributions):
+        rows = [["Category", *contributions.columns]]
+        for name, row in contributions.iterrows():
+            rows.append([str(name), *["" if pd.isna(v) else
+                                      (f"{v:.1e}" if str(name).startswith("Residual") else
+                                       f"{v:,.4f}") for v in row]])
+        contribution_block.append(_table(rows))
+    story.append(KeepTogether(contribution_block))
+
     # Any series in that table not produced by the run's own elementary
     # formula is named here, beside the table, with what produced it. The
     # methodology note says the same thing at greater length further down,

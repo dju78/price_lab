@@ -187,3 +187,22 @@ def compile_and_store(df: Any, cfg: Any, label: str, file_bytes: bytes, *,
     st.session_state.pop("loaded_run_id", None)
     return cached
 
+
+
+def read_upload_table(upload: Any, required: tuple[str, ...]) -> Any:
+    """An uploaded CSV as a DataFrame with lower-case column names, refused
+    with the missing column names rather than guessed at when a column the
+    page needs is not there."""
+    import io
+
+    import pandas as pd
+
+    frame = pd.read_csv(io.BytesIO(upload.getvalue()))
+    frame.columns = [str(c).strip().lower() for c in frame.columns]
+    missing = [c for c in required if c not in frame.columns]
+    if missing:
+        raise ValueError(f"{upload.name} has no {', '.join(missing)} column(s); it needs "
+                         f"{', '.join(required)}")
+    if "period" in frame.columns:
+        frame["period"] = pd.to_datetime(frame["period"], errors="raise")
+    return frame

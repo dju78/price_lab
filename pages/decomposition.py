@@ -54,6 +54,8 @@ def render() -> None:
                    " ".join(components.notes))
         return
     _contributions(components)
+    if source == SOURCES[1]:
+        _across_link()
     _core(components, periods_per_year)
     _breadth(components)
 
@@ -251,6 +253,46 @@ def _contributions(components: dc.Components) -> None:
         st.pyplot(contributions_chart(over_time, f"Contributions to the period-on-period "
                                                  f"change in {result.root}"),
                   use_container_width=True)
+
+
+def _across_link() -> None:
+    """Year-on-year contributions of the divisions, across the December
+    re-weighting, by the published Ribe treatment."""
+    from pricelab.data.connectors.eurostat import HICP_CODES, HICP_ROOT, hicp_chain_inputs
+
+    held = st.session_state.get("dc_official")
+    if held is None:
+        return
+    st.divider()
+    st.markdown("#### Contributions to the annual rate, across the re-weighting")
+    st.caption(
+        "A year-on-year comparison spans the December link, where the HICP's weights change. "
+        "One set of weights across it would be an approximation; these contributions use the "
+        "published treatment -- this year's weights since December, last year's before -- and "
+        "sum to the annual rate exactly. Source: " + dc.RIBE_SOURCE)
+    divisions = [c for c in HICP_CODES if len(c) == 4 and c != HICP_ROOT]
+    try:
+        chained, weights, published = hicp_chain_inputs(held["indices"].data,
+                                                        held["weights"].data, divisions)
+        result = dc.ribe_contributions(chained, weights)
+    except (ValueError, dc.DecompositionError) as exc:
+        st.info(f"Not available for this fetch: {exc}")
+        return
+    st.session_state["dc_ribe"] = result
+    latest = result.contributions.index.max()
+    k = st.columns(3)
+    k[0].metric(f"Annual rate, {latest:%b %Y}", f"{result.annual_rate_pct[latest]:+.3f}%",
+                help="Of the all-items index rebuilt from the divisions and weights.")
+    published_rate = (published[latest] / published[latest - pd.DateOffset(years=1)] - 1) * 100
+    k[1].metric("Published all-items annual rate", f"{published_rate:+.3f}%")
+    k[2].metric("Largest gap, contributions against the rate", f"{result.residual_pp:.1e} pp")
+    table = pd.DataFrame({
+        "since December (this year's weights), pp": result.since_link.loc[latest],
+        "up to December (last year's weights), pp": result.before_link.loc[latest],
+        "contribution, pp": result.contributions.loc[latest]}).sort_values(
+            "contribution, pp", ascending=False)
+    st.dataframe(table.round(4), use_container_width=True)
+    st.dataframe(result.contributions.round(3).tail(13), use_container_width=True)
 
 
 def _core(components: dc.Components, periods_per_year: int) -> None:

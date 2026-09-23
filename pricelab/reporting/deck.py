@@ -13,6 +13,7 @@ import io
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import pandas as pd
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
@@ -374,6 +375,44 @@ def slide_supplementary(prs: PresentationType, res: dict[str, Any]) -> Any | Non
 
 
 # ----------------------------------------------------------------------
+def slide_contributions(prs: PresentationType, res: dict[str, Any]) -> Any | None:
+    """What drove the headline: the contributions table, its level and its
+    residual, or the reason there is none. The residual is a row of the
+    table, not a footnote, because a decomposition whose parts do not quite
+    add up has to say so where the parts are."""
+    from .report import CONTRIBUTIONS_TITLE, contributions_summary
+
+    if "All items" not in res["indices"].columns:
+        return None
+    note, table = contributions_summary(res)
+    s = _blank(prs)
+    _text(s, M, 0.5, 11, 0.8,
+          [{"text": CONTRIBUTIONS_TITLE, "size": 30, "bold": True, "font": HEAD_FONT}])
+    _text(s, M, 1.35, W - 2 * M, 1.2, [{"text": note, "size": 11, "colour": MUTED}])
+    y = 2.7
+    rows = list(table.iterrows())[:14]
+    if rows:
+        _text(s, M, y, 5.5, 0.3, [{"text": "Category", "size": 11, "bold": True}])
+        _text(s, M + 6.0, y, 2.5, 0.3, [{"text": "Change, %", "size": 11, "bold": True}])
+        _text(s, M + 8.6, y, 3.0, 0.3, [{"text": "Contribution, pp", "size": 11, "bold": True}])
+        y += 0.34
+    for name, row in rows:
+        residual = str(name).startswith("Residual")
+        change = "" if pd.isna(row["Change, %"]) else f"{row['Change, %']:+.2f}"
+        value = row["Contribution, pp"]
+        shown = f"{value:.1e}" if residual else f"{value:+.3f}"
+        colour = ACCENT if residual else INK
+        _text(s, M, y, 5.8, 0.3, [{"text": str(name), "size": 10, "colour": colour}])
+        _text(s, M + 6.0, y, 2.5, 0.3, [{"text": change, "size": 10}])
+        _text(s, M + 8.6, y, 3.0, 0.3, [{"text": shown, "size": 10, "colour": colour}])
+        y += 0.28
+    s.notes_slide.notes_text_frame.text = (
+        "The contributions sum to the headline's change; the last row is the gap between "
+        "that sum and the published change, which should be zero to rounding. If it is not, "
+        "say why before taking questions on the categories.")
+    return s
+
+
 def slide_provenance(prs: PresentationType, stamp: ProvenanceStamp) -> Any:
     """The stamp, rendered where a reader of the deck would look for it:
     the last slide, in full, with the JSON copy in the notes and in the
@@ -457,6 +496,8 @@ def build_deck(res: dict[str, Any], nar: Narrative, charts: dict[str, Any], labe
                        "Figures are produced from the cleaned collection using a matched "
                        "model index. The aggregate is equally weighted, as no expenditure "
                        "weights were supplied.")
+
+    slide_contributions(prs, res)
 
     # Quality adjustment is the most scrutinised number in a price index,
     # so when a ledger exists it gets its own slide, ahead of the findings.

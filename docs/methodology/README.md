@@ -27,6 +27,10 @@ the standard recommends and why.
 | `engine/revision.py` | [revision.md](revision.md) | Revision triangles, mean and mean absolute revision, the bias test, published against current |
 | `engine/decomposition.py` | [decomposition.md](decomposition.md) | Rates of change; contributions at every level of the tree, reconciled to eight decimals; exclusion, trimmed mean, weighted median, variance-weighted and sticky-price core measures; base effects; diffusion and dispersion |
 | `engine/deflation.py` | [deflation.md](deflation.md) | Deflation with explicit alignment; real wages and income; constant prices and volume indices; PPP conversion and price level indices |
+| `engine/spatial.py` | [spatial.md](spatial.md) | Country product dummy and Geary-Khamis parities; matched products per region pair; thin overlap withheld; conversion and price level indices |
+| `engine/trade.py` | [trade.md](trade.md) | Import and export price indices, unit value indices and their bias, terms of trade |
+| `engine/construction.py` | [construction.md](construction.md) | Construction input cost and output price indices, and the gap between them |
+| `engine/escalation.py` | [escalation.md](escalation.md) | Contract indexation: lags, averaging, dead bands, triggers, indexed share, caps and collars; the plain-language clause summary |
 | `engine/quality_adjustment.py` | [quality_adjustment.md](quality_adjustment.md) | Overlap, direct comparison, quantity, option cost, class/targeted/overall mean; the ledger; the impact report |
 | `engine/hedonic.py` | [hedonic.md](hedonic.md) | Time dummy, characteristics price and imputation hedonics; functional forms; diagnostics |
 | `engine/custom.py` | [custom.md](custom.md) | Analyst-defined formulae through the restricted evaluator; the non-standard mark |

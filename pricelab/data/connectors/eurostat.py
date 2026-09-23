@@ -176,3 +176,26 @@ def hicp_tree(indices: pd.DataFrame, weights: pd.DataFrame, year: int, *,
         leaf_indices=rebased[leaves], leaf_weights={c: weight_of[c] for c in leaves},
         parent_of=parent_of, supplied_parent_weights=supplied, published=rebased,
         weight_year=year, base_period=base, notes=tuple(notes))
+
+
+def hicp_chain_inputs(indices: pd.DataFrame, weights: pd.DataFrame, codes: list[str]
+                      ) -> tuple[pd.DataFrame, dict[int, dict[str, float]], pd.Series]:
+    """The chain-linked component indices, each year's weights and the
+    published all-items index, in the shapes
+    `engine.decomposition.ribe_contributions` takes.
+
+    Eurostat labels a weight set with the year it is used in -- the 2025
+    weights apply from December 2024 to December 2025 -- which is the
+    convention `ribe_contributions` expects.
+    """
+    wide = indices.pivot_table(index="period", columns="coicop", values="value")
+    wide.index = pd.DatetimeIndex(wide.index)
+    missing = [c for c in [*codes, HICP_ROOT] if c not in wide.columns]
+    if missing:
+        raise ValueError(f"the indices have no series for {missing}")
+    by_year: dict[int, dict[str, float]] = {}
+    for period, code, value in zip(pd.DatetimeIndex(weights["period"]), weights["coicop"],
+                                   weights["value"], strict=True):
+        if code in codes:
+            by_year.setdefault(int(period.year), {})[str(code)] = float(value)
+    return wide[codes], by_year, wide[HICP_ROOT].rename(HICP_ROOT)

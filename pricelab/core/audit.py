@@ -57,6 +57,10 @@ REVISION_ANALYSIS = "revision_analysis"
 RUN_CORRECTED = "run_corrected"
 DECOMPOSITION = "decomposition"
 DEFLATION = "deflation"
+SPATIAL_COMPARISON = "spatial_comparison"
+TRADE_INDEX = "trade_index"
+CONSTRUCTION_INDEX = "construction_index"
+ESCALATION = "escalation"
 
 
 class AuditEventORM(Base):

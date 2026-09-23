@@ -19,9 +19,11 @@ from __future__ import annotations
 import streamlit as st
 
 import pages.audit_log
+import pages.construction
 import pages.decomposition
 import pages.deflation
 import pages.diagnostics
+import pages.escalation
 import pages.findings
 import pages.imputation
 import pages.index_build
@@ -34,6 +36,8 @@ import pages.reports
 import pages.revisions
 import pages.seasonal
 import pages.sources
+import pages.spatial
+import pages.trade
 from pages import common
 from pricelab.core import audit, db
 from pricelab.core.logging import configure_logging
@@ -177,6 +181,10 @@ _PAGE_SPECS = [
     (pages.seasonal.render, "Seasonality", "🍓", "seasonality"),
     (pages.decomposition.render, "Decomposition", "🧱", "decomposition"),
     (pages.deflation.render, "Deflation", "💶", "deflation"),
+    (pages.spatial.render, "Spatial comparison", "🗺️", "spatial"),
+    (pages.trade.render, "Trade prices", "🚢", "trade"),
+    (pages.construction.render, "Construction", "🏗️", "construction"),
+    (pages.escalation.render, "Contract escalation", "📑", "escalation"),
     (pages.findings.render, "Findings", "🗒️", "findings"),
     (pages.diagnostics.render, "Diagnostics", "🔎", "diagnostics"),
     (pages.reports.render, "Reports", "📤", "reports"),

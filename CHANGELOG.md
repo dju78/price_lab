@@ -5,6 +5,54 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## Unreleased — Phase 7b: spatial, trade, construction and contract escalation (2026-09-23)
+
+### Added
+- **Contributions across a chain link**: `decomposition.ribe_contributions`,
+  the published treatment (OECD, "OECD calculation of contributions to
+  overall annual inflation", 2018/2022, section 3, after Walschots 2016; the
+  "Ribe" contribution of the HICP Methodological Manual, chapter 8; used for
+  Eurostat's published HICP contributions). Tested on a hand-derived case and
+  against Eurostat's published contributions to euro-area inflation for all
+  twelve divisions and months of 2025: largest difference 0.0056 pp, the
+  rounding of the two-decimal publication. On the Decomposition page for the
+  published HICP.
+- **Contributions in the release**: the bulletin, the Word and Markdown
+  reports and the deck carry a "Contributions to the change" table
+  (`report.contributions_summary`) with the level of the tree stated and the
+  residual against the published headline change as a row, not absorbed. A
+  run without weights gets the reason instead.
+- **`engine/spatial.py`**: CPD (weighted or not, with standard errors) and
+  Geary-Khamis parities, the matched-product count for every region pair, a
+  thin-overlap rule that reports a region's estimate but withholds it from
+  the published parities and from conversion, and price level indices.
+- **`engine/trade.py`**: import and export price indices (Fisher, Laspeyres
+  or Paasche over products), unit value indices, the unit value bias
+  (`unit_value_bias`), and terms of trade. Every unit value index carries the
+  bias and the conditions under which it is defensible.
+- **`engine/construction.py`**: the input cost index and the output price
+  index (a fixed bill of quantities at tender rates), with the difference
+  between them stated on every result, and their ratio reported as the
+  implied margin and productivity movement.
+- **`engine/escalation.py`**: indexation clauses with lag, averaging, dead
+  band (excess or full), trigger, indexed share, cap and collar, producing a
+  payment schedule and a plain-language summary naming the index, its
+  vintage, the lag, and every period where a limit changed the payment.
+- **New pages**: Spatial comparison, Trade prices, Construction and Contract
+  escalation, each with page-level AppTests; the escalation page will not
+  build a schedule on an uploaded index until its vintage is stated.
+- **`docs/methodology/`**: spatial, trade, construction and escalation notes
+  (22 in total); the decomposition note gains the chain-link and release
+  sections.
+- A fixture recorded from Eurostat's published HICP contributions
+  (`prc_hicp_ctrb`, euro area, divisions, 2025).
+
+### Notes
+- The unit value bias, demonstrated: two products at unchanged prices of 10
+  and 100 a tonne, with the tonnage shifting from 90/10 to 10/90. Every price
+  index gives 100; the unit value index gives 91/19 × 100 = 478.95, a gap of
+  378.95 index points.
+
 ## Unreleased — Phase 7a: decomposition, core measures and deflation (2026-09-23)
 
 ### Added
