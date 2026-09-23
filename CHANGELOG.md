@@ -5,6 +5,103 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## Unreleased — Phase 6: seasonality, outliers and revision control (2026-09-22)
+
+### Added
+- **`engine/seasonal.py`**: strictly seasonal item detection (a season is a
+  repetition, so an item merely interrupted is excluded with the count that
+  disqualified it); **class confinement** and **weight update**, compiled on
+  one shared aggregator so the gap between them is the weights and nothing
+  else, and reported rather than chosen silently; the **Rothwell index**;
+  **counter-seasonal estimation** of off-season prices, marked
+  `counter_seasonal` so an estimate never reads as an observation; and
+  **seasonal adjustment** by X-13ARIMA-SEATS where the binary is present and
+  STL otherwise.
+- **The engine that ran is named in every output.** `SeasonalAdjustment.label`
+  names it unconditionally and says so when it is the fallback, and it
+  appears on the page before the chart, in the chart caption, on the CSV's
+  first line, in the method note, the Word report, the deck, the Excel pack's
+  new "Series basis" sheet and the bulletin's "How each series was produced".
+  `adjustment_engine="x13"` raises rather than substituting.
+- **The unadjusted series travels with the adjusted one.** Both live on one
+  object and are emitted by one loop in `reporting/exports.additional_series`,
+  so no format can ship one without the other.
+- **A stability test**: the seasonal factors re-estimated across sub-samples,
+  plus the gap between the adjusted and unadjusted annualised trends — which
+  seasonal factors that average out over a year cannot move, so any material
+  value there is the adjustment rather than the prices. Factors are
+  normalised to average to one over every full year, without which STL's
+  seasonal component carries a drift of its own.
+- **`engine/outliers.py`**: Tukey fences, the quartile method,
+  Hidiroglou-Berthelot and a period-on-period ratio screen over price
+  relatives, with a configurable deadband (5%) without which screening the
+  bundled collection flags 23% of all relatives rather than 1.8%. All four run
+  by default because they disagree, and the queue records which caught each
+  quote.
+- **A review queue that is the only way a quote leaves the index.** Detection
+  changes nothing; an unreviewed flag excludes nothing; a reason is required
+  by the widget, the model, the ledger function and a `NOT NULL` column; a
+  rejected quote is *marked*, never dropped, and carries the analyst and the
+  reason; every decision reaches the audit log. Exclusions are reported as a
+  share of the quotes they would have fed, in the units imputation already
+  uses. New `outlier_decisions` table (migration 0007) and
+  `core/ledger.py` functions, keyed by content hash like the quality
+  adjustment ledger.
+- **`engine/revision.py`**: revision triangles, mean and mean absolute
+  revision, a t-test for bias reported with its sample size, and published
+  against current for any reference period — all built on the registry's own
+  vintages, with `core.registry.vintage_chain` walking the supersedes chain
+  in both directions so entering at the latest vintage cannot silently hide
+  the revisions.
+- **Task 0, closing the multilateral side car**:
+  `multilateral.build_multilateral_all` rolls a per-category multilateral
+  series up to an all-items headline through `engine/aggregation`, naming any
+  category that could not produce one rather than dropping it;
+  `multilateral.seasonal_multilateral` adds the year-over-year monthly and
+  rolling-year forms; and every multilateral level now appears in the
+  publication table, CSV, SDMX, Markdown, Word, deck, Excel pack and bulletin
+  beside the method, window, splice rule and the spread the rule could have
+  moved it by.
+- **New pages**: Outliers, Seasonality and Revisions, plus a headline roll-up
+  on Multilateral. Each has page-level AppTest coverage.
+- **New config sections** on `RunConfig`: `seasonal`, `outlier` and
+  `revision`, all disabled by default, so a config saved before them loads
+  and compiles exactly as before with no schema version bump.
+- **`docs/methodology/`**: seasonal, outliers and revision notes (sixteen in
+  total).
+
+### Changed
+- **mypy strict now covers `reporting/`** as well as core, engine and data.
+  python-pptx, python-docx and reportlab are made opaque by a per-module
+  override rather than half-typed: they ship partial annotations, so every
+  call into them otherwise reads as "call to untyped function in typed
+  context" and strict mode fails on code that is itself fully typed.
+
+### Fixed
+- The Seasonality page used `str.capitalize` on the engine label, which
+  lowercased "X-13ARIMA-SEATS" into "x-13arima-seats" — the one string on
+  that page that has to survive verbatim. Caught by the page test that looks
+  for the engine name.
+- `reporting/exports.to_sdmx_ml` read its observation value off an
+  `itertuples` field named `index`, which silently shadows `tuple.index`. It
+  worked, and it is exactly the coincidence that stops working.
+- The Docker build runs the suite but never copied the bundled workbook
+  (`.dockerignore` excluded every `*.xlsx`), so the Phase 3 hard gate skipped
+  inside the image. The workbook is now copied and allowed through, and the
+  registry and page tests in `test_revision.py` skip rather than error when
+  it is absent, like the seasonal and outlier modules.
+
+### Notes
+- X-13ARIMA-SEATS is **not installed on this machine**, so every local run
+  falls back to STL and is labelled as doing so. The X-13 path is exercised
+  through a substituted runner (`_run_x13` is a module-level function for
+  that reason), because a fallback whose alternative has never been executed
+  is an assumption rather than a branch.
+- Not done: X-11/SEATS quality diagnostics on the STL path; trading-day and
+  moving-holiday adjustment; additively consistent adjustment across an
+  aggregation structure; revision analysis by horizon or by source; selective
+  editing that ranks flags by their effect on the aggregate.
+
 ## Unreleased — Phase 5: multilateral methods (2026-09-22)
 
 ### Added

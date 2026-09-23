@@ -25,9 +25,12 @@ import pages.imputation
 import pages.index_build
 import pages.ingest
 import pages.multilateral
+import pages.outliers
 import pages.quality
 import pages.quality_adjustment
 import pages.reports
+import pages.revisions
+import pages.seasonal
 import pages.sources
 from pages import common
 from pricelab.core import audit, db
@@ -164,14 +167,17 @@ st.sidebar.divider()
 _PAGE_SPECS = [
     (pages.ingest.render, "Ingest", "📥", "ingest"),
     (pages.quality.render, "Quality", "🧪", "quality"),
+    (pages.outliers.render, "Outliers", "🚩", "outliers"),
     (pages.imputation.render, "Imputation", "🧩", "imputation"),
     (pages.quality_adjustment.render, "Quality adjustment", "🔁", "quality-adjustment"),
     (pages.index_build.render, "Index build", "📈", "index-build"),
     (pages.multilateral.render, "Multilateral", "🧮", "multilateral"),
+    (pages.seasonal.render, "Seasonality", "🍓", "seasonality"),
     (pages.findings.render, "Findings", "🗒️", "findings"),
     (pages.diagnostics.render, "Diagnostics", "🔎", "diagnostics"),
     (pages.reports.render, "Reports", "📤", "reports"),
     (pages.sources.render, "Sources", "🌐", "sources"),
+    (pages.revisions.render, "Revisions", "📜", "revisions"),
     (pages.audit_log.render, "Audit", "🔏", "audit"),
 ]
 

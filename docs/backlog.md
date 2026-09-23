@@ -599,16 +599,138 @@ operates on bilateral category indices); seasonal multilateral variants
 multilateral level; and the multilateral series is not yet carried into the
 report, the deck or the publication export.
 
+## Phase 6 - Seasonality, outliers and revision control (done, 2026-09-22)
+
+**Task 0, closing the multilateral side car.**
+`multilateral.build_multilateral_all` compiles a multilateral series per
+category and rolls it up through `engine.aggregation` -- the same weighted
+mean and the same classification-tree path the bilateral headline uses, not a
+second implementation. A category whose data cannot support the method is
+named in `skipped` with the reason rather than dropped, because a category
+missing from a weighted headline moves the headline. What the aggregation
+does not preserve is transitivity, and the method note says so.
+`multilateral.seasonal_multilateral` adds the year-over-year monthly and
+rolling-year forms (each calendar month gets its own multilateral sub-index,
+so seasonality never enters the comparison), which is Phase 5's orphan folded
+in here. Carriage into the outputs is done in one place: `additional_series`
+appends the multilateral and adjusted series to `publication_table`, which is
+the single function every format reads its rows from, and each row carries a
+`basis` column -- so the CSV, SDMX, Excel pack, bulletin and wide table got
+them without opting in, and `reporting/report.supplementary_tables` does the
+same job for the narrative formats. A test walks the Markdown, Word, deck,
+Excel, CSV and SDMX outputs looking for the method beside the level.
+
+**Task 1, seasonality.** `engine/seasonal.py`. Strictly seasonal items are
+detected by repetition, not by absence: an item missing three months once is a
+collection failure and is excluded with the count that disqualified it, which
+is checkable rather than asserted. Class confinement and weight update are
+both compiled and the gap reported. Two decisions make that comparison mean
+something: both treatments use the same aggregator, differing only in the
+weights handed to it, and weight update's weights are built by *subtraction*
+from confinement's -- only an item outside its own observed season loses its
+weight. Computing them as "what has a price this month" would also subtract
+non-response and churn, and the two treatments would then differ by several
+index points on a collection with no seasonal item in it; the test that
+strips the seasonal items and asserts the two series are identical to machine
+precision is what holds that honest. The chained weighted mean of category
+*relatives* is used rather than a mean of levels, because a mean of levels
+under moving weights moves when the weights do and no price does.
+
+Also delivered: the Rothwell index (base-year average prices as the only
+denominator a seasonal item has, with the item count reported because the
+composition effect is inherent); counter-seasonal estimation, which moves an
+off-season price with the in-season items rather than holding it flat, every
+estimate labelled a construction; and seasonal adjustment by X-13ARIMA-SEATS
+or STL.
+
+The two hard rules are enforced in code rather than documented.
+`SeasonalAdjustment.label` names the engine unconditionally and says when it
+is the fallback, and it is printed by the page (before the chart), the chart
+caption, the CSV's first line, the method note, the Word report, the deck,
+the Excel pack's "Series basis" sheet and the bulletin.
+`adjustment_engine = "x13"` raises rather than substituting. The unadjusted
+series lives on the same object as the adjusted one and both are emitted by
+one loop, so no format can ship one without the other. Stability is tested by
+re-estimating the factors across sub-samples and by comparing the adjusted
+and unadjusted annualised trends -- factors that average out over a year
+cannot move a trend, so a gap there is the adjustment. Getting that gap to
+zero needed the factors normalised to average to one over every full year;
+STL does not constrain its seasonal component and it was carrying a drift of
+its own.
+
+**Task 2, outliers.** `engine/outliers.py`: Tukey fences and the quartile
+method on log relatives, Hidiroglou-Berthelot with its importance exponent,
+and a fixed-band ratio screen for the thin cells the other three cannot run
+on. All four by default, because they disagree and the queue shows which
+caught what. A deadband was necessary and is a stated parameter: without one,
+screening the bundled collection flags 23% of all price relatives, which is
+not a queue, it is the data; at 5% it is 1.8%.
+
+No code path removes a quote. Detection returns flags and changes nothing; an
+unreviewed flag excludes nothing; a reason is required by the widget, by
+`OutlierDecision`, by `record_outlier_decision` and by a NOT NULL column
+(migration 0007); a rejected quote keeps its row and gains the analyst, the
+reason and an excluded flag, with its price set to unavailable so the index
+cannot use it; accepted and annotated quotes are marked too; and every
+decision reaches the audit log. Re-deciding withdraws the previous record
+rather than overwriting it. Exclusions are reported as a share of the quotes
+they would have fed, in the same shape `response_rates` reports imputation.
+The stage sits between the quality adjustment ledger and imputation, so the
+hole an exclusion leaves is filled by the run's own imputation.
+
+**Task 3, revisions.** `engine/revision.py` on the registry's own vintages,
+with no parallel store: a vintage is a registered run and reproduces byte for
+byte. `core.registry.vintage_chain` walks the supersedes chain in both
+directions, because entering it at the latest vintage and getting only that
+vintage back is the natural way to write a revision analysis that ignores
+every revision. Triangle, MR, MAR, a t-test for bias reported with its sample
+size (and refusing a verdict below three observations), and published against
+current. The end-to-end acceptance criterion is a page-level test: register
+and approve on Reports, register a correction with a reason, then open
+Revisions and read the change off the triangle with the original still
+approved and still reproducing beside it.
+
+**Also in this phase.** mypy strict extended to `reporting/` (131 errors
+fixed, mostly missing annotations); python-pptx, python-docx and reportlab
+made opaque by a per-module override rather than half-typed, because they
+ship partial annotations and every call into them otherwise fails strict mode
+on code that is itself fully typed. Three new pages (Outliers, Seasonality,
+Revisions) and a headline roll-up on Multilateral, each with AppTest
+coverage. Three new config sections, all disabled by default, so a config
+saved before them loads unchanged with no version bump.
+
+Found on the way: the Seasonality page used `str.capitalize` on the engine
+label, lowercasing "X-13ARIMA-SEATS" into "x-13arima-seats" -- the one string
+on that page that must survive verbatim, caught by the page test that looks
+for the engine name. And `to_sdmx_ml` read its observation value off an
+`itertuples` field named `index`, which silently shadows `tuple.index`; it
+worked, and it is exactly the coincidence that stops working.
+
+X-13ARIMA-SEATS is not installed on this machine, so every local run falls
+back to STL and is labelled as doing so; the X-13 branch is exercised through
+a substituted runner, which is why `_run_x13` is a module-level function with
+a narrow contract.
+
+109 new tests (`tests/test_seasonal.py`, `tests/test_outliers.py`,
+`tests/test_revision.py`, and the Task 0 additions to
+`tests/test_multilateral.py`); 776 in the suite; engine coverage 94%, with
+seasonal.py 90%, outliers.py 94%, revision.py 95% and multilateral.py 92%.
+
+Not done: X-11/SEATS quality diagnostics (M and Q statistics, sliding spans)
+on the STL path; trading-day, moving-holiday and leap-year adjustment;
+seasonal adjustment made additively consistent across an aggregation
+structure; a per-category window or method for the multilateral headline;
+revision analysis by horizon or decomposed by source; a real-time database of
+source data as it arrived; selective editing that ranks outlier flags by
+their effect on the aggregate rather than by how many screens agreed.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
-Seasonal adjustment via X-13ARIMA-SEATS/STL beyond the current seasonal-hold
-imputation; outlier review queue (today's scale-error detection is automatic,
-not a reviewable queue); revision vintages and bootstrap/variance uncertainty;
-decomposition (contributions, core inflation measures, base effects,
-diffusion); deflation, real values, PPP and spatial price levels; asset,
-trade and construction indices; forecasting and scenario tooling; PostgreSQL
-and OIDC (would require hosting beyond Streamlit Community Cloud); an in-app
-user-management page; CPA, NACE and HS classification reference data (no
-authoritative, machine-readable source verified yet -- the generic loader
-that would take one already exists); a cascading (multi-total)
-secondary-suppression solver.
+Bootstrap and variance-based uncertainty measures; decomposition
+(contributions, core inflation measures, base effects, diffusion);
+deflation, real values, PPP and spatial price levels; asset, trade and
+construction indices; forecasting and scenario tooling; OIDC (would require
+hosting beyond Streamlit Community Cloud); an in-app user-management page;
+CPA, NACE and HS classification reference data (no authoritative, machine-
+readable source verified yet -- the generic loader that would take one
+already exists); a cascading (multi-total) secondary-suppression solver.

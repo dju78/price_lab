@@ -199,14 +199,38 @@ field. Send stderr to your aggregator.
 
 ## 7. Migrations
 
-`migrations/versions/` holds six revisions (users/sessions/audit/registry/
+`migrations/versions/` holds seven revisions (users/sessions/audit/registry/
 classification; registry reference periods; full COICOP tree; validation
 overrides and column mappings; the quality-adjustment ledger; registry
-headline and data vintage). Revisions are additive and idempotent where
+headline and data vintage; the outlier review queue). Revisions are additive and idempotent where
 they touch existing tables. `alembic upgrade head` after every deployment;
 `alembic downgrade -1` reverses the last one.
 
-## 8. Upgrading pyarrow on the development machine
+## 8. X-13ARIMA-SEATS
+
+Seasonal adjustment prefers X-13ARIMA-SEATS and falls back to STL where the
+binary is absent. The fallback is never silent -- every output naming an
+adjusted series names the engine that produced it, and says when it is not
+X-13 -- but a deployment that publishes seasonally adjusted figures should
+install the real thing.
+
+Download the X-13ARIMA-SEATS binary from the US Census Bureau, put the
+executable (`x13as`, or `x13as.exe` on Windows) somewhere stable, and either
+put its directory on `PATH` or set `X13PATH` to it. `PRICELAB_` is not a
+prefix here: statsmodels reads `X13PATH` and `X12PATH` directly, and the
+application looks in the same two places.
+
+Verify from a shell in the deployment environment:
+
+```bash
+python -c "from pricelab.engine.seasonal import x13_available; print(x13_available())"
+```
+
+It prints `(True, "<directory>", "...found...")` when the binary is usable.
+Until it does, the Seasonality page shows the same explanation at the top of
+its adjustment section, and every adjusted series is labelled as STL.
+
+## 9. Upgrading pyarrow on the development machine
 
 If a future pyarrow wheel loads under the Application Control policy
 (`python -c "import pyarrow.parquet"` succeeds), lift the `<25` ceiling in

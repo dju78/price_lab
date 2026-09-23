@@ -317,6 +317,241 @@ class QualityAdjustmentConfig(BaseModel):
         return self
 
 
+class SeasonalConfig(BaseModel):
+    """Strictly seasonal item treatment and seasonal adjustment.
+
+    Off by default, and deliberately so. Seasonal adjustment is the easiest
+    place in this platform to manufacture a smooth line that has removed a
+    real movement, and it is not something a run should acquire because
+    nobody turned it off.
+    """
+
+    enabled: bool = False
+    """Compute the seasonal treatments and the adjusted series with the run."""
+
+    treatment: str = "both"
+    """Strictly seasonal item treatment: "class_confinement", "weight_update",
+    or "both". "both" is the default because the two give different answers
+    on the same data and the difference is the point -- a run that quietly
+    picked one has made a judgement the reader cannot see."""
+
+    periods_per_year: int = 12
+    """Periods in a seasonal cycle: 12 for monthly, 4 for quarterly."""
+
+    min_years: int = 2
+    """Years of data an item needs before its absences can be called a
+    season rather than a gap. Below two years there is no repetition to
+    observe, and every interrupted item would be classed as seasonal."""
+
+    max_in_season_share: float = 0.9
+    """An item in season in more than this share of the calendar periods is
+    not strictly seasonal, it is an item with gaps. The two need different
+    treatment and conflating them applies a seasonal rule to a collection
+    failure."""
+
+    adjust: bool = True
+    """Compute a seasonally adjusted series alongside the treatments."""
+
+    adjustment_engine: str = "auto"
+    """"x13" demands X-13ARIMA-SEATS and fails if the binary is absent;
+    "stl" always uses STL; "auto" prefers X-13 and falls back to STL,
+    recording which actually ran. Whatever runs is named in every output --
+    an STL result presented as a seasonal adjustment without qualification
+    is a misrepresentation, so the engine that ran travels with the series
+    rather than being looked up later."""
+
+    adjustment_series: str = "All items"
+    """Which column of the compiled index to adjust. The headline by
+    default; a category is adjusted by naming it."""
+
+    stl_seasonal: int = 7
+    """STL's seasonal smoother length, in periods. Must be an odd number of
+    at least 7 (statsmodels' own constraint)."""
+
+    stability_sub_samples: int = 3
+    """Sub-spans the stability test re-estimates the seasonal factors on.
+    A factor that moves a great deal between sub-samples is not a seasonal
+    pattern, it is a curve fitted to noise."""
+
+    stability_threshold_pct: float = 2.0
+    """Percentage points of factor range, across sub-samples, above which
+    the adjustment is reported as unstable."""
+
+    rothwell: bool = False
+    """Also compute the Rothwell index for the strictly seasonal items."""
+
+    counter_seasonal: bool = False
+    """Also estimate off-season prices counter-seasonally, and report the
+    index that results, so the cost of the estimate is visible beside the
+    index that made none."""
+
+    @model_validator(mode="after")
+    def _choices_are_known(self) -> SeasonalConfig:
+        if self.treatment not in ("class_confinement", "weight_update", "both"):
+            raise ValueError(
+                'treatment must be "class_confinement", "weight_update" or "both", not '
+                f"{self.treatment!r}")
+        if self.adjustment_engine not in ("auto", "x13", "stl"):
+            raise ValueError(
+                f'adjustment_engine must be "auto", "x13" or "stl", not '
+                f"{self.adjustment_engine!r}")
+        if self.periods_per_year < 2:
+            raise ValueError(
+                f"a seasonal cycle of {self.periods_per_year} periods has no structure to "
+                "estimate; monthly data has 12 and quarterly 4")
+        if self.min_years < 2:
+            raise ValueError(
+                "at least two years are needed before an absence can be called a season "
+                "rather than a gap")
+        if self.stl_seasonal < 7 or self.stl_seasonal % 2 == 0:
+            raise ValueError(
+                f"stl_seasonal must be an odd number of at least 7, not {self.stl_seasonal}")
+        if self.stability_sub_samples < 2:
+            raise ValueError("a stability test needs at least two sub-samples to compare")
+        return self
+
+
+class OutlierDecision(BaseModel):
+    """One analyst's decision on one flagged quote.
+
+    A decision, never a deletion: `decision` says what the analyst concluded
+    and `reason` says why, and both travel with the run. The engine applies
+    "reject" by excluding the quote from the index and reporting the
+    exclusion; it never removes a row from the data.
+    """
+
+    period: str
+    item_id: str
+    category: str = ""
+    method: str = ""
+    """Which detector flagged it, carried so a reviewer can see whether the
+    quote was caught by one screen or by all four."""
+    statistic: float = 0.0
+    """The detector's own figure for this quote -- the ratio, the score, the
+    distance beyond the fence -- in the detector's own units."""
+    decision: str = "accept"
+    """"accept" (a genuine price, keep it), "reject" (an error, exclude it
+    from the index) or "annotate" (keep it, but on the record that it was
+    looked at and why)."""
+    reason: str
+    analyst: str = ""
+    decided_at: str = ""
+
+    @model_validator(mode="after")
+    def _decision_is_known_and_reasoned(self) -> OutlierDecision:
+        if self.decision not in ("accept", "reject", "annotate"):
+            raise ValueError(
+                f'decision must be "accept", "reject" or "annotate", not {self.decision!r}')
+        if not (self.reason or "").strip():
+            raise ValueError(
+                "every outlier decision must state a reason: a quote excluded from a published "
+                "index without one is a deletion nobody can review, which is the single thing "
+                "this queue exists to prevent")
+        return self
+
+
+class OutlierConfig(BaseModel):
+    """Outlier screening, and the analyst decisions taken on what it found."""
+
+    enabled: bool = False
+    """Run the screens with the pipeline. Off by default: the scale-error
+    repair in `engine.quality` already runs unconditionally, and these
+    screens exist to be reviewed, not to run unattended."""
+
+    methods: tuple[str, ...] = ("tukey", "quartile", "hidiroglou_berthelot", "ratio")
+    """Which screens to run. All four by default, because they disagree --
+    a quote caught by one and not the others is a different kind of
+    evidence from one caught by all four, and the queue shows which."""
+
+    tukey_k: float = 1.5
+    """Multiples of the interquartile range beyond the quartiles. 1.5 is
+    Tukey's own; 3.0 is the conventional "far out" fence."""
+
+    quartile_ratio: float = 2.5
+    """Quartile method: multiples of the median-to-quartile distance,
+    applied to log price relatives."""
+
+    hb_c: float = 4.0
+    """Hidiroglou-Berthelot: multiples of the interquartile spread of the
+    effect statistic. Statistics Canada's usual range is 4 to 8."""
+
+    hb_u: float = 0.5
+    """Hidiroglou-Berthelot's importance exponent, between 0 and 1. At 0 the
+    method reduces to a screen on the ratio alone; at 1 it scales fully with
+    the magnitude of the price, so a large price must move further to be
+    flagged."""
+
+    ratio_low: float = 0.5
+    ratio_high: float = 2.0
+    """Period-on-period ratio screen: a price relative outside this band is
+    flagged. Deliberately wide, because this screen is the crude one and is
+    there to catch what the distributional screens miss on a thin cell."""
+
+    min_change_pct: float = 5.0
+    """A deadband: a quote whose price relative sits within this percentage
+    of its cell's median relative is never flagged, whatever the fences say.
+
+    Without one, a cell whose relatives are tightly clustered has fences a
+    fraction of a percent wide and every ordinary rounding of a price
+    becomes a queue entry -- on the bundled collection, screening with no
+    deadband flags 23 percent of all price relatives, which is not a review
+    queue, it is the data. Every statistical office applies a tolerance of
+    this kind for the same reason. It is stated here as a parameter rather
+    than buried in the screens because it decides how much work the queue
+    creates, and that is an operational judgement, not a statistical one."""
+
+    min_cell_size: int = 5
+    """Below this many price relatives, a cell's quartiles are not a
+    distribution and the distributional screens are not run on it. The ratio
+    screen still is, which is why it is there."""
+
+    entries: list[OutlierDecision] = Field(default_factory=list)
+    """The review queue's decisions, as applied to this run. Empty means
+    nothing has been reviewed, and an unreviewed flag excludes nothing."""
+
+    @model_validator(mode="after")
+    def _methods_are_known_and_bounds_ordered(self) -> OutlierConfig:
+        known = ("tukey", "quartile", "hidiroglou_berthelot", "ratio")
+        unknown = [m for m in self.methods if m not in known]
+        if unknown:
+            raise ValueError(
+                f"unknown outlier screen(s) {unknown}; available: {', '.join(known)}")
+        if not 0.0 <= self.hb_u <= 1.0:
+            raise ValueError(f"hb_u is an exponent between 0 and 1, not {self.hb_u}")
+        if not 0 < self.ratio_low < self.ratio_high:
+            raise ValueError(
+                f"the ratio screen's band must satisfy 0 < low < high, not "
+                f"{self.ratio_low} to {self.ratio_high}")
+        seen: set[tuple[str, str]] = set()
+        for entry in self.entries:
+            key = (entry.period, entry.item_id)
+            if key in seen:
+                raise ValueError(
+                    f"two decisions recorded for {entry.item_id!r} at {entry.period}; one quote "
+                    "has one decision, or the run applies whichever happened to be last")
+            seen.add(key)
+        return self
+
+
+class RevisionConfig(BaseModel):
+    """How a revision analysis over the registry's vintages is computed."""
+
+    enabled: bool = False
+    max_vintages: int = 12
+    """Vintages back from the current one to reproduce. Each reproduction
+    re-executes a whole pipeline, so this is a cost, not a preference."""
+    bias_alpha: float = 0.05
+    """Significance level for the bias test on the revision series."""
+
+    @model_validator(mode="after")
+    def _bounds(self) -> RevisionConfig:
+        if self.max_vintages < 2:
+            raise ValueError("a revision analysis needs at least two vintages to compare")
+        if not 0 < self.bias_alpha < 1:
+            raise ValueError(f"bias_alpha is a significance level in (0, 1), not {self.bias_alpha}")
+        return self
+
+
 class MultilateralConfig(BaseModel):
     """Method, window and extension rule for a multilateral index.
 
@@ -416,6 +651,19 @@ class RunConfig(BaseModel):
     config saved without the key loads and compiles exactly as before: no
     version bump, because no old field was renamed or reinterpreted -- the
     same reasoning as `quality_adjustment` above."""
+
+    seasonal: SeasonalConfig = Field(default_factory=SeasonalConfig)
+    """Strictly seasonal item treatment and seasonal adjustment (Phase 6).
+    Disabled by default; a disabled section changes nothing, so a config
+    saved before it existed loads and compiles exactly as before."""
+
+    outlier: OutlierConfig = Field(default_factory=OutlierConfig)
+    """Outlier screens and the review queue's decisions (Phase 6). Disabled
+    by default, and an empty queue excludes nothing even when enabled."""
+
+    revision: RevisionConfig = Field(default_factory=RevisionConfig)
+    """Revision analysis over the registry's vintages (Phase 6). Reads the
+    registry; changes nothing about how this run is compiled."""
 
     label: str = "unnamed run"
 

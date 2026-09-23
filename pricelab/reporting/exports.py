@@ -37,8 +37,9 @@ from __future__ import annotations
 
 import io
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 from lxml import etree
 
@@ -55,6 +56,128 @@ NS = {
 SDMX_AGENCY = "PRICELAB"
 SDMX_STRUCTURE_ID = "PRICELAB_CPI"
 SDMX_STRUCTURE_VERSION = "1.0"
+
+
+# ---------------------------------------------------------------------
+# What produced a series
+# ---------------------------------------------------------------------
+#: Series names carrying a basis other than the run's own elementary
+#: formula are prefixed so they can never be mistaken for it in a flat file.
+MULTILATERAL_PREFIX = "multilateral: "
+SEASONAL_ADJUSTED_PREFIX = "seasonally adjusted: "
+
+
+def multilateral_basis(res: Mapping[str, Any]) -> str:
+    """Method, window, splice and the spread across methods, in one phrase.
+
+    Every place a multilateral level appears prints this beside it. A
+    multilateral number is a fact about prices *and* about a method, and
+    the reader cannot tell which method from the number; the phrase is the
+    only thing that carries it, so it is built once here and used
+    everywhere rather than reassembled per format.
+    """
+    aggregate = res.get("multilateral")
+    if aggregate is None:
+        return ""
+    cfg = res["config"].multilateral
+    from ..engine.multilateral import METHOD_LABELS, SPLICE_LABELS
+
+    phrase = (f"{METHOD_LABELS.get(cfg.method, cfg.method)}, {cfg.window}-period window, "
+              f"{SPLICE_LABELS.get(cfg.splice, cfg.splice).lower()}")
+    spreads = [float(r.splice_spread_pp.max()) for r in aggregate.results.values()
+               if len(r.splice_spread_pp)]
+    if spreads:
+        phrase += (f"; the extension rule could have moved a level by up to "
+                   f"{max(spreads):.2f} index points")
+    if aggregate.skipped:
+        phrase += (f"; {len(aggregate.skipped)} category(ies) produced no multilateral series "
+                   "and carry no weight in this headline")
+    if not aggregate.weighted:
+        phrase += "; aggregated by equally weighted geometric mean, no expenditure weights"
+    return phrase
+
+
+def seasonal_basis(res: Mapping[str, Any]) -> str:
+    """The engine that produced the adjusted series, named unconditionally."""
+    seasonal = res.get("seasonal")
+    if seasonal is None or seasonal.adjustment is None:
+        return ""
+    return str(seasonal.adjustment.label)
+
+
+def series_basis(res: Mapping[str, Any]) -> dict[str, str]:
+    """Every series the run can publish, mapped to what produced it.
+
+    Empty string for the ordinary bilateral series, whose basis is the run's
+    configuration and is already in the method note and the provenance
+    stamp. Non-empty for anything a reader could otherwise mistake for it.
+    """
+    basis: dict[str, str] = {}
+    multilateral = multilateral_basis(res)
+    aggregate = res.get("multilateral")
+    if multilateral and aggregate is not None:
+        for column in aggregate.indices.columns:
+            basis[f"{MULTILATERAL_PREFIX}{column}"] = multilateral
+    seasonal = seasonal_basis(res)
+    stage = res.get("seasonal")
+    adjustment = stage.adjustment if stage is not None else None
+    if seasonal and adjustment is not None:
+        basis[f"{SEASONAL_ADJUSTED_PREFIX}{adjustment.series_name}"] = seasonal
+    return basis
+
+
+def additional_series(res: Mapping[str, Any]) -> pd.DataFrame:
+    """The multilateral and seasonally adjusted series, as publication rows.
+
+    Returned in exactly the shape `publication_table` builds, so they can be
+    concatenated onto it and every downstream format -- the wide table, the
+    stamped CSV, the SDMX message, the Excel pack, the bulletin -- carries
+    them without knowing they exist. That is the point: there is no format
+    that can accidentally be left out, because no format opts in.
+
+    The seasonally adjusted series brings its unadjusted counterpart with
+    it, always, under its own name. A reader who finds one in an export
+    finds the other beside it.
+    """
+    rows: list[dict[str, Any]] = []
+    basis = series_basis(res)
+
+    aggregate = res.get("multilateral")
+    if aggregate is not None:
+        for column in aggregate.indices.columns:
+            name = f"{MULTILATERAL_PREFIX}{column}"
+            for period, value in aggregate.indices[column].items():
+                rows.append({
+                    "period": pd.Timestamp(cast(Any, period)), "series": name,
+                    "index": float(value), "matched_items": float("nan"),
+                    "basis": basis.get(name, "")})
+
+    seasonal = res.get("seasonal")
+    adjustment = seasonal.adjustment if seasonal is not None else None
+    if adjustment is not None:
+        adjusted_name = f"{SEASONAL_ADJUSTED_PREFIX}{adjustment.series_name}"
+        for period, value in adjustment.adjusted.items():
+            rows.append({
+                "period": pd.Timestamp(cast(Any, period)), "series": adjusted_name,
+                "index": float(value), "matched_items": float("nan"),
+                "basis": basis.get(adjusted_name, "")})
+        # The unadjusted series, unconditionally, under a name that says so.
+        # This is the mechanism behind "the unadjusted series is published
+        # alongside the adjusted series everywhere the adjusted series
+        # appears": they are produced by the same loop, from the same
+        # object, and there is no argument that omits the second.
+        for period, value in adjustment.unadjusted.items():
+            rows.append({
+                "period": pd.Timestamp(cast(Any, period)),
+                "series": f"unadjusted: {adjustment.series_name}",
+                "index": float(value), "matched_items": float("nan"),
+                "basis": "as compiled, before seasonal adjustment"})
+
+    if not rows:
+        return pd.DataFrame(columns=["period", "series", "index", "matched_items", "basis"])
+    frame = pd.DataFrame(rows)
+    usable: pd.DataFrame = frame[np.isfinite(frame["index"])].reset_index(drop=True)
+    return usable
 
 
 def publication_table(res: Mapping[str, Any], min_count: int | None = None) -> pd.DataFrame:
@@ -79,7 +202,8 @@ def publication_table(res: Mapping[str, Any], min_count: int | None = None) -> p
             })
     table = pd.DataFrame(rows)
     if table.empty:
-        return table.assign(suppressed=False, suppression_rule="", published="")
+        return table.assign(basis="", suppressed=False, suppression_rule="", published="")
+    table["basis"] = ""
 
     categories = table[table["series"] != "All items"].copy()
     aggregate = table[table["series"] == "All items"].copy()
@@ -102,7 +226,18 @@ def publication_table(res: Mapping[str, Any], min_count: int | None = None) -> p
         "secondary: smallest remaining cell in a period with one primary-suppressed cell, "
         "so the suppressed value cannot be recovered from the all-items aggregate")
     aggregate = aggregate.assign(suppressed=False, secondary_suppressed=False, suppression_rule="")
-    out = pd.concat([protected, aggregate], ignore_index=True)
+    # The multilateral and seasonally adjusted series, where the run
+    # produced them. Appended here, in the one function every format reads
+    # its rows from, so no export can be shipped having quietly left them
+    # out -- and each row carries `basis`, so no level can appear anywhere
+    # without the method that produced it beside it.
+    extra = additional_series(res)
+    if not extra.empty:
+        extra = extra.assign(suppressed=False, secondary_suppressed=False,
+                             suppression_rule="")
+    frames = [protected, aggregate] + ([extra] if not extra.empty else [])
+    out = pd.concat(frames, ignore_index=True)
+    out["basis"] = out["basis"].fillna("")
     out = out.sort_values(["series", "period"]).reset_index(drop=True)
     out["published"] = [
         SUPPRESSED if s else (f"{v:.6f}" if pd.notna(v) else "")
@@ -202,20 +337,28 @@ def to_sdmx_ml(res: Mapping[str, Any], stamp: ProvenanceStamp, *, message_id: st
         head = stamp.headline or {}
         _sub(attrs, "generic", "Value", id="BASE_PER",
              value=str(head.get("reference_period", "")))
-        for row in group.sort_values("period").itertuples(index=False):
+        # Plain dicts rather than `itertuples`: this frame has a column
+        # literally called "index", which a namedtuple field silently
+        # shadows `tuple.index` with. It happens to work, and it is exactly
+        # the kind of coincidence that stops working.
+        for row in group.sort_values("period").to_dict("records"):
             obs = _sub(series, "generic", "Obs")
-            _sub(obs, "generic", "ObsDimension", value=pd.Timestamp(row.period).strftime("%Y-%m"))
-            if row.suppressed:
+            _sub(obs, "generic", "ObsDimension",
+                 value=pd.Timestamp(cast(Any, row["period"])).strftime("%Y-%m"))
+            value = row["index"]
+            if row["suppressed"]:
                 obs_attrs = _sub(obs, "generic", "Attributes")
                 _sub(obs_attrs, "generic", "Value", id="OBS_STATUS", value="C")
                 _sub(obs_attrs, "generic", "Value", id="OBS_COMMENT",
-                     value=str(sanitize_cell(row.suppression_rule)))
-            elif pd.notna(row.index):
-                _sub(obs, "generic", "ObsValue", value=f"{row.index:.6f}")
+                     value=str(sanitize_cell(row["suppression_rule"])))
+            elif pd.notna(value):
+                _sub(obs, "generic", "ObsValue", value=f"{float(cast(Any, value)):.6f}")
             else:
                 obs_attrs = _sub(obs, "generic", "Attributes")
                 _sub(obs_attrs, "generic", "Value", id="OBS_STATUS", value="M")
-    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", pretty_print=True)
+    document: bytes = etree.tostring(root, xml_declaration=True, encoding="UTF-8",
+                                     pretty_print=True)
+    return document
 
 
 def validate_sdmx_ml(document: bytes, schema_dir: str) -> tuple[bool, list[str]]:

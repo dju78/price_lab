@@ -39,8 +39,8 @@ in production — every query goes through SQLAlchemy, so that is the entire mig
 
 Four roles, enforced from inside each page's own code, not by hiding a sidebar
 entry: `administrator` and `compiler` can use Ingest, Quality, Imputation, Quality
-adjustment and Index build (compiling a run); `analyst` additionally reaches Findings,
-Diagnostics and Multilateral
+adjustment, Outliers and Index build (compiling a run); `analyst` additionally reaches
+Findings, Diagnostics, Multilateral, Seasonality and Revisions
 (interpreting one); `viewer` reaches only Reports, which is also where a compiled
 run gets registered and, by an administrator, approved. Every login, logout, data
 load, configuration change, calculation run, quality or imputation override, and
@@ -110,9 +110,9 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 667 tests
+make test        # 776 tests
 make lint        # ruff
-make typecheck   # mypy strict, scoped to core/, engine/ and data/
+make typecheck   # mypy strict, scoped to core/, engine/, data/ and reporting/
 ```
 
 The index tests assert axiomatic properties rather than fixed expected numbers. A
@@ -232,7 +232,20 @@ pricelab/
     multilateral.py     geks_fisher | geks_tornqvist | tpd | wtpd | tdh |
                         geary_khamis over a window, with window extension by
                         movement | window | half | mean splice, FBEW and FBMW,
-                        and the spread across every combination
+                        the spread across every combination, the roll-up to an
+                        all-items headline, and the year-over-year and
+                        rolling-year seasonal forms
+    seasonal.py         strictly seasonal items; class confinement and weight
+                        update, with the gap between them reported; the
+                        Rothwell index; counter-seasonal estimation; seasonal
+                        adjustment by X-13ARIMA-SEATS or STL, with whichever
+                        actually ran named in every output
+    outliers.py         tukey | quartile | hidiroglou_berthelot | ratio screens
+                        over price relatives, feeding a review queue; no code
+                        path excludes a quote without an analyst and a reason
+    revision.py         revision triangles over the registry's own vintages,
+                        mean and mean absolute revision, a bias test, and
+                        published against current for any reference period
     custom.py           analyst-defined formulae via the restricted evaluator
     quality_adjustment.py
                         overlap, direct comparison, quantity, option cost,
@@ -256,14 +269,16 @@ pricelab/
     readback.py         reads the provenance stamp back out of every format
 pages/            one module per lifecycle stage; app.py wires them into
                   role-filtered st.navigation
-  ingest.py, quality.py, imputation.py, quality_adjustment.py, index_build.py,
-  multilateral.py, findings.py, diagnostics.py, reports.py, sources.py,
-  audit_log.py, common.py (shared session-state helpers)
-migrations/       Alembic; six revisions covering users, sessions, audit events,
+  ingest.py, quality.py, outliers.py, imputation.py, quality_adjustment.py,
+  index_build.py, multilateral.py, seasonal.py, findings.py, diagnostics.py,
+  reports.py, sources.py, revisions.py, audit_log.py,
+  common.py (shared session-state helpers)
+migrations/       Alembic; seven revisions covering users, sessions, audit events,
                   index runs (with the registered headline and data vintage),
                   the classification tree, validation overrides, column
-                  mappings and the quality adjustment ledger
-tests/            667 tests
+                  mappings, the quality adjustment ledger and the outlier
+                  review queue's decisions
+tests/            776 tests
 scripts/
   generate_synthetic_data.py   the price-quote fixture, not the product
   generate_scanner_data.py     the scanner transaction fixture, with churn,

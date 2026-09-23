@@ -13,6 +13,7 @@ thousand transactions over a twenty-five month window inside thirty seconds.
 
 from __future__ import annotations
 
+import io
 import json
 import time
 from pathlib import Path
@@ -24,7 +25,7 @@ import streamlit
 from dbtarget import database_url
 from streamlit.testing.v1 import AppTest
 
-from pricelab import infer_schema, standardise
+from pricelab import build_narrative, infer_schema, run_pipeline, standardise
 from pricelab.core import db
 from pricelab.core.config import IndexConfig, MultilateralConfig, RunConfig, get_settings
 from pricelab.engine import multilateral as ml
@@ -962,3 +963,257 @@ def test_a_viewer_is_refused_the_multilateral_page_by_direct_navigation(deployme
             page.render()
     finally:
         set_current_role(Role.COMPILER)
+
+
+# ---------------------------------------------------------------------
+# Phase 6, Task 0: the roll-up to a headline
+# ---------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def collection_source() -> pd.DataFrame:
+    raw = pd.read_csv(SCANNER)
+    return standardise(raw, infer_schema(raw))
+
+
+@pytest.fixture(scope="module")
+def multilateral_run(collection_source: pd.DataFrame) -> dict:
+    return run_pipeline(collection_source, RunConfig(
+        multilateral=MultilateralConfig(enabled=True, method="geks_fisher", window=13,
+                                        splice="mean"),
+        label="scanner release"))
+
+
+def test_a_multilateral_series_rolls_up_to_an_all_items_headline():
+    """The roll-up is `engine.aggregation`'s, not a second implementation:
+    the multilateral methods are elementary-level, and a category is where
+    the products are."""
+    frame = _scanner_panel()
+    cfg = MultilateralConfig(enabled=True, method="geks_fisher", window=13, splice="mean")
+    aggregate = ml.build_multilateral_all(frame, cfg)
+
+    categories = sorted(frame["category"].unique())
+    assert set(aggregate.indices.columns) == set(categories) | {"All items"}
+    assert set(aggregate.results) == set(categories)
+    assert aggregate.headline.notna().all()
+    assert len(aggregate.headline) == frame["period"].nunique()
+    assert not aggregate.skipped
+    for name, result in aggregate.results.items():
+        assert aggregate.indices[name].to_numpy() == pytest.approx(result.index.to_numpy())
+
+
+def test_the_headline_is_the_weighted_mean_when_the_collection_carries_weights():
+    frame = _scanner_panel()
+    weights = {"Coffee": 4.0, "Detergent": 3.0, "Yoghurt": 2.0, "Biscuits": 1.0}
+    weighted = frame.assign(weight=frame["category"].map(weights))
+    cfg = MultilateralConfig(enabled=True, method="tpd", window=13)
+
+    unweighted = ml.build_multilateral_all(frame, cfg)
+    result = ml.build_multilateral_all(weighted, cfg)
+    assert result.weighted and not unweighted.weighted
+    assert result.weights is not None
+
+    from pricelab.engine.aggregation import weighted_aggregate
+    from pricelab.engine.index import category_weights
+
+    # `category_weights` sums each item's weight over the category, so a
+    # per-category weight applied to every row becomes that weight times
+    # the category's item count. The roll-up must use exactly those
+    # numbers -- it is the same function the bilateral headline uses, and
+    # asserting against a hand-written dictionary would only test that the
+    # test and the engine had made the same assumption.
+    derived = category_weights(weighted, "category")
+    assert derived is not None
+    leaves = result.indices[list(weights)]
+    assert result.indices["All items"].to_numpy() == pytest.approx(
+        weighted_aggregate(leaves, derived).to_numpy())
+    assert not np.allclose(result.headline.to_numpy(), unweighted.headline.to_numpy())
+
+
+def test_a_category_that_cannot_support_the_method_is_named_not_dropped():
+    """A category missing from a weighted headline moves the headline, so
+    the reason is recorded against it rather than swallowed."""
+    crippled = _scanner_panel()
+    coffee = crippled["category"] == "Coffee"
+    crippled.loc[coffee, "quantity"] = np.nan
+    crippled.loc[coffee, "expenditure"] = np.nan
+
+    aggregate = ml.build_multilateral_all(
+        crippled, MultilateralConfig(enabled=True, method="geks_fisher", window=13))
+    assert "Coffee" in aggregate.skipped
+    assert "quantity" in aggregate.skipped["Coffee"]
+    assert "Coffee" not in aggregate.indices.columns
+    assert aggregate.headline.notna().any()
+
+
+def test_a_collection_no_category_can_support_is_refused_with_its_reasons():
+    frame = _scanner_panel().drop(columns=["quantity", "expenditure"])
+    with pytest.raises(ml.MultilateralError, match="no category in this collection"):
+        ml.build_multilateral_all(
+            frame, MultilateralConfig(enabled=True, method="geks_fisher", window=13))
+
+
+def test_the_pipeline_computes_the_headline_when_the_section_is_enabled(collection_source):
+    res = run_pipeline(collection_source, RunConfig(
+        multilateral=MultilateralConfig(enabled=True, method="tpd", window=13)))
+    aggregate = res["multilateral"]
+    assert aggregate is not None
+    assert "All items" in aggregate.indices.columns
+    assert res["seasonal"] is None
+    assert run_pipeline(collection_source, RunConfig())["multilateral"] is None
+
+
+# ---------------------------------------------------------------------
+# Phase 6, Task 0: every export names the method
+# ---------------------------------------------------------------------
+def test_the_publication_table_carries_the_multilateral_series_with_its_method(
+        multilateral_run):
+    from pricelab.reporting import exports
+
+    table = exports.publication_table(multilateral_run)
+    assert "multilateral: All items" in set(table["series"])
+
+    basis = dict(zip(table["series"], table["basis"], strict=True))
+    phrase = basis["multilateral: All items"]
+    assert "GEKS-Fisher" in phrase
+    assert "13-period window" in phrase
+    assert "mean splice" in phrase
+    assert "index points" in phrase          # the spread the rule could have moved it by
+    assert basis["All items"] == ""          # the bilateral series' basis is the run's own
+
+
+def test_a_multilateral_level_never_appears_in_an_export_without_its_method(
+        multilateral_run, collection_source):
+    """The rule, checked format by format rather than trusted: wherever a
+    multilateral level is printed, the method that produced it is printed
+    too."""
+    from docx import Document
+    from openpyxl import load_workbook
+    from pptx import Presentation
+
+    from pricelab import build_all_charts, build_deck, build_docx, build_markdown
+    from pricelab.core.provenance import build_stamp
+    from pricelab.reporting import exports
+    from pricelab.reporting.excel import build_evidence_pack
+
+    stamp = build_stamp(multilateral_run, "scanner release")
+    nar = build_narrative(multilateral_run)
+
+    csv = exports.index_csv(multilateral_run, stamp)
+    assert "multilateral: All items" in csv and "GEKS-Fisher" in csv
+
+    sdmx = exports.to_sdmx_ml(multilateral_run, stamp).decode()
+    assert "multilateral: All items" in sdmx
+
+    markdown = build_markdown(multilateral_run, nar, "scanner release")
+    assert "## Multilateral index" in markdown
+    assert "GEKS-Fisher" in markdown and "13-period window" in markdown
+
+    document = Document(io.BytesIO(build_docx(
+        multilateral_run, nar, build_all_charts(multilateral_run), "scanner release", stamp)))
+    assert "Multilateral index" in [p.text for p in document.paragraphs
+                                    if p.style.name == "Heading 2"]
+    assert any("GEKS-Fisher" in p.text for p in document.paragraphs)
+
+    book = load_workbook(io.BytesIO(build_evidence_pack(
+        multilateral_run, stamp, source=collection_source)))
+    assert "Series basis" in book.sheetnames
+    rows = [[c.value for c in row] for row in book["Series basis"].iter_rows()]
+    assert any(r[0] and "multilateral" in str(r[0]) for r in rows)
+    assert any(r[1] and "GEKS-Fisher" in str(r[1]) for r in rows)
+    # and it is not filed as an elementary aggregate, which it is not
+    elementary = [[c.value for c in row]
+                  for row in book["Elementary aggregates"].iter_rows(min_row=2)]
+    assert not any(r[1] and str(r[1]).startswith("multilateral: ") for r in elementary)
+
+    deck = Presentation(io.BytesIO(build_deck(
+        multilateral_run, nar, build_all_charts(multilateral_run), "scanner release")))
+    text = "\n".join("\n".join(s.text_frame.text for s in slide.shapes if s.has_text_frame)
+                     for slide in deck.slides)
+    assert "GEKS-Fisher" in text
+
+
+def test_the_method_note_states_what_the_aggregation_does_not_preserve(multilateral_run):
+    from pricelab.reporting.report import multilateral_note
+
+    note = multilateral_note(multilateral_run)
+    assert "GEKS-Fisher" in note
+    assert "transitive within the window" in note
+    assert "is not itself transitive" in note
+    assert multilateral_note({"multilateral": None}) == ""
+
+
+# ---------------------------------------------------------------------
+# Phase 6, Task 0: the seasonal variants
+# ---------------------------------------------------------------------
+def test_the_year_over_year_form_compares_each_month_only_against_itself():
+    frame = _scanner_panel()
+    result = ml.seasonal_multilateral(
+        frame, MultilateralConfig(enabled=True, method="tpd", window=13))
+
+    assert result.months_compiled == 12
+    assert not result.skipped_months
+    assert list(result.levels_by_month.columns) == [f"period_{m:02d}" for m in range(1, 13)]
+    # Every year-over-year figure is dated twelve months after the earliest
+    # observation of its own calendar month: the first year of each month
+    # has nothing to compare against, which is the point of the form.
+    assert result.year_over_year.index.min() >= frame["period"].min() + pd.DateOffset(months=12)
+    assert result.year_over_year.notna().all()
+
+
+def test_the_year_over_year_form_reads_a_known_annual_rise_exactly():
+    """A panel whose prices step up by a fixed factor each January: the
+    year-over-year index must read that factor in every month, whatever the
+    month-to-month path was."""
+    periods = pd.date_range("2021-01-01", periods=36, freq="MS")
+    rows = []
+    for period in periods:
+        step = 1.08 ** (period.year - 2021)
+        for i in range(5):
+            rows.append({"period": period, "category": "c", "item_id": f"I{i}",
+                         "price_imputed": (3.0 + i) * step, "quantity": 100.0})
+    result = ml.seasonal_multilateral(
+        pd.DataFrame(rows), MultilateralConfig(enabled=True, method="geks_fisher", window=25))
+    assert result.year_over_year.to_numpy() == pytest.approx(
+        np.full(len(result.year_over_year), 108.0), rel=1e-9)
+    rolling = result.rolling_year.dropna()
+    assert len(rolling) > 0
+    assert float(rolling.iloc[-1]) > 100.0
+
+
+def test_a_calendar_month_with_one_year_of_data_is_named_rather_than_guessed():
+    periods = pd.date_range("2022-01-01", periods=14, freq="MS")
+    rows = [{"period": p, "category": "c", "item_id": f"I{i}",
+             "price_imputed": 5.0 + i, "quantity": 50.0}
+            for p in periods for i in range(4)]
+    result = ml.seasonal_multilateral(
+        pd.DataFrame(rows), MultilateralConfig(enabled=True, method="tpd", window=25))
+    # January and February have two years; every other month has one.
+    assert result.months_compiled == 2
+    assert set(result.skipped_months) == set(range(3, 13))
+    assert all("one year" in reason for reason in result.skipped_months.values())
+
+
+def test_the_seasonal_forms_refuse_a_collection_with_no_second_year():
+    periods = pd.date_range("2022-01-01", periods=6, freq="MS")
+    rows = [{"period": p, "category": "c", "item_id": f"I{i}",
+             "price_imputed": 5.0 + i, "quantity": 50.0}
+            for p in periods for i in range(4)]
+    with pytest.raises(ml.MultilateralError, match="no calendar period"):
+        ml.seasonal_multilateral(pd.DataFrame(rows),
+                                 MultilateralConfig(enabled=True, method="tpd"))
+
+
+def test_the_page_rolls_the_multilateral_series_up_to_a_headline(deployment, monkeypatch):
+    state = _ingest_scanner(monkeypatch)
+    at = _page(state)
+    at.session_state["ml_head_window"] = 13
+    next(b for b in at.button if b.label == "Compile the headline").click().run()
+    assert not at.exception, at.exception
+
+    aggregate = at.session_state["ml_aggregate"]
+    assert "All items" in aggregate.indices.columns
+    labels = [m.label for m in at.metric]
+    assert "All items, final period" in labels
+    assert "Categories compiled" in labels
+    # and the run now records which method produced it
+    assert at.session_state["run_config"].multilateral.enabled
+    assert at.session_state["run_config"].multilateral.window == 13

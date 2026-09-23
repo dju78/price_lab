@@ -85,6 +85,25 @@ def run_pipeline(df, config: RunConfig = None, *, compute_impact: bool = True):
         # it, and the linked rows are flagged in `clean` and everything
         # downstream of it.
         clean, link_log = apply_adjustments(clean, config.quality_adjustment.entries)
+
+        # Outlier screening, and the analyst decisions already taken on what
+        # it found. Between the quality adjustment ledger and imputation on
+        # purpose: an excluded quote leaves a hole, and the hole should be
+        # filled by the imputation the run configured rather than left for
+        # the matched index to trip over. Nothing is deleted -- a rejected
+        # quote keeps its row and gains the analyst's name and reason -- and
+        # with no decisions recorded, nothing is excluded at all.
+        outlier_scan = None
+        exclusions = None
+        if config.outlier.enabled:
+            from .engine import outliers as _outliers
+
+            outlier_scan = _outliers.detect(clean, config.outlier)
+            clean, exclusions = _outliers.apply_decisions(clean, config.outlier.entries)
+            log.info("pipeline.outliers", extra={
+                "flagged": int(len(outlier_scan.queue)), "reviewed": exclusions.reviewed,
+                "excluded": exclusions.excluded})
+
         imputed = run_imputation(clean, config.imputation)
         _assert_contract(imputed, IMPUTATION_COLUMNS, ImputationRecord, "engine.imputation.run_imputation")
         log.info("pipeline.imputation", extra={"imputed_values": int((imputed["imputation"] != "").sum())})
@@ -97,6 +116,35 @@ def run_pipeline(df, config: RunConfig = None, *, compute_impact: bool = True):
         indices, matched = build_all(imputed, config.index, parent_of=parent_of)
         log.info("pipeline.index", extra={"periods": int(len(indices)), "series": int(len(indices.columns)),
                                           "elapsed_ms": round((time.monotonic() - started) * 1000)})
+
+        # The multilateral headline (Phase 5's engine, rolled up here) and
+        # the seasonal stage. Both gated on their own config section and
+        # both off by default: each costs real time, and a run should not
+        # acquire either because nobody turned it off.
+        multilateral = None
+        if config.multilateral.enabled:
+            from .engine import multilateral as _multilateral
+
+            try:
+                multilateral = _multilateral.build_multilateral_all(
+                    imputed, config.multilateral, parent_of=parent_of)
+                log.info("pipeline.multilateral", extra={
+                    "method": config.multilateral.method, "window": config.multilateral.window,
+                    "splice": config.multilateral.splice,
+                    "categories": int(len(multilateral.results)),
+                    "skipped": int(len(multilateral.skipped))})
+            except ValueError as exc:
+                log.warning("pipeline.multilateral_failed", extra={"reason": str(exc)})
+                multilateral = None
+
+        seasonal = None
+        if config.seasonal.enabled:
+            from .engine import seasonal as _seasonal
+
+            seasonal = _seasonal.run_seasonal(imputed, indices, config.seasonal, config.index)
+            log.info("pipeline.seasonal", extra={
+                "seasonal_items": seasonal.seasonal_item_count,
+                "engine": None if seasonal.adjustment is None else seasonal.adjustment.engine})
 
         result = {
             "validation": report,
@@ -111,6 +159,13 @@ def run_pipeline(df, config: RunConfig = None, *, compute_impact: bool = True):
             "indices": indices,
             "matched_counts": matched,
             "inflation": year_on_year(indices),
+            # Present and None when the stage is off, rather than absent:
+            # a reader of this dict should not have to know which phase
+            # introduced which key to ask whether a stage ran.
+            "outlier_scan": outlier_scan,
+            "outlier_exclusions": exclusions,
+            "multilateral": multilateral,
+            "seasonal": seasonal,
             "config": config,
             "correlation_id": correlation_id,
         }

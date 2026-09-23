@@ -7,6 +7,7 @@ can follow what was done and check it.
 
 import io
 from datetime import date
+from typing import Any
 
 import pandas as pd
 from docx import Document
@@ -45,7 +46,7 @@ def _formula_label(index_cfg: IndexConfig) -> str:
     return str(index_cfg.formula).replace("_", " ").title().replace("Tornqvist", "Törnqvist")
 
 
-def quantity_note(res: dict) -> str:
+def quantity_note(res: dict[str, Any]) -> str:
     """How the quantities behind a quantity-weighted formula were obtained,
     or what Laspeyres meant on a price-only run; empty otherwise."""
     from ..engine.index import QUANTITY_FORMULAE, quantity_series
@@ -68,7 +69,68 @@ def quantity_note(res: dict) -> str:
     return note
 
 
-def method_note(res: dict) -> str:
+def multilateral_note(res: dict[str, Any]) -> str:
+    """One paragraph on the multilateral series, naming the method.
+
+    Empty when the run computed none, so it can be concatenated
+    unconditionally -- and never a sentence about a multilateral level that
+    omits the method, the window and the rule, because those are what the
+    level is a fact about.
+    """
+    aggregate = res.get("multilateral")
+    if aggregate is None:
+        return ""
+    from .exports import multilateral_basis
+
+    headline = aggregate.headline.dropna()
+    where = (f" At {headline.index[-1]:%B %Y} it reads {float(headline.iloc[-1]):.2f}."
+             if len(headline) else "")
+    skipped = ""
+    if aggregate.skipped:
+        named = ", ".join(sorted(aggregate.skipped)[:4])
+        skipped = (f" {len(aggregate.skipped)} category(ies) produced no multilateral series "
+                   f"({named}) and are absent from it; the reason is recorded against each.")
+    return (
+        f"A multilateral index was compiled per category and rolled up to a headline: "
+        f"{multilateral_basis(res)}.{where} A multilateral method estimates every period of a "
+        "window at once, so it is transitive within the window and has no path along which "
+        "chain drift can accumulate; what it costs is a window that moves, which is what the "
+        "extension rule negotiates. The weighted mean of several transitive category series is "
+        "not itself transitive, which is the ordinary compromise of publishing a multilateral "
+        f"elementary index inside a conventional aggregation structure.{skipped}")
+
+
+def seasonal_note(res: dict[str, Any]) -> str:
+    """One paragraph on the seasonal stage, naming the adjustment engine.
+
+    Delegates to `engine.seasonal.adjustment_note`, which is where the rule
+    that the engine is always named lives. Nothing in this module composes
+    a sentence about seasonal adjustment itself, so there is no second place
+    for that rule to be forgotten.
+    """
+    from ..engine.seasonal import adjustment_note
+
+    return adjustment_note(res.get("seasonal"))
+
+
+def outlier_note(res: dict[str, Any]) -> str:
+    """One paragraph on what the screens found and what an analyst did."""
+    from ..engine.outliers import exclusion_note
+
+    scan = res.get("outlier_scan")
+    report = res.get("outlier_exclusions")
+    if scan is None:
+        return ""
+    screens = ", ".join(scan.methods_run)
+    found = (f"{len(scan.queue):,} quote(s) of {scan.relatives:,} price relatives were flagged "
+             f"by at least one of the {screens} screens ({scan.flag_rate:.2%}).")
+    decided = exclusion_note(report)
+    return f"{found} {decided}".strip() if decided else (
+        f"{found} None has been reviewed yet, and an unreviewed flag excludes nothing: no "
+        "quote leaves this index without an analyst's name and stated reason against it.")
+
+
+def method_note(res: dict[str, Any]) -> str:
     """The audit trail. Written as prose because a reader checking the work
     needs to follow the reasoning, not decode a settings dump."""
     cfg = res["config"]
@@ -134,13 +196,25 @@ change.{quantity_note(res)} Periods with fewer than {cfg.index.min_matched_items
 level. {'The all-items aggregate is an equally weighted geometric mean of the category indices. No expenditure weights were supplied, so it is indicative rather than authoritative.' if 'All items' in I.columns else ''}
 
 **Quality adjustment.** {quality_adjustment_note(res)}
-
+{_optional_section("Outlier review", outlier_note(res))}{_optional_section("Multilateral index", multilateral_note(res))}{_optional_section("Seasonality", seasonal_note(res))}
 **Limitations.** {_limitations_note(res)} Seasonal treatment is \
 limited to holding the level across an out-of-season gap. The tool reports what the collection \
 shows; it does not establish why any movement occurred."""
 
 
-def quality_adjustment_note(res: dict) -> str:
+def _optional_section(title: str, body: str) -> str:
+    """A named paragraph, or nothing at all when the stage did not run.
+
+    Nothing at all, rather than "not applicable": a method note listing
+    every stage a run could have had, most of them empty, buries the ones
+    it did have.
+    """
+    if not body:
+        return ""
+    return f"\n**{title}.** {body}\n"
+
+
+def quality_adjustment_note(res: dict[str, Any]) -> str:
     """One paragraph on what the ledger did, or that there was none."""
     entries = res["config"].quality_adjustment.entries
     impact = res.get("quality_adjustment_impact")
@@ -151,7 +225,7 @@ def quality_adjustment_note(res: dict) -> str:
                 "index. That is itself an implicit quality adjustment -- it assumes the "
                 "gap was entirely quality -- and it is stated here so it can be questioned.")
     methods = pd.Series([e.method for e in entries]).value_counts()
-    method_txt = ", ".join(f"{int(n)} by {_pretty(m)}" for m, n in methods.items())
+    method_txt = ", ".join(f"{int(n)} by {_pretty(str(m))}" for m, n in methods.items())
     direction = "raised" if impact.adjustment_effect_points > 0 else "lowered"
     plural = "s were" if len(entries) != 1 else " was"
     return (f"{len(entries)} item replacement{plural} valued "
@@ -166,7 +240,7 @@ def quality_adjustment_note(res: dict) -> str:
             f"{impact.linking_effect_points:+.2f} points.")
 
 
-def _limitations_note(res: dict) -> str:
+def _limitations_note(res: dict[str, Any]) -> str:
     if res["config"].quality_adjustment.entries:
         return ("Quality adjustment is applied only to the replacements listed in the ledger; "
                 "any other item that left and was replaced is treated as unrelated to its "
@@ -175,7 +249,7 @@ def _limitations_note(res: dict) -> str:
             "so any change in specification is implicitly treated as quality, not price.")
 
 
-def quality_adjustment_tables(res: dict) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+def quality_adjustment_tables(res: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame] | None:
     """The ledger and the impact scenarios as tables, or None when the
     run carries no adjustment."""
     from ..engine.quality_adjustment import ledger_frame
@@ -193,6 +267,90 @@ def quality_adjustment_tables(res: dict) -> tuple[pd.DataFrame, pd.DataFrame] | 
 
 
 # ----------------------------------------------------------------------
+def with_index_column(frame: pd.DataFrame) -> pd.DataFrame:
+    """The frame with its index promoted to a column, safely.
+
+    `reset_index` raises when the index's name already exists as a column,
+    which the outlier queue -- indexed by position, with its own `period`
+    column -- hits. A positional index carries no information and is simply
+    dropped; a named one becomes a column under a name nothing else is
+    using.
+    """
+    if isinstance(frame.index, pd.RangeIndex):
+        return frame.reset_index(drop=True)
+    name = str(frame.index.name or "period")
+    while name in frame.columns:
+        name = f"{name}_index"
+    return frame.rename_axis(name).reset_index()
+
+
+def supplementary_tables(res: dict[str, Any]) -> list[tuple[str, str, pd.DataFrame]]:
+    """The Phase 6 sections, as (title, note, table), in one list.
+
+    Markdown, Word, the deck, the Excel pack and the bulletin all iterate
+    this, so a stage that runs appears in every output and a stage that does
+    not appears in none -- without any format deciding for itself. The
+    alternative, each format assembling its own sections, is how a series
+    ends up in the CSV and missing from the report that explains it.
+
+    The seasonal entry is a single table holding the adjusted series and the
+    unadjusted series in adjacent columns. Not two entries: two entries can
+    be separated, and one of the two rules this phase enforces is that they
+    never are.
+    """
+    out: list[tuple[str, str, pd.DataFrame]] = []
+
+    aggregate = res.get("multilateral")
+    if aggregate is not None:
+        levels = aggregate.indices.round(2)
+        out.append(("Multilateral index", multilateral_note(res), levels))
+        if aggregate.skipped:
+            out.append((
+                "Categories without a multilateral series",
+                "Named rather than dropped: a category missing from a weighted headline moves "
+                "the headline.",
+                pd.DataFrame({"reason": pd.Series(dict(aggregate.skipped))})))
+
+    seasonal = res.get("seasonal")
+    if seasonal is not None:
+        if seasonal.adjustment is not None:
+            out.append(("Seasonal adjustment", seasonal_note(res),
+                        seasonal.adjustment.frame.round(4)))
+        if seasonal.comparison is not None and len(seasonal.comparison.results) > 1:
+            out.append((
+                "Strictly seasonal item treatment",
+                "Class confinement keeps each class's full weight in every period; weight "
+                "update removes an absent item's weight and renormalises. The gap is the size "
+                "of a judgement that would otherwise have been made silently.",
+                seasonal.comparison.table.round(4)))
+        if seasonal.rothwell is not None:
+            out.append((
+                "Rothwell index",
+                f"Each period's available items priced against their average prices in base "
+                f"year {seasonal.rothwell.base_year}. A movement here mixes price change with "
+                "the changing composition of a seasonal basket, which is inherent to the form.",
+                pd.DataFrame({"rothwell": seasonal.rothwell.index.round(3),
+                              "items": seasonal.rothwell.items_by_period})))
+
+    scan = res.get("outlier_scan")
+    if scan is not None and len(scan.queue):
+        # `round` on a frame holding a period column warns and does nothing
+        # for it, so the numeric columns are rounded by name.
+        queue = scan.queue.head(25).copy()
+        for column in ("price", "previous_price", "ratio"):
+            if column in queue.columns:
+                queue[column] = queue[column].astype(float).round(4)
+        out.append(("Outlier review queue", outlier_note(res), queue))
+    report = res.get("outlier_exclusions")
+    if report is not None and report.excluded:
+        out.append((
+            "Excluded quotes by category",
+            "Reported as a share of the quotes they would have fed, in the units imputation "
+            "is already reported in.",
+            report.by_category.round(4)))
+    return out
+
+
 def provenance_markdown(stamp: ProvenanceStamp) -> str:
     """The stamp as a Markdown section: a readable table, then the JSON
     in a fenced block tagged with the stamp key so it can be read back
@@ -205,7 +363,7 @@ def provenance_markdown(stamp: ProvenanceStamp) -> str:
     return "\n".join(lines)
 
 
-def build_markdown(res: dict, nar: Narrative, label: str = "",
+def build_markdown(res: dict[str, Any], nar: Narrative, label: str = "",
                    stamp: ProvenanceStamp | None = None) -> str:
     stamp = stamp or build_stamp(res, label)
     I = res["indices"]
@@ -243,13 +401,18 @@ def build_markdown(res: dict, nar: Narrative, label: str = "",
         lines += ["## Quality adjustment", "", quality_adjustment_note(res), "",
                   "### Ledger", "", sanitize_dataframe(ledger).to_markdown(index=False), "",
                   "### Impact on the headline", "", sanitize_dataframe(scenarios).to_markdown(), ""]
+    for title, note, table in supplementary_tables(res):
+        lines += [f"## {title}", ""]
+        if note:
+            lines += [note, ""]
+        lines += [sanitize_dataframe(table).to_markdown(), ""]
     lines += ["## Method note", "", method_note(res).replace("**", "**"), "",
               provenance_markdown(stamp)]
     return "\n".join(lines)
 
 
 # ----------------------------------------------------------------------
-def _style(doc):
+def _style(doc: Any) -> None:
     normal = doc.styles["Normal"]
     normal.font.name = "Calibri"
     normal.font.size = Pt(10.5)
@@ -265,7 +428,7 @@ def _style(doc):
         st.font.bold = bold
 
 
-def _rich(p, text):
+def _rich(p: Any, text: str) -> None:
     """Render **bold** segments without a markdown dependency."""
     for i, seg in enumerate(text.split("**")):
         if not seg:
@@ -274,7 +437,7 @@ def _rich(p, text):
         run.bold = (i % 2 == 1)
 
 
-def _table(doc, df: pd.DataFrame, max_rows=15):
+def _table(doc: Any, df: pd.DataFrame, max_rows: int = 15) -> None:
     # A Word table is one paste away from a spreadsheet, so its cells and
     # headers go through the same sanitiser as every other tabular export.
     from ..core.security import sanitize_dataframe
@@ -300,7 +463,7 @@ def _table(doc, df: pd.DataFrame, max_rows=15):
     doc.add_paragraph()
 
 
-def build_docx(res: dict, nar: Narrative, charts: dict, label: str = "",
+def build_docx(res: dict[str, Any], nar: Narrative, charts: dict[str, Any], label: str = "",
                stamp: ProvenanceStamp | None = None) -> bytes:
     from .charts import to_png
 
@@ -371,6 +534,12 @@ def build_docx(res: dict, nar: Narrative, charts: dict, label: str = "",
         _table(doc, scenarios.reset_index(names="Scenario"))
         if "quality_adjustment" in charts:
             doc.add_picture(io.BytesIO(to_png(charts["quality_adjustment"])), width=Inches(6.0))
+
+    for title, note, table in supplementary_tables(res):
+        doc.add_heading(title, level=2)
+        if note:
+            _rich(doc.add_paragraph(), note)
+        _table(doc, with_index_column(table), max_rows=30)
 
     doc.add_heading("Method note", level=2)
     for block in method_note(res).split("\n\n"):

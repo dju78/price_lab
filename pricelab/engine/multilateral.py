@@ -1189,3 +1189,274 @@ def drift_against_chained(df: pd.DataFrame, multilateral: pd.Series, *,
 
     chained = build_index(df, IndexConfig(formula=formula, chained=True), price_col)["index"]
     return chain_drift(chained.dropna(), multilateral.dropna(), threshold_pp=threshold_pp)
+
+
+# ---------------------------------------------------------------------
+# Rolling a multilateral series up to a headline
+# ---------------------------------------------------------------------
+@dataclass(frozen=True)
+class MultilateralAggregate:
+    """Multilateral series per category, rolled up to a headline."""
+
+    indices: pd.DataFrame
+    """One column per category that produced a series, plus every parent
+    node of the classification tree where one was supplied, plus
+    "All items". The same shape `engine.index.build_all` returns, so
+    anything that can read a bilateral result can read this one."""
+    results: Mapping[str, ExtensionResult]
+    """The per-category compilation behind each leaf column: method,
+    window, splice, the windows computed and the splice spread."""
+    weights: pd.Series | None
+    """The weights the roll-up used, per node. None when the collection
+    carries none and the aggregate is the equally weighted fallback."""
+    skipped: Mapping[str, str]
+    """Categories that produced no multilateral series, mapped to the
+    reason. A category dropped silently would shift the headline without
+    appearing anywhere in it."""
+    problems: tuple[str, ...] = ()
+    """Whatever `engine.aggregation.aggregate_tree` had to say about the
+    weight hierarchy, carried through unchanged."""
+
+    @property
+    def headline(self) -> pd.Series:
+        return (self.indices["All items"] if "All items" in self.indices.columns
+                else self.indices.iloc[:, 0])
+
+    @property
+    def weighted(self) -> bool:
+        return self.weights is not None
+
+
+def build_multilateral_all(
+    df: pd.DataFrame, cfg: Any, *, price_col: str = "price_imputed", group: str = "category",
+    parent_of: Mapping[str, str | None] | None = None, base_value: float = 100.0,
+    hedonic_spec: Any = None, characteristics: pd.DataFrame | None = None,
+) -> MultilateralAggregate:
+    """A multilateral index per category, rolled up to an all-items headline.
+
+    Deliberately the same shape, and the same roll-up, as
+    `engine.index.build_all`: the categories are aggregated by
+    `engine.aggregation`'s weighted mean, through the classification tree
+    where the categories are codes in one, and by the equally weighted
+    geometric mean where the collection carries no weights -- indicative,
+    and said to be. Nothing about the aggregation is specific to a
+    multilateral leaf, and writing a second aggregator for it would be two
+    implementations of one idea, one of them less tested.
+
+    The multilateral methods are elementary-level: they compare products,
+    and a category is where the products are. A category whose data cannot
+    support the method -- no quantities, a window no product survives, too
+    few periods -- is named in `skipped` with the reason rather than
+    dropped, because a category missing from a weighted headline moves the
+    headline, and a reader must be able to see which one and why.
+
+    Note what the aggregation does *not* preserve. Each category's series is
+    transitive within its own windows; the weighted mean of several
+    transitive series is not itself the multilateral index of the pooled
+    data, and is not transitive either. That is the same compromise every
+    office makes when it publishes a multilateral elementary index inside a
+    conventional aggregation structure, and it is the reason the headline
+    here is reported beside its method rather than on its own.
+    """
+    from .aggregation import aggregate_tree, equally_weighted_aggregate, weighted_aggregate
+    from .index import category_weights
+
+    if group not in df.columns:
+        raise MultilateralError(
+            f"{group!r} is not a column of this collection, so there are no categories to "
+            "compile a multilateral index for")
+
+    series: dict[str, pd.Series] = {}
+    results: dict[str, ExtensionResult] = {}
+    skipped: dict[str, str] = {}
+    for group_key, part in df.groupby(group):
+        name = str(group_key)
+        try:
+            result = extend_from_config(part, cfg, base_value=base_value,
+                                        hedonic_spec=hedonic_spec,
+                                        characteristics=characteristics, price_col=price_col)
+        except (MultilateralError, ValueError) as exc:
+            skipped[name] = str(exc)
+            continue
+        if result.index.dropna().size < 2:
+            skipped[name] = "fewer than two periods carry a level"
+            continue
+        series[name] = result.index
+        results[name] = result
+
+    if not series:
+        raise MultilateralError(
+            "no category in this collection produced a multilateral series. Reasons by "
+            "category: " + "; ".join(f"{k}: {v}" for k, v in list(skipped.items())[:4]))
+
+    indices = pd.DataFrame(series)
+    weights = category_weights(df, group)
+    problems: list[str] = []
+    node_weights: pd.Series | None = None
+
+    if len(indices.columns) > 1:
+        if weights is not None and parent_of is not None and all(
+                c in parent_of for c in indices.columns):
+            rolled = aggregate_tree(indices, weights, parent_of)
+            for node in rolled.indices.columns:
+                if node not in indices.columns:
+                    indices[node] = rolled.indices[node]
+            problems.extend(rolled.problems)
+            node_weights = rolled.weights
+            roots = [n for n, p in parent_of.items() if p is None and n in indices.columns]
+            indices["All items"] = (
+                indices[roots[0]] if len(roots) == 1
+                else weighted_aggregate(indices[roots],
+                                        {r: float(rolled.weights.get(r, 0.0)) for r in roots}))
+        elif weights is not None:
+            indices["All items"] = weighted_aggregate(indices, weights)
+            node_weights = pd.Series(weights)
+        else:
+            indices["All items"] = equally_weighted_aggregate(indices)
+    else:
+        indices["All items"] = indices.iloc[:, 0]
+        if weights is not None:
+            node_weights = pd.Series(weights)
+
+    if skipped and weights is not None:
+        listed = ", ".join(sorted(skipped)[:4]) + ("..." if len(skipped) > 4 else "")
+        problems.append(
+            f"{len(skipped)} of {len(skipped) + len(series)} categories produced no "
+            f"multilateral series ({listed}) and carry no weight in this headline, which is "
+            "therefore not compiled over the whole basket")
+
+    return MultilateralAggregate(indices=indices, results=results, weights=node_weights,
+                                 skipped=skipped, problems=tuple(problems))
+
+
+# ---------------------------------------------------------------------
+# Seasonal variants
+# ---------------------------------------------------------------------
+@dataclass(frozen=True)
+class SeasonalMultilateralResult:
+    """The year-over-year and rolling-year forms of a multilateral index."""
+
+    year_over_year: pd.Series
+    """Per period, that calendar month's multilateral sub-index against the
+    same month a year earlier, as an index on `base_value`."""
+    levels_by_month: pd.DataFrame
+    """One column per calendar period present, each a multilateral index
+    over that month's observations across the years -- the sub-index the
+    year-over-year figures are read from."""
+    rolling_year: pd.Series
+    """The geometric mean of the twelve most recent year-over-year indices,
+    compounded into a level from `base_value`. The CPI Manual's rolling
+    year index: smooth by construction, and centred half a year behind the
+    month it is dated at, which is its cost."""
+    method: str
+    months_compiled: int
+    skipped_months: Mapping[int, str]
+    warnings: tuple[str, ...] = ()
+
+
+def seasonal_multilateral(
+    df: pd.DataFrame, cfg: Any, *, price_col: str = "price_imputed",
+    base_value: float = 100.0, periods_per_year: int = 12, hedonic_spec: Any = None,
+    characteristics: pd.DataFrame | None = None,
+) -> SeasonalMultilateralResult:
+    """The seasonal forms of a multilateral index: year-over-year monthly,
+    and the rolling year built from it.
+
+    A strictly seasonal product is off the shelf for part of the year, so a
+    month-on-month comparison either has nothing to compare it with or
+    compares it against a different product. Both the bilateral and the
+    multilateral machinery above handle that by matching what is there,
+    which means a seasonal product enters and leaves the index and its
+    arrival is scored as price change unless something stops it.
+
+    The manual's answer is to stop comparing adjacent months. A
+    **year-over-year monthly index** compares each month only against the
+    same month in other years, where the same products are in season, so
+    seasonality never enters the comparison at all -- there is nothing to
+    adjust away because nothing seasonal was ever measured. Here each
+    calendar month gets its own multilateral index over its own
+    observations across the years, and the year-over-year figure is read off
+    that sub-index. The **rolling year index** is the geometric mean of the
+    twelve most recent year-over-year indices, compounded into a level: a
+    smooth series whose movement is real, at the cost of being centred six
+    months behind the month it is dated at.
+
+    CPI Manual 2020, Chapter 11, paragraphs 11.19-11.55. What is
+    multilateral here is each calendar month's sub-index; the year-over-year
+    and rolling-year construction on top of it is the manual's, unchanged.
+
+    A calendar month with fewer than two years of data cannot produce a
+    year-over-year comparison and is named in `skipped_months`. This is not
+    a seasonal *adjustment*: nothing is estimated and removed, and
+    `engine.seasonal` is where adjustment lives.
+    """
+    if periods_per_year < 2:
+        raise MultilateralError(
+            f"a year of {periods_per_year} periods has no seasonal structure to work with")
+    if "period" not in df.columns:
+        raise MultilateralError("a seasonal multilateral index needs a 'period' column")
+
+    frame = df.copy()
+    frame["period"] = pd.to_datetime(frame["period"])
+    if periods_per_year == 12:
+        season = frame["period"].dt.month
+    elif periods_per_year == 4:
+        season = frame["period"].dt.quarter
+    else:
+        season = frame["period"].dt.dayofyear
+
+    levels: dict[int, pd.Series] = {}
+    skipped: dict[int, str] = {}
+    warnings_: list[str] = []
+    for key, part in frame.groupby(season):
+        month = int(cast(int, key))
+        if part["period"].nunique() < 2:
+            skipped[month] = ("only one year of this calendar period is present, so it has no "
+                              "year-over-year comparison")
+            continue
+        try:
+            result = extend_from_config(part, cfg, base_value=base_value,
+                                        hedonic_spec=hedonic_spec,
+                                        characteristics=characteristics, price_col=price_col)
+        except (MultilateralError, ValueError) as exc:
+            skipped[month] = str(exc)
+            continue
+        levels[month] = result.index
+        warnings_.extend(result.warnings)
+
+    if not levels:
+        raise MultilateralError(
+            "no calendar period in this collection has two years of data, so there is no "
+            "year-over-year comparison to make. Reasons: "
+            + "; ".join(f"{k}: {v}" for k, v in list(skipped.items())[:4]))
+
+    # The year-over-year index at period p: that month's sub-index at p over
+    # the same sub-index one year earlier. Read off the sub-index rather
+    # than recomputed, so the two cannot disagree.
+    yoy: dict[pd.Timestamp, float] = {}
+    for sub in levels.values():
+        ordered = sub.sort_index()
+        values = ordered.to_numpy(dtype=float)
+        periods = list(ordered.index)
+        for position in range(1, len(values)):
+            earlier, value = values[position - 1], values[position]
+            if np.isfinite(earlier) and earlier > 0 and np.isfinite(value):
+                yoy[cast(pd.Timestamp, periods[position])] = base_value * value / earlier
+    year_over_year = pd.Series(yoy, name="year_over_year", dtype=float).sort_index()
+
+    # The rolling year: the geometric mean of the last `periods_per_year`
+    # year-over-year indices, compounded into a level.
+    logs = pd.Series(np.log(year_over_year.to_numpy(dtype=float) / base_value),
+                     index=year_over_year.index)
+    rolling = logs.rolling(periods_per_year, min_periods=periods_per_year).mean()
+    rolling_year = (base_value * np.exp(rolling.cumsum())).rename("rolling_year")
+    if rolling_year.notna().sum() == 0:
+        warnings_.append(
+            f"the collection does not span {periods_per_year} year-over-year comparisons, so "
+            "the rolling year index has no period it can be computed for")
+
+    return SeasonalMultilateralResult(
+        year_over_year=year_over_year,
+        levels_by_month=pd.DataFrame({f"period_{m:02d}": s for m, s in sorted(levels.items())}),
+        rolling_year=rolling_year, method=cfg.method, months_compiled=len(levels),
+        skipped_months=skipped, warnings=tuple(dict.fromkeys(warnings_)))

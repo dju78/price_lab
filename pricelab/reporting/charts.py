@@ -6,12 +6,15 @@ the user approved on screen, which is the whole point of an export.
 """
 
 import io
+from typing import Any, cast
 
 import matplotlib
+import numpy as np
 import pandas as pd
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
@@ -39,7 +42,7 @@ plt.rcParams.update({
 })
 
 
-def _fig(figsize):
+def _fig(figsize: tuple[float, float]) -> tuple[Figure, Axes]:
     """Create a figure outside pyplot's global registry.
 
     plt.subplots() keeps every figure alive in a module-level list. In a
@@ -59,14 +62,14 @@ def _fig(figsize):
     return fig, ax
 
 
-def to_png(fig, dpi=200) -> bytes:
+def to_png(fig: Figure, dpi: int = 200) -> bytes:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight", facecolor="white")
     return buf.getvalue()
 
 
 # ----------------------------------------------------------------------
-def quality_bands(clean: pd.DataFrame, figsize=(10, 5)):
+def quality_bands(clean: pd.DataFrame, figsize: tuple[float, float] = (10, 5)) -> Figure:
     """The chart that proves the errors are unit faults, not volatility."""
     fig, ax = _fig(figsize)
     ok = clean[clean["flag"].isin(["none", "missing_code"])]
@@ -92,7 +95,8 @@ def _percent_label(value: float, _pos: object) -> str:
     return f"{value:.1f}%" if abs(value - round(value)) > 1e-9 else f"{value:.0f}%"
 
 
-def index_chart(I: pd.DataFrame, cfg: IndexConfig | None = None, figsize=(10, 5)):
+def index_chart(I: pd.DataFrame, cfg: IndexConfig | None = None,
+                figsize: tuple[float, float] = (10, 5)) -> Figure:
     """`cfg` is the run's IndexConfig, read only to label the y-axis with the
     period the series was actually rebased to. Optional, and defaulting to
     the series' first period when absent, because that is what the rebasing
@@ -120,14 +124,21 @@ def index_chart(I: pd.DataFrame, cfg: IndexConfig | None = None, figsize=(10, 5)
     return fig
 
 
-def inflation_chart(yoy: pd.DataFrame, col="All items", figsize=(10, 4.5)):
+def inflation_chart(yoy: pd.DataFrame, col: str = "All items",
+                    figsize: tuple[float, float] = (10, 4.5)) -> Figure | None:
     fig, ax = _fig(figsize)
     s = yoy[col].dropna()
-    ax.plot(s.index, s.values, lw=2.4, color=PRIMARY)
-    ax.fill_between(s.index, 0, s.values, color=PRIMARY, alpha=0.10)
+    # numpy arrays rather than the Series' own `.values`/index: pandas types
+    # those as a union with ExtensionArray, which matplotlib's stubs do not
+    # accept, and the conversion is what matplotlib does internally anyway.
+    periods = pd.DatetimeIndex(s.index).to_numpy()
+    values = s.to_numpy(dtype=float)
+    ax.plot(periods, values, lw=2.4, color=PRIMARY)
+    ax.fill_between(periods, 0, values, color=PRIMARY, alpha=0.10)
     ax.axhline(0, color=MUTED, lw=0.9)
-    peak_at = s.idxmax()
-    ax.scatter([peak_at], [s.max()], s=70, color=ACCENT, zorder=5)
+    peak_at = pd.Timestamp(cast(Any, s.idxmax()))
+    ax.scatter(np.array([peak_at], dtype="datetime64[ns]"), [s.max()], s=70, color=ACCENT,
+               zorder=5)
     ax.annotate(f"{s.max():.1f}%  {peak_at:%b %Y}", (peak_at, s.max()),
                 textcoords="offset points", xytext=(10, 6), color=ACCENT,
                 fontsize=10, fontweight="bold")
@@ -140,7 +151,7 @@ def inflation_chart(yoy: pd.DataFrame, col="All items", figsize=(10, 4.5)):
     return fig
 
 
-def method_chart(comp: pd.DataFrame, figsize=(10, 5)):
+def method_chart(comp: pd.DataFrame, figsize: tuple[float, float] = (10, 5)) -> Figure:
     """Matched index against a naive average. The bar that carries the argument."""
     fig, ax = _fig(figsize)
     d = comp.dropna().sort_values("difference_pp")
@@ -154,7 +165,8 @@ def method_chart(comp: pd.DataFrame, figsize=(10, 5)):
     return fig
 
 
-def seasonality_chart(seas: pd.DataFrame, figsize=(10, 4.5)):
+def seasonality_chart(seas: pd.DataFrame,
+                      figsize: tuple[float, float] = (10, 4.5)) -> Figure:
     fig, ax = _fig(figsize)
     d = seas[seas.index != "All items"].sort_values("amplitude_pct")
     colors = [ACCENT if v >= 10 else MUTED for v in d["amplitude_pct"]]
@@ -166,7 +178,7 @@ def seasonality_chart(seas: pd.DataFrame, figsize=(10, 4.5)):
     return fig
 
 
-def coverage_chart(matched: pd.DataFrame, figsize=(10, 4)):
+def coverage_chart(matched: pd.DataFrame, figsize: tuple[float, float] = (10, 4)) -> Figure:
     fig, ax = _fig(figsize)
     d = matched.drop(columns=["All items"], errors="ignore").T
     im = ax.imshow(d.values, aspect="auto", cmap="Blues", vmin=0)
@@ -181,7 +193,7 @@ def coverage_chart(matched: pd.DataFrame, figsize=(10, 4)):
     return fig
 
 
-def hedonic_residual_chart(result, figsize=(10, 4.5)):
+def hedonic_residual_chart(result: Any, figsize: tuple[float, float] = (10, 4.5)) -> Figure:
     """Residuals against fitted values, in the regression's own scale.
 
     The plot a reviewer looks at before the coefficient table: a fan
@@ -199,7 +211,7 @@ def hedonic_residual_chart(result, figsize=(10, 4.5)):
     return fig
 
 
-def hedonic_leverage_chart(result, figsize=(10, 4.5)):
+def hedonic_leverage_chart(result: Any, figsize: tuple[float, float] = (10, 4.5)) -> Figure:
     """Leverage against standardised residual: the observations that pull
     the fit towards themselves, and whether they are also badly fitted.
     The dashed line is the conventional 2k/n leverage threshold."""
@@ -214,7 +226,8 @@ def hedonic_leverage_chart(result, figsize=(10, 4.5)):
     return fig
 
 
-def impact_chart(impact, figsize=(10, 4), reference_period=None):
+def impact_chart(impact: Any, figsize: tuple[float, float] = (10, 4),
+                 reference_period: pd.Timestamp | None = None) -> Figure:
     """The three scenarios' final headline levels side by side: the
     quality adjustment's effect as a picture, not a footnote."""
     fig, ax = _fig(figsize)
@@ -237,7 +250,7 @@ def impact_chart(impact, figsize=(10, 4), reference_period=None):
     return fig
 
 
-def build_all_charts(res: dict) -> dict:
+def build_all_charts(res: dict[str, Any]) -> dict[str, Figure]:
     """Every chart the narrative might reference, rendered once."""
     I, yoy = res["indices"], res["inflation"]
     cfg = res["config"].index if "config" in res else None
@@ -247,7 +260,9 @@ def build_all_charts(res: dict) -> dict:
         "coverage": coverage_chart(res["matched_counts"]),
     }
     if "All items" in yoy.columns and yoy["All items"].notna().any():
-        charts["inflation"] = inflation_chart(yoy)
+        inflation = inflation_chart(yoy)
+        if inflation is not None:
+            charts["inflation"] = inflation
     comp = dg.unmatched_comparison(res["imputed"], I)
     if comp["difference_pp"].notna().any():
         charts["method"] = method_chart(comp)

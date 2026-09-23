@@ -234,10 +234,34 @@ def build_bulletin(
             f"{stamp.suppression_rules.get('min_count')} matched quotes).", st["small"]),
     ]))
 
+    # Any series in that table not produced by the run's own elementary
+    # formula is named here, beside the table, with what produced it. The
+    # methodology note says the same thing at greater length further down,
+    # and this is the short form a reader meets at the number itself: a
+    # multilateral or seasonally adjusted level that a reader takes for the
+    # headline, because nothing next to it said otherwise, is the failure
+    # this paragraph exists to prevent.
+    from .exports import series_basis
+
+    basis = {name: phrase for name, phrase in series_basis(res).items()
+             if name in set(wide.columns)}
+    # The unadjusted counterpart is published in the same table by
+    # construction (`exports.additional_series`); saying so here is what
+    # tells a reader of the PDF to look for it.
+    if any(name.startswith("seasonally adjusted: ") for name in basis):
+        basis["unadjusted series"] = (
+            "published in the same table, under its own name, so what the adjustment removed "
+            "can be seen rather than taken on trust")
+    if basis:
+        story.append(KeepTogether([
+            Paragraph("How each series was produced", st["h2"]),
+            *[Paragraph(f"<b>{_t(name)}</b> — {_t(phrase)}", st["small"])
+              for name, phrase in basis.items()]]))
+
     story.append(Paragraph("Methodology note", st["h2"]))
     # The method note already carries the quality-adjustment paragraph;
     # its **bold** markers become bold runs rather than being stripped.
-    for block in method_note(res).split("\n\n"):
+    for block in method_note(dict(res)).split("\n\n"):
         block = block.strip()
         if block:
             story.append(Paragraph(_bold_markup(block), st["body"]))

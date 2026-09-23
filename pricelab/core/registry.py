@@ -226,6 +226,47 @@ def correct_run(
     return new_run
 
 
+def vintage_chain(session: Session, run_id: str) -> list[IndexRunORM]:
+    """Every vintage of this run, oldest first.
+
+    A correction registers a new row pointing back at the one it supersedes
+    (`correct_run`), so the vintages are a linked list and this walks it in
+    both directions from wherever the caller happened to enter: back through
+    `supersedes_run_id` to the original, then forward through whatever
+    superseded each one. Entering the chain at the latest vintage and
+    getting only that vintage back would be the natural way to write a
+    revision analysis that silently ignored every revision.
+
+    The list is the registry's, not a copy of it. Nothing here writes, and
+    no second store of past vintages exists: a vintage *is* a registered
+    run, retrievable and reproducible exactly like any other.
+    """
+    current = session.query(IndexRunORM).filter_by(run_id=run_id).one()
+    chain = [current]
+    seen = {current.run_id}
+    # Backwards to the original.
+    node = current
+    while node.supersedes_run_id and node.supersedes_run_id not in seen:
+        previous = session.query(IndexRunORM).filter_by(
+            run_id=node.supersedes_run_id).one_or_none()
+        if previous is None:
+            break
+        chain.insert(0, previous)
+        seen.add(previous.run_id)
+        node = previous
+    # Forwards to the latest.
+    node = current
+    while True:
+        later = session.query(IndexRunORM).filter_by(
+            supersedes_run_id=node.run_id).order_by(IndexRunORM.vintage).first()
+        if later is None or later.run_id in seen:
+            break
+        chain.append(later)
+        seen.add(later.run_id)
+        node = later
+    return chain
+
+
 def reproduce(session: Session, run_id: str, actor: str = "system") -> dict[str, Any]:
     """Re-execute a registered run from exactly its stored input and
     configuration, returning what `pricelab.run_pipeline` returns live.

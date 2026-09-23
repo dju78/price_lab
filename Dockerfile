@@ -14,6 +14,12 @@ COPY pages/ ./pages/
 COPY migrations/ ./migrations/
 COPY alembic.ini .
 COPY tests/ ./tests/
+# The bundled collection, because the build runs the suite and several tests
+# are about this file: the Phase 3 hard gate reproduces its committed
+# baseline series exactly, and the seasonal and outlier tests need a real
+# collection with a real season and real faults in it. Without it here, those
+# tests skip and the image ships having checked less than the log suggests.
+COPY supermarket_price_collection.xlsx ./
 COPY app.py ./
 COPY scripts/ ./scripts/
 COPY .streamlit/ ./.streamlit/

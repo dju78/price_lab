@@ -159,7 +159,77 @@ def render() -> None:
         _show_result(df, result)
 
     st.divider()
+    _show_headline(df, usable, spec, chars)
+
+    st.divider()
     _show_comparison(df, usable, panel, spec, chars)
+
+
+def _show_headline(df: pd.DataFrame, usable: list[str], spec: HedonicSpec | None,
+                   chars: pd.DataFrame | None) -> None:
+    """Roll the per-category multilateral series up to an all-items figure.
+
+    The methods are elementary-level -- they compare products, and a
+    category is where the products are -- so a headline needs the same
+    weighted roll-up the bilateral index already uses. It is the same
+    `engine.aggregation` code path, not a second one, which is why a
+    category that cannot produce a series is named rather than dropped: a
+    category missing from a weighted headline moves the headline.
+    """
+    st.markdown("#### Roll up to a headline")
+    st.caption(
+        "One multilateral series per category, aggregated the way the bilateral index is. "
+        "What the aggregation does not preserve is transitivity: a weighted mean of "
+        "transitive series is not itself the multilateral index of the pooled data. That is "
+        "the ordinary compromise of publishing a multilateral elementary index inside a "
+        "conventional structure, and it is why the method travels with the number.")
+    a, b, c = st.columns([2, 1, 2])
+    method = a.selectbox("Method ", usable, format_func=lambda m: ml.METHOD_LABELS[m],
+                         key="ml_head_method")
+    window = b.number_input("Window ", min_value=2, value=ml.DEFAULT_WINDOW, step=1,
+                            key="ml_head_window")
+    splice = c.selectbox("Extension rule ", list(ml.SPLICES),
+                         format_func=lambda s: ml.SPLICE_LABELS[s],
+                         index=list(ml.SPLICES).index("mean"), key="ml_head_splice")
+    if not st.button("Compile the headline", key="ml_headline"):
+        return
+
+    settings = MultilateralConfig(enabled=True, method=method, window=int(window),
+                                  splice=splice)
+    common.record("MULTILATERAL_HEADLINE", method,
+                  {"window": settings.window, "splice": settings.splice})
+    try:
+        aggregate = ml.build_multilateral_all(df, settings, hedonic_spec=spec,
+                                              characteristics=chars)
+    except ml.MultilateralError as exc:
+        st.error(str(exc))
+        return
+    st.session_state["ml_aggregate"] = aggregate
+    _remember(settings)
+
+    headline = aggregate.headline.dropna()
+    h1, h2, h3 = st.columns(3)
+    h1.metric("All items, final period",
+              "n/a" if headline.empty else f"{float(headline.iloc[-1]):.2f}")
+    h2.metric("Categories compiled", f"{len(aggregate.results):,}")
+    h3.metric("Weighted", "yes" if aggregate.weighted else "no, equally weighted")
+    for problem in aggregate.problems:
+        st.warning(problem)
+    if aggregate.skipped:
+        with st.expander(f"{len(aggregate.skipped)} category(ies) produced no series"):
+            for name, reason in aggregate.skipped.items():
+                st.markdown(f"- **{name}** — {reason}")
+
+    st.line_chart(aggregate.indices)
+    st.dataframe(aggregate.indices.tail(18).round(3), use_container_width=True)
+    st.download_button(
+        "Download the rolled-up series (CSV)",
+        safe_csv_with_notice(aggregate.indices.reset_index(),
+                             f"multilateral: {ml.METHOD_LABELS[method]}, {settings.window}-"
+                             f"period window, {ml.SPLICE_LABELS[splice].lower()}"),
+        file_name="multilateral_headline.csv", mime="text/csv", key="ml_headline_csv",
+        help="The file names the method on its first line: a multilateral level without its "
+             "method is not a number a reader can use.")
 
 
 def _show_result(df: pd.DataFrame, result: ml.ExtensionResult) -> None:

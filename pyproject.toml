@@ -123,4 +123,18 @@ follow_imports = "silent"
 # stubs, where chasing strict compliance across them would mean type:
 # ignore theatre rather than real safety; they keep their own test
 # coverage instead.
-files = ["pricelab/core", "pricelab/engine", "pricelab/data"]
+files = ["pricelab/core", "pricelab/engine", "pricelab/data", "pricelab/reporting"]
+
+# python-pptx, python-docx and reportlab ship partial type information: the
+# modules import, but many constructors and methods are unannotated, so every
+# call into them reads as "call to untyped function in typed context" and
+# strict mode fails on code that is itself fully typed. Skipping them makes
+# them opaque (`Any`) rather than half-typed, which is the honest description
+# -- we do not know what they return -- and keeps strictness where it can
+# actually catch something: our own signatures, our own data flow. The
+# alternative is a `type: ignore` on every drawing call, which suppresses
+# real errors alongside the noise.
+[[tool.mypy.overrides]]
+module = ["pptx.*", "docx.*", "reportlab.*"]
+follow_imports = "skip"
+ignore_errors = true

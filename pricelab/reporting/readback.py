@@ -12,6 +12,7 @@ import io
 import json
 import re
 import zipfile
+from typing import Any
 
 from lxml import etree
 
@@ -81,7 +82,7 @@ def from_pdf(data: bytes) -> ProvenanceStamp:
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(data))
-    meta = reader.metadata or {}
+    meta: dict[str, Any] = dict(reader.metadata or {})
     keywords = meta.get("/Keywords")
     if keywords:
         try:

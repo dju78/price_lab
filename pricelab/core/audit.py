@@ -50,6 +50,11 @@ VALIDATION_OVERRIDE = "validation_override"
 MAPPING_CONFIRMED = "mapping_confirmed"
 QUALITY_ADJUSTMENT_APPROVED = "quality_adjustment_approved"
 QUALITY_ADJUSTMENT_WITHDRAWN = "quality_adjustment_withdrawn"
+OUTLIER_DECISION = "outlier_decision"
+OUTLIER_DECISION_WITHDRAWN = "outlier_decision_withdrawn"
+SEASONAL_ADJUSTMENT = "seasonal_adjustment"
+REVISION_ANALYSIS = "revision_analysis"
+RUN_CORRECTED = "run_corrected"
 
 
 class AuditEventORM(Base):

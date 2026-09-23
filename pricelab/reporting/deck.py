@@ -10,10 +10,16 @@ is a single Python deployment with no Node runtime.
 """
 
 import io
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+
+# The class, for annotations: `pptx.Presentation` is the factory function
+# that returns one, and mypy will not accept a function as a type.
+from pptx.presentation import Presentation as PresentationType
 from pptx.util import Inches, Pt
 
 from ..core.provenance import STAMP_KEY, ProvenanceStamp, build_stamp
@@ -46,11 +52,11 @@ def _pretty(name: str) -> str:
 M = 0.7                                  # margin
 
 
-def _blank(prs):
+def _blank(prs: PresentationType) -> Any:
     return prs.slides.add_slide(prs.slide_layouts[6])
 
 
-def _bg(slide, prs, colour):
+def _bg(slide: Any, prs: PresentationType, colour: RGBColor) -> Any:
     shp = slide.shapes.add_shape(1, 0, 0, prs.slide_width, prs.slide_height)
     shp.fill.solid()
     shp.fill.fore_color.rgb = colour
@@ -61,8 +67,9 @@ def _bg(slide, prs, colour):
     return shp
 
 
-def _text(slide, x, y, w, h, runs, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP,
-          space_after=0):
+def _text(slide: Any, x: float, y: float, w: float, h: float,
+          runs: Sequence[Mapping[str, Any]], align: Any = PP_ALIGN.LEFT,
+          anchor: Any = MSO_ANCHOR.TOP, space_after: float = 0) -> Any:
     """runs: list of dicts with text, size, bold, colour, font, italic."""
     box = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
     tf = box.text_frame
@@ -88,7 +95,8 @@ def _text(slide, x, y, w, h, runs, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP,
     return box
 
 
-def _card(slide, x, y, w, h, fill=LIGHT):
+def _card(slide: Any, x: float, y: float, w: float, h: float,
+          fill: RGBColor = LIGHT) -> Any:
     shp = slide.shapes.add_shape(5, Inches(x), Inches(y), Inches(w), Inches(h))  # rounded rect
     shp.fill.solid()
     shp.fill.fore_color.rgb = fill
@@ -101,7 +109,7 @@ def _card(slide, x, y, w, h, fill=LIGHT):
     return shp
 
 
-def _dot(slide, x, y, d, colour=ACCENT):
+def _dot(slide: Any, x: float, y: float, d: float, colour: RGBColor = ACCENT) -> Any:
     shp = slide.shapes.add_shape(9, Inches(x), Inches(y), Inches(d), Inches(d))  # oval
     shp.fill.solid()
     shp.fill.fore_color.rgb = colour
@@ -110,14 +118,15 @@ def _dot(slide, x, y, d, colour=ACCENT):
     return shp
 
 
-def _image(slide, png: bytes, x, y, w):
+def _image(slide: Any, png: bytes, x: float, y: float, w: float) -> Any:
     return slide.shapes.add_picture(io.BytesIO(png), Inches(x), Inches(y), width=Inches(w))
 
 
 # ----------------------------------------------------------------------
 # Slides
 # ----------------------------------------------------------------------
-def slide_title(prs, nar: Narrative, label: str, non_standard: str = ""):
+def slide_title(prs: PresentationType, nar: Narrative, label: str,
+                non_standard: str = "") -> Any:
     s = _blank(prs)
     _bg(s, prs, INK)
     _dot(s, M, 1.44, 0.18, ACCENT)
@@ -151,7 +160,7 @@ def slide_title(prs, nar: Narrative, label: str, non_standard: str = ""):
     return s
 
 
-def slide_contents(prs, nar: Narrative, n=4):
+def slide_contents(prs: PresentationType, nar: Narrative, n: int = 4) -> Any:
     s = _blank(prs)
     _text(s, M, 0.55, 10, 0.7,
           [{"text": "What the data shows", "size": 34, "bold": True,
@@ -175,7 +184,8 @@ def slide_contents(prs, nar: Narrative, n=4):
     return s
 
 
-def slide_finding(prs, f: Finding, chart_png: bytes = None, eyebrow: str = ""):
+def slide_finding(prs: PresentationType, f: Finding, chart_png: bytes | None = None,
+                  eyebrow: str = "") -> Any:
     """One finding, chart on the right where one exists."""
     s = _blank(prs)
     if eyebrow:
@@ -211,7 +221,8 @@ def slide_finding(prs, f: Finding, chart_png: bytes = None, eyebrow: str = ""):
     return s
 
 
-def slide_stat_row(prs, title: str, stats: list[dict], caption: str = ""):
+def slide_stat_row(prs: PresentationType, title: str, stats: Sequence[Mapping[str, Any]],
+                   caption: str = "") -> Any:
     """Large number callouts. stats: [{value, label}]."""
     s = _blank(prs)
     _text(s, M, 0.55, 11, 0.8,
@@ -236,7 +247,7 @@ def slide_stat_row(prs, title: str, stats: list[dict], caption: str = ""):
     return s
 
 
-def slide_actions(prs, nar: Narrative):
+def slide_actions(prs: PresentationType, nar: Narrative) -> Any:
     s = _blank(prs)
     _text(s, M, 0.55, 11, 0.8,
           [{"text": "What to do about it", "size": 34, "bold": True,
@@ -256,7 +267,7 @@ def slide_actions(prs, nar: Narrative):
     return s
 
 
-def slide_method(prs, res: dict, nar: Narrative):
+def slide_method(prs: PresentationType, res: dict[str, Any], nar: Narrative) -> Any:
     s = _blank(prs)
     _bg(s, prs, INK)
     cfg = res["config"]
@@ -316,7 +327,54 @@ def slide_method(prs, res: dict, nar: Narrative):
 
 
 # ----------------------------------------------------------------------
-def slide_provenance(prs, stamp: ProvenanceStamp):
+def slide_supplementary(prs: PresentationType, res: dict[str, Any]) -> Any | None:
+    """One slide naming what produced each supplementary series.
+
+    The deck is the artefact that most often leaves this application on its
+    own, in front of an audience who will not open the workbook. A
+    seasonally adjusted line on a chart, with no statement of what adjusted
+    it, is the single easiest way for this platform to mislead somebody, so
+    the deck carries the same sentences the report does -- not a shortened
+    version of them.
+
+    Returns None, and adds nothing, when the run had no supplementary
+    series, so a deck never gains an empty slide.
+    """
+    from .report import multilateral_note, outlier_note, seasonal_note
+
+    blocks = [(title, body) for title, body in (
+        ("Multilateral index", multilateral_note(res)),
+        ("Seasonality", seasonal_note(res)),
+        ("Outlier review", outlier_note(res))) if body]
+    if not blocks:
+        return None
+
+    s = _blank(prs)
+    _bg(s, prs, INK)
+    _text(s, M, 0.6, 11, 0.8,
+          [{"text": "What produced these series", "size": 32, "bold": True,
+            "colour": ON_DARK, "font": HEAD_FONT}])
+    y = 1.7
+    height = min(1.6, 4.6 / max(1, len(blocks)))
+    for head, body in blocks:
+        _text(s, M, y, W - 2 * M, 0.35,
+              [{"text": head, "size": 15, "bold": True, "colour": ACCENT}])
+        _text(s, M, y + 0.42, W - 2 * M, height,
+              [{"text": body, "size": 11, "colour": ON_DARK, "line_spacing": 1.25}])
+        y += height + 0.7
+    _text(s, M, 6.7, 11, 0.4,
+          [{"text": "Every series in the exported workbook names the method that produced "
+                    "it, on its own sheet.", "size": 10, "colour": MUTED, "italic": True}])
+    s.notes_slide.notes_text_frame.text = (
+        "Read this slide out if anyone asks what 'seasonally adjusted' or 'multilateral' "
+        "means here. The engine that actually ran is named, including where it is a fallback "
+        "rather than the method a reader would assume, and the unadjusted series is in the "
+        "workbook beside the adjusted one.")
+    return s
+
+
+# ----------------------------------------------------------------------
+def slide_provenance(prs: PresentationType, stamp: ProvenanceStamp) -> Any:
     """The stamp, rendered where a reader of the deck would look for it:
     the last slide, in full, with the JSON copy in the notes and in the
     file's core properties."""
@@ -335,7 +393,7 @@ def slide_provenance(prs, stamp: ProvenanceStamp):
     return s
 
 
-def _neutralise_leading_formulas(prs) -> None:
+def _neutralise_leading_formulas(prs: PresentationType) -> None:
     """A text run that *begins* with a spreadsheet formula leader is user
     data placed at the start of a line (a label, a category name), and a
     slide's text is one copy-paste from a spreadsheet cell. Prose never
@@ -349,7 +407,7 @@ def _neutralise_leading_formulas(prs) -> None:
                         run.text = str(sanitize_cell(run.text))
 
 
-def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "",
+def build_deck(res: dict[str, Any], nar: Narrative, charts: dict[str, Any], label: str = "",
                stamp: ProvenanceStamp | None = None) -> bytes:
     """Assemble the deck from whatever the narrative actually found."""
     from .charts import to_png
@@ -366,7 +424,7 @@ def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "",
 
     # Headline numbers
     I, yoy = res["indices"], res["inflation"]
-    stats = []
+    stats: list[dict[str, Any]] = []
     if "All items" in I.columns:
         years = years_span(I.index)
         # The "= 100" period is whichever period the series was rebased to,
@@ -406,7 +464,7 @@ def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "",
     if impact is not None:
         n = len(res["config"].quality_adjustment.entries)
         plural = "s" if n != 1 else ""
-        slide_stat_row(prs, "Quality adjustment", [
+        adjustment_stats: list[dict[str, Any]] = [
             {"value": f"{impact.adjustment_effect_points:+.2f}", "accent": True,
              "label": f"Index points: effect of valuing the {n} replacement{plural} "
                       "rather than treating the price gap as price"},
@@ -416,9 +474,12 @@ def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "",
             {"value": f"{impact.linking_effect_points:+.2f}",
              "label": "Index points: effect of linking replacements at all, against the "
                       "matched-model default"},
-        ], "Each replacement's valuation, method, justification and approver are in the "
-           "ledger exported with this deck. The matched-model default compares nothing across "
-           "a replacement, which attributes the whole price gap to quality.")
+        ]
+        slide_stat_row(
+            prs, "Quality adjustment", adjustment_stats,
+            "Each replacement's valuation, method, justification and approver are in the "
+            "ledger exported with this deck. The matched-model default compares nothing across "
+            "a replacement, which attributes the whole price gap to quality.")
         if "quality_adjustment" in png:
             slide_finding(prs, Finding(
                 kind="method", headline="Three ways to treat the replacements",
@@ -446,6 +507,7 @@ def build_deck(res: dict, nar: Narrative, charts: dict, label: str = "",
 
     slide_actions(prs, nar)
     slide_method(prs, res, nar)
+    slide_supplementary(prs, res)
     slide_provenance(prs, stamp)
     # python-pptx caps a core property at 255 characters, so the full JSON
     # lives in the provenance slide's notes; the subject just names the run.

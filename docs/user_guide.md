@@ -62,6 +62,25 @@ percentage points of annual inflation ([methodology/quality_adjustment.md](metho
 findings in plain English, and the consequences of your choices
 (sensitivity to formula, chain drift, matched versus unmatched).
 
+**Outliers.** Four screens over period-on-period price relatives, and a
+review queue. Nothing here deletes anything: a flagged quote is a question,
+and you answer it with accept, reject or annotate and a written reason that
+goes to the audit log with your name on it. Only a reject excludes the
+quote, and even then the row stays in the collection, marked, so the
+exclusion can be reviewed. The count of exclusions is reported as a share of
+the quotes they would have fed, in the same units the imputation rate is
+([methodology/outliers.md](methodology/outliers.md)).
+
+**Seasonality.** Two different things under one word. Strictly seasonal
+items — off the shelf for part of every year — get both treatments, class
+confinement and weight update, with the gap between them reported, because
+that gap is a judgement about what the basket means while part of it does
+not exist. Separately, seasonal adjustment: read the engine name before you
+read the line. Where X-13ARIMA-SEATS is not installed the page says so and
+STL runs instead, and every output says which one produced the series. The
+unadjusted series is drawn on the same axes and written into the same file
+([methodology/seasonal.md](methodology/seasonal.md)).
+
 **Multilateral.** Only if your collection carries quantities or
 expenditure, and only worth it if it is transaction or scanner data:
 products churning, prices bouncing between shelf and promotion, quantities
@@ -74,6 +93,13 @@ across every method and rule at once. Read the spread before you read the
 number: on churning data the choice of method can move the answer by more
 than the inflation you are measuring
 ([methodology/multilateral.md](methodology/multilateral.md)).
+
+**Revisions.** Once a run has been corrected, this shows the revision
+triangle: what each vintage said about each reference period, the mean and
+mean absolute revision, and whether the revisions have a direction. Every
+earlier vintage is still registered and still reproduces; a correction adds
+a vintage and never edits one
+([methodology/revision.md](methodology/revision.md)).
 
 **Reports.** Register the run: the registry records the input's content
 hash, the complete configuration, the code version, the environment and
@@ -99,6 +125,10 @@ range within which method rather than prices determines the answer.
 
 **Index build.** Year-on-year rates, the three reference periods the series
 was compiled under, and the "= 100" period every label refers to.
+
+**Revisions.** How much the figure you are about to use has moved since it
+was first published, and whether it has moved in one direction. A first
+estimate revised up two years in three is not early, it is biased.
 
 **Multilateral.** Where the run carries quantities, the comparison table is
 the honest statement of how much of the headline is method rather than

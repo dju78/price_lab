@@ -33,9 +33,12 @@ from ..engine.quality_adjustment import ledger_frame
 from .exports import publication_table, wide_publication
 from .report import method_note
 
+#: Sheets every pack carries. A run with a seasonal or multilateral stage
+#: adds one per supplementary section on top of these, named for the
+#: section, and the Provenance sheet lists whatever the pack actually has.
 SHEETS = ("Provenance", "Source data", "Weights", "Elementary aggregates",
           "Upper level aggregates", "Quality adjustment ledger", "Final index",
-          "Methodology log", "Audit extract")
+          "Series basis", "Methodology log", "Audit extract")
 
 _HEADER_FILL = PatternFill("solid", fgColor="E9EEF2")
 _SUPPRESSED_FILL = PatternFill("solid", fgColor="FDEBD0")
@@ -90,10 +93,11 @@ def _write_frame(ws: Any, df: pd.DataFrame, *, mark_suppressed_col: str | None =
 
 def _weights(source: pd.DataFrame, indices: pd.DataFrame) -> pd.DataFrame:
     if "weight" in source.columns and source["weight"].notna().any():
-        w = (source.dropna(subset=["weight"])
-             .groupby(["category", "item_id"], as_index=False)["weight"].first())
-        w["note"] = "expenditure weight as supplied"
-        return w
+        supplied = pd.DataFrame(
+            source.dropna(subset=["weight"])
+            .groupby(["category", "item_id"], as_index=False)["weight"].first())
+        supplied["note"] = "expenditure weight as supplied"
+        return supplied
     categories = [c for c in indices.columns if c != "All items"]
     return pd.DataFrame({
         "category": categories,
@@ -118,7 +122,7 @@ def _upper_level(res: Mapping[str, Any]) -> pd.DataFrame:
 
 def _methodology(res: Mapping[str, Any], decisions: Sequence[str]) -> pd.DataFrame:
     rows = []
-    for block in method_note(res).split("\n\n"):
+    for block in method_note(dict(res)).split("\n\n"):
         block = block.strip().replace("**", "")
         if not block:
             continue
@@ -145,8 +149,15 @@ def build_evidence_pack(
     (stated on the sheet, not left empty)."""
     wb = Workbook()
     wb.remove(wb.active)
+    from .report import supplementary_tables, with_index_column
+
+    sections = supplementary_tables(dict(res))
     stamp_rows = list(stamp.rows()) + [(STAMP_KEY, stamp.to_json())]
-    stamp_rows.insert(0, ("Sheets", ", ".join(SHEETS)))
+    # What the pack actually contains, not what a pack usually contains: a
+    # reader checking the index against the list should not find a sheet
+    # named that is not there, or miss one that is.
+    stamp_rows.insert(0, ("Sheets", ", ".join(
+        list(SHEETS) + [title for title, _, _ in sections])))
 
     ws = wb.create_sheet(_sheet_name("Provenance"))
     _write_frame(ws, pd.DataFrame(stamp_rows, columns=["field", "value"]))
@@ -158,7 +169,12 @@ def build_evidence_pack(
     _write_frame(ws, _weights(source, res["indices"]))
 
     table = publication_table(res)
-    elementary = table[table["series"] != "All items"].copy()
+    # The multilateral and seasonally adjusted series are in the publication
+    # table too (that is how every format gets them), but they are not
+    # elementary aggregates and must not be filed as if they were: they get
+    # their own sheets below, each with the method that produced it.
+    supplementary = table["basis"].astype(str).str.len() > 0
+    elementary = table[(table["series"] != "All items") & ~supplementary].copy()
     elementary = elementary[["period", "series", "published", "matched_items", "suppressed",
                              "suppression_rule"]].rename(columns={"published": "index"})
     ws = wb.create_sheet(_sheet_name("Elementary aggregates"))
@@ -175,6 +191,32 @@ def build_evidence_pack(
 
     ws = wb.create_sheet(_sheet_name("Final index"))
     _write_frame(ws, wide_publication(table))
+
+    # Which method produced which series, for every series in the pack that
+    # was not produced by the run's own elementary formula. A reader holding
+    # one sheet of levels can always find out what they are.
+    ws = wb.create_sheet(_sheet_name("Series basis"))
+    basis = table[supplementary][["series", "basis"]].drop_duplicates()
+    if basis.empty:
+        basis = pd.DataFrame({"note": [
+            "every series in this pack was produced by the run's own elementary formula, "
+            "described in the methodology log"]})
+    _write_frame(ws, basis)
+
+    # One sheet per supplementary section, from the same list the report and
+    # the deck iterate, so the pack cannot be missing a section the report
+    # has.
+    for title, note, frame in sections:
+        ws = wb.create_sheet(_sheet_name(title))
+        body = with_index_column(frame)
+        if note:
+            _write_frame(ws, pd.DataFrame({"note": [note]}))
+            ws.append([])
+            start = ws.max_row + 1
+            _write_frame(ws, body)
+            del start
+        else:
+            _write_frame(ws, body)
 
     ws = wb.create_sheet(_sheet_name("Methodology log"))
     _write_frame(ws, _methodology(res, decisions))
