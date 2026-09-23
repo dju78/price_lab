@@ -200,7 +200,10 @@ def render() -> None:
         detected.append(f"encoding {loaded.encoding}")
     if loaded.delimiter:
         detected.append(f"delimiter {loaded.delimiter!r}")
-    if loaded.header_row:
+    if not loaded.has_header:
+        detected.append("no header row: the first line is data, so the columns are numbered "
+                        "and must be mapped by position")
+    elif loaded.header_row:
         detected.append(f"header found on row {loaded.header_row + 1} (rows above it skipped)")
     st.caption("Read: " + ", ".join(detected) + ".")
 

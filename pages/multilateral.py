@@ -213,6 +213,10 @@ def _show_headline(df: pd.DataFrame, usable: list[str], spec: HedonicSpec | None
               "n/a" if headline.empty else f"{float(headline.iloc[-1]):.2f}")
     h2.metric("Categories compiled", f"{len(aggregate.results):,}")
     h3.metric("Weighted", "yes" if aggregate.weighted else "no, equally weighted")
+    common.show_uncertainty(
+        "The multilateral All items headline", run_headline=False,
+        reason="the Uncertainty page's interval is for the bilateral headline's movement; a "
+               "multilateral window's sampling error is not estimated")
     for problem in aggregate.problems:
         st.warning(problem)
     if aggregate.skipped:

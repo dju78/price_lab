@@ -110,7 +110,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 940 tests
+make test        # 960 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/, data/ and reporting/
 ```
@@ -273,6 +273,11 @@ pricelab/
     housing.py          rental price index; owner-occupied housing as four
                         questions (rental equivalence, net acquisitions, user
                         cost, payments)
+    uncertainty.py      design-based bootstrap intervals for index movements
+                        (whole clusters within strata), refused when no design
+                        is declared
+    sensitivity.py      the headline under every defensible alternative choice;
+                        a range, labelled and drawn apart from any interval
     custom.py           analyst-defined formulae via the restricted evaluator
     quality_adjustment.py
                         overlap, direct comparison, quantity, option cost,
@@ -302,7 +307,7 @@ pages/            one module per lifecycle stage; app.py wires them into
   ingest.py, quality.py, outliers.py, imputation.py, quality_adjustment.py,
   index_build.py, multilateral.py, seasonal.py, decomposition.py,
   deflation.py, spatial.py, trade.py, construction.py, escalation.py,
-  property.py, housing.py,
+  property.py, housing.py, uncertainty.py,
   findings.py, diagnostics.py,
   reports.py, sources.py, revisions.py, audit_log.py,
   common.py (shared session-state helpers)
@@ -311,7 +316,7 @@ migrations/       Alembic; seven revisions covering users, sessions, audit event
                   the classification tree, validation overrides, column
                   mappings, the quality adjustment ledger and the outlier
                   review queue's decisions
-tests/            940 tests
+tests/            960 tests
 scripts/
   generate_synthetic_data.py   the price-quote fixture, not the product
   generate_scanner_data.py     the scanner transaction fixture, with churn,

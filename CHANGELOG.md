@@ -5,6 +5,58 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## Unreleased — Phase 9a: uncertainty, variance and sensitivity (2026-09-23)
+
+### Added
+- **Property methods on real transactions**: `data/price_paid.py` reads HM
+  Land Registry price paid data as published (Open Government Licence) and
+  applies stated, counted rules; the Property prices page takes a file
+  directly. Run on all 930,559 records for 2024; a verbatim Oldham extract is
+  the test fixture.
+- **`engine/uncertainty.py`**: design-based bootstrap confidence intervals
+  for index movements -- whole clusters resampled within strata (Rao-Wu,
+  n_h - 1) -- for a declared design only. With no design declared, no
+  interval, and the reason. On a known population the 95% interval covered
+  the truth in 95.5% of 400 samples; the naive quote-level interval in
+  65.5%, and was 2.06 times narrower.
+- **`engine/sensitivity.py`**: the headline recompiled under each
+  defensible alternative formula, aggregation, multilateral method and
+  window, quality adjustment treatment, imputation method and seasonal
+  treatment, with the range and the settings at each end named, and every
+  alternative the data cannot support listed with the reason.
+- **The Uncertainty page**, with sampling uncertainty and methodological
+  sensitivity in two sections and two charts.
+- **Every analyst-view headline carries its uncertainty or says it has
+  none**: `pages/common.HEADLINE_SURFACES` lists the pages, each calls
+  `show_uncertainty`, and a scan fails on any page that shows a headline
+  without being listed.
+- **`charts.mark(..., band=...)`**: a confidence interval and a sensitivity
+  range on one axis are refused by `check_axes`.
+- **`docs/methodology/`**: uncertainty and sensitivity notes (26 in total);
+  the property note gains the real-transaction findings.
+
+### Fixed
+- The loader took a headerless file's first record as its column names; it
+  now recognises a headerless file.
+- The loader's sample could end inside a quoted field, failing the whole
+  upload ("EOF inside string"); the sample is cut to its last complete line.
+- `compare_methods` failed outright when one method could not be estimated;
+  a method the data cannot support is now reported with the reason and the
+  others still run.
+- The hedonic VIF ran one auxiliary regression per regressor, which did not
+  finish on a year of transactions with a dummy per county; it is now the
+  diagonal of the inverse correlation matrix -- identical values -- and the
+  leverage one matrix product.
+- Five page-test fixtures depended on another module having imported the
+  audit table first; each now registers its tables.
+
+### Notes
+- On the bundled collection the sensitivity range is 118.12 (overall-mean
+  imputation) to 138.57 (the Carli formula) around the published 135.60.
+- On 2024's real transactions: hedonic 102.73, stratified median 102.46,
+  mix-adjusted mean 99.21, repeat sales 125.75 -- a single year's re-sales
+  are selected on quick resales.
+
 ## Unreleased — Phase 8: asset and property price indices (2026-09-23)
 
 ### Added

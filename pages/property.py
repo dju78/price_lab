@@ -24,6 +24,14 @@ from pricelab.engine import asset as ast
 
 from . import common
 
+#: How the methods run on price paid data, which has no floor area and no
+#: appraisal, and whose re-sales within a year are mostly not price change.
+PRICE_PAID_SETTINGS: dict[str, object] = {
+    "size_col": None, "cell_cols": ("leasehold", "new_build"), "characteristics": (),
+    "categorical": ("stratum", "leasehold", "new_build", "county"),
+    "rules": ast.PairRules(min_months=6, exclude_new_build_first=True, max_ratio=2.0),
+}
+
 
 def _transactions() -> pd.DataFrame | None:
     st.caption("Transactions as a CSV: property_id, period, price, stratum, floor_area, and "
@@ -43,10 +51,36 @@ def _transactions() -> pd.DataFrame | None:
                         "larger homes sell increasingly often."):
         st.session_state["pr_tx"] = ast.synthetic_market()
         st.session_state["pr_source"] = "the demonstration market"
+    ppd = st.file_uploader("Or: HM Land Registry price paid data (CSV, exactly as published)",
+                           type=["csv"], key="pr_ppd_file",
+                           help="Headerless, sixteen columns. A district or region extract "
+                                "keeps within the upload limit.")
+    if ppd is not None:
+        from pricelab.data.loaders import read_upload
+        from pricelab.data.price_paid import parse_price_paid
+
+        try:
+            parsed = parse_price_paid(read_upload(ppd.getvalue(), ppd.name).df)
+        except ValueError as exc:
+            st.error(f"{ppd.name}: {exc}")
+            return None
+        st.session_state["pr_tx"] = parsed.transactions
+        st.session_state["pr_source"] = f"{ppd.name} (HM Land Registry price paid data)"
+        st.session_state["pr_findings"] = parsed.findings
+        st.session_state["pr_settings"] = PRICE_PAID_SETTINGS
+    elif upload is not None or st.session_state.get("pr_source") == "the demonstration market":
+        st.session_state.pop("pr_findings", None)
+        st.session_state["pr_settings"] = {}
     frame = st.session_state.get("pr_tx")
     if frame is not None:
         st.caption(f"{len(frame):,} sales of {frame['property_id'].nunique():,} properties from "
                    f"{st.session_state.get('pr_source', 'upload')}.")
+    findings = st.session_state.get("pr_findings")
+    if findings is not None:
+        st.markdown("##### What the price paid data held, and what was done about it")
+        st.dataframe(findings, use_container_width=True, hide_index=True)
+        st.caption("Contains HM Land Registry data (c) Crown copyright and database right, "
+                   "licensed under the Open Government Licence v3.0.")
     return frame
 
 
@@ -70,7 +104,7 @@ def _methods(tx: pd.DataFrame) -> None:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                comparison = ast.compare_methods(tx)
+                comparison = ast.compare_methods(tx, **st.session_state.get("pr_settings", {}))
         except ast.PropertyError as exc:
             st.error(str(exc))
             return
@@ -85,6 +119,10 @@ def _methods(tx: pd.DataFrame) -> None:
         value = result.index.get(last, float("nan"))
         st.markdown(f"**{result.name}: {value:.2f}** at {last:%b %Y} ({result.base:%b %Y} = 100)")
         st.caption(f"Measures {result.measures}. Limitation: {result.limitation}.")
+    common.show_uncertainty(
+        "The property price indices", run_headline=False,
+        reason="they are built from transactions, not a designed sample; what limits them is "
+               "each method's selection or specification, stated beside it")
     st.markdown("##### Why they differ")
     for line in comparison.explanation:
         st.markdown(f"- {line}")
@@ -107,7 +145,10 @@ def _diagnostics(tx: pd.DataFrame) -> None:
     st.markdown("##### Sales per stratum per period")
     st.dataframe(counts, use_container_width=True)
     st.markdown("##### Share of the market each method uses")
-    st.dataframe(ast.market_coverage(tx).round(2), use_container_width=True)
+    characteristics = st.session_state.get("pr_settings", {}).get("characteristics",
+                                                                  ("floor_area",))
+    st.dataframe(ast.market_coverage(tx, characteristics=characteristics).round(2),
+                 use_container_width=True)
 
     st.markdown("##### Stratified median by stratum, under disclosure control")
     threshold = int(st.number_input("Minimum sales for a stratum to be published", 1, 1000,
@@ -138,7 +179,8 @@ def _revisions(tx: pd.DataFrame) -> None:
     if not st.button("Estimate the revision profile", key="pr_rev_go"):
         return
     try:
-        analysis = ast.repeat_sales_revisions(tx, weighted=weighted)
+        analysis = ast.repeat_sales_revisions(
+            tx, weighted=weighted, rules=st.session_state.get("pr_settings", {}).get("rules"))
     except ast.PropertyError as exc:
         st.error(str(exc))
         return

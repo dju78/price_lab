@@ -62,6 +62,10 @@ def render() -> None:
         "withheld": sorted(result.withheld)})
 
     st.success(result.label + ".")
+    common.show_uncertainty(
+        "The parities", run_headline=False,
+        reason="no design-based interval is estimated; the country product dummy's standard "
+               "errors, where it gives them, are in the table below")
     for region, reason in result.withheld.items():
         st.warning(f"{region}: {reason}.")
     st.dataframe(result.table, use_container_width=True)

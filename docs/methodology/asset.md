@@ -77,6 +77,50 @@ under 0.02 for Ireland, the Netherlands, France, Spain, Denmark, Poland and
 the EU (2020 Q1 to 2025 Q2), the gap being the rounding of the two-decimal
 published parts.
 
+## Real transactions: HM Land Registry price paid data
+
+The five methods were run on every residential sale in England and Wales in
+2024 (`data/price_paid.py`; 930,559 records, downloaded from HM Land
+Registry under the Open Government Licence). `tests/test_price_paid.py`
+holds each fix on a verbatim extract for Oldham (3,108 records).
+
+What the real data did that constructed data had not:
+
+| Finding | What was done |
+|---|---|
+| No header row | the loader took the first transaction as column names; it now recognises a headerless file (a full date and a number in the same columns of the first two rows) |
+| Every field quoted | the loader's fixed-size sample ended inside a quoted field and the whole upload failed ("EOF inside string"); the sample is now cut to its last complete line |
+| 18% category B (repossessions, buy-to-let, transfers to companies), including every "other" property | excluded, as the UK HPI excludes them |
+| prices from GBP 1 to 180 million | outside GBP 10,000–5,000,000 excluded (517 market sales, once category B is gone) |
+| the same property, date and price twice | the repeat dropped (1,166) |
+| no postcode | kept, but out of repeat sales (164) |
+| no floor area, rooms or appraisal | hedonic on type, tenure, new build and county; mix-adjusted cells by type, tenure and new build; no sale price appraisal ratio |
+| re-sales within a year are mostly not price change: a third on the same day, median gap 44 days, ratios from 0.05 to 19.6 | pairs under six months apart, pairs whose first sale was a new build and pairs moving by more than a factor of two excluded (`PairRules`) |
+| a district-year may hold two usable repeat sales pairs | repeat sales is reported as not computed, with the reason, and the other methods still run |
+| a dummy per county made the hedonic diagnostics run for over ten minutes without finishing | VIF from the inverse correlation matrix and leverage by one matrix product: the same numbers, a 63-second fit |
+
+On the 761,650 sales that remain, December 2024 against January 2024:
+hedonic **102.73**, stratified median **102.46**, mix-adjusted mean
+**99.21**, repeat sales **125.75** (Bailey-Muth-Nourse) and **125.84**
+(Case-Shiller). The first three agree to within 3.5 points, and the
+explanation accounts for the mix-adjusted mean's gap only in part: its
+cells cannot see location, so a shift in where sales happen passes into it.
+Repeat sales is 23 points above them, on 649 pairs (0.1% of sales), because a
+single year's pairs are selected on quick resales; the most plausible reading
+(not verified property by property) is homes bought, refurbished and sold
+again within months, whose price change is renovation as much as market. It is the selected-sample limitation stated beside every repeat
+sales number, made visible; a single year cannot fix it, and several years
+of files would be needed for a repeat sales index worth publishing. Its
+history revised by a mean absolute 1.66 index points as each month was
+added. The hedonic fit flags severe collinearity on the county dummies,
+because the reference county is small; the fitted index is unaffected, and
+the warning is left in rather than suppressed.
+
+Chosen not to fix: leasehold houses (a majority of sales in some north-west
+districts) are kept and used as a characteristic rather than modelled as a
+separate market; the price bounds are fixed amounts rather than a statistical
+rule; and a single year's file is used, as the task specified.
+
 ## Citation
 
 Eurostat, *Handbook on Residential Property Prices Indices (RPPIs)* (2013).

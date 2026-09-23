@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass
 
 import pandas as pd
@@ -59,7 +60,13 @@ class LoadResult:
     """Detected field delimiter, for CSV; None otherwise."""
     header_row: int
     """0-indexed row used as the header. Usually 0; not 0 when a title or
-    metadata line sits above the real header row."""
+    metadata line sits above the real header row; -1 when the file has no
+    header row at all and the first line is already data (HM Land Registry's
+    price paid files, for one), in which case the columns are numbered."""
+
+    @property
+    def has_header(self) -> bool:
+        return self.header_row >= 0
 
 
 def detect_encoding(sample: bytes) -> str:
@@ -103,6 +110,47 @@ def detect_delimiter(text_sample: str) -> str:
     return best_delimiter
 
 
+_DATE_CELL = re.compile(
+    r"^\s*(\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?|\d{1,2}/\d{1,2}/\d{2,4})\s*$")
+
+
+def _is_number(cell: str) -> bool:
+    try:
+        float(cell.replace(",", ""))
+    except ValueError:
+        return False
+    return bool(cell.strip())
+
+
+def looks_headerless(rows: list[list[str]]) -> bool:
+    """Whether the first row is data rather than column names.
+
+    True only when the first two rows agree cell for cell on at least one
+    full date and at least one number in the same columns. A header row
+    never holds a full date *and* a number where the data does: a wide table
+    titled by years or dates has numbers, not dates, beneath those titles.
+    Without this check the first record of a headerless file becomes the
+    column names and is silently lost.
+    """
+    if len(rows) < 2:
+        return False
+    first, second = rows[0], rows[1]
+    if len(first) != len(second):
+        return False
+    pairs = list(zip(first, second, strict=True))
+    dates = sum(1 for a, b in pairs if _DATE_CELL.match(a) and _DATE_CELL.match(b))
+    numbers = sum(1 for a, b in pairs if _is_number(a) and _is_number(b))
+    return dates >= 1 and numbers >= 1
+
+
+def _complete_lines(sample: bytes) -> bytes:
+    """A byte sample cut back to its last complete line. A sample ending
+    inside a quoted field -- routine in a fully quoted file -- otherwise
+    fails to parse at all ("EOF inside string")."""
+    cut = sample.rfind(b"\n")
+    return sample[:cut + 1] if cut > 0 else sample
+
+
 def infer_header_row(rows: list[list[str]], max_scan_rows: int = 10) -> int:
     """The first row that looks like a real header: at least two non-blank
     cells, with the row below it the same width. Handles a title or
@@ -123,11 +171,13 @@ def infer_header_row(rows: list[list[str]], max_scan_rows: int = 10) -> int:
 def sniff_csv(file_bytes: bytes) -> tuple[str, str, int]:
     """`(encoding, delimiter, header_row)` from a bounded sample, without
     reading the whole file."""
-    sample = file_bytes[:SAMPLE_BYTES]
+    sample = _complete_lines(file_bytes[:SAMPLE_BYTES])
     encoding = detect_encoding(sample)
     text_sample = sample.decode(encoding, errors="replace")
     delimiter = detect_delimiter(text_sample)
     rows = list(csv.reader(io.StringIO(text_sample), delimiter=delimiter))
+    if looks_headerless(rows):
+        return encoding, delimiter, -1
     header_row = infer_header_row(rows)
     return encoding, delimiter, header_row
 
@@ -162,10 +212,10 @@ def estimate_memory_mb(file_bytes: bytes, name: str, sheet_name: int | str = 0) 
     lower = name.lower()
     if lower.endswith(".csv"):
         encoding, delimiter, header_row = sniff_csv(file_bytes)
-        sample_text = file_bytes[:SAMPLE_BYTES].decode(encoding, errors="replace")
+        sample_text = _complete_lines(file_bytes[:SAMPLE_BYTES]).decode(encoding, errors="replace")
         sample_lines = sample_text.count("\n") or 1
         sample_df = pd.read_csv(
-            io.StringIO(sample_text), delimiter=delimiter, header=header_row,
+            io.StringIO(sample_text), delimiter=delimiter, header=header_row if header_row >= 0 else None,
             on_bad_lines="skip")
         if sample_df.empty:
             return 0.0
@@ -202,7 +252,8 @@ def _read_csv_chunked(
     """
     buf = io.StringIO(file_bytes.decode(encoding, errors="replace"))
     reader = pd.read_csv(
-        buf, delimiter=delimiter, header=header_row, chunksize=CHUNK_ROWS, on_bad_lines="skip")
+        buf, delimiter=delimiter, header=header_row if header_row >= 0 else None,
+        chunksize=CHUNK_ROWS, on_bad_lines="skip")
     chunks: list[pd.DataFrame] = []
     running_bytes = 0
     for chunk in reader:

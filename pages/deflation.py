@@ -156,6 +156,9 @@ def _deflate() -> None:
     for note in result.notes:
         st.caption(note)
     st.pyplot(deflation_chart(result), use_container_width=True)
+    common.show_uncertainty(
+        "The real series", run_headline=False,
+        reason="the deflator's sampling uncertainty is not carried into the real values")
     st.dataframe(result.frame.tail(24).round(4), use_container_width=True)
     growth = df_.real_growth(result, horizon=1)
     st.markdown("##### Growth, nominal and real")

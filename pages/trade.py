@@ -61,6 +61,10 @@ def render() -> None:
     st.warning(f"{tr.UNIT_VALUE_WARNING} {tr.UNIT_VALUE_CONDITIONS}")
     for flow, bias in results.items():
         st.markdown(f"#### {flow.capitalize()}s")
+        common.show_uncertainty(
+            f"The {flow} price index", run_headline=False,
+            reason="customs records are a census of declared trade rather than a sample, and "
+                   "their error is in coverage and classification, which is not quantified")
         k = st.columns(2)
         k[0].metric(f"{flow.capitalize()} price index, latest", f"{bias.price.index.iloc[-1]:.2f}")
         k[1].metric("Largest unit value gap", f"{bias.max_gap_points:.2f} points",

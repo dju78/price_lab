@@ -53,6 +53,9 @@ def render() -> None:
     for kind, result in built.items():
         st.markdown(f"#### {'Input cost index' if kind == 'input_cost' else 'Output price index'}")
         st.caption(result.concept)
+        common.show_uncertainty(
+            result.label.split(",")[0], run_headline=False,
+            reason="the input indices and tender rates arrive with no sampling design")
         st.line_chart(result.index)
         for note in result.notes:
             st.caption(note)

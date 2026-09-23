@@ -74,6 +74,7 @@ def render() -> None:
             "Final level": I.iloc[-1].round(1),
             "Annualised %": annualised_rate(I.iloc[-1] / I.iloc[0], years).round(2),
         }).sort_values("Final level", ascending=False), use_container_width=True)
+    common.show_uncertainty("All items and the category indices")
 
     weights = category_weights(res["imputed"])
     if weights is not None:

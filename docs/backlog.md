@@ -962,11 +962,46 @@ running the transaction methods on real transactions (HM Land Registry price
 paid data would serve, but it is not reachable through an existing
 connector).
 
+## Phase 9a - Uncertainty, variance and sensitivity (done, 2026-09-23)
+
+**Task 0, property on real transactions.** Obtained: HM Land Registry price
+paid data for 2024 (930,559 records, OGL). What the real data did that
+constructed data had not, and what was done, is in `data/price_paid.py` and
+docs/methodology/asset.md: no header row and every field quoted (two loader
+fixes); 18% category B; prices from GBP 1 to 180 million; duplicate
+registrations; no postcode on some; no size, rooms or appraisal; re-sales
+within a year dominated by same-day and quick resales; a district-year too
+thin for repeat sales (compare_methods now reports an unestimable method
+rather than failing); and hedonic diagnostics that did not scale to a dummy
+per county (VIF and leverage rewritten, same values). Chosen not to fix:
+leasehold houses kept as a characteristic, fixed price bounds, one year only.
+
+**Task 1, sampling variance.** `engine/uncertainty.py`: Rao-Wu bootstrap of
+whole clusters within strata, for a declared design; refusal otherwise;
+single-cluster strata refused. Coverage 95.5% on a known population over 400
+samples (tolerance 92-98%); naive 65.5%, 2.06 times narrower.
+
+**Task 2, sensitivity.** `engine/sensitivity.py` across six dimensions; on
+the bundled collection 118.12 (overall-mean imputation) to 138.57 (Carli)
+around 135.60. Laspeyres without weights and the run's own aggregation are
+excluded as duplicates, and say so; the seasonal treatments are expressed as
+a ratio applied to the published headline because they are compiled on their
+own aggregator.
+
+**Task 3, where uncertainty appears.** `HEADLINE_SURFACES` (14 pages) and
+`HEADLINE_EXEMPT` (3, with reasons); `show_uncertainty` on each; a scan test.
+
+**Tests.** New: `test_price_paid.py` 8, `test_uncertainty.py` 12; 960 in the suite.
+
+**Deferred.** A finite population correction; variance of chained indices
+over many links; Taylor linearisation to compare with the bootstrap;
+combinations of methodological choices (one is varied at a time); a
+multi-year price paid run for repeat sales.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
-Bootstrap and variance-based uncertainty measures; forecasting and scenario
-tooling; OIDC (would require hosting beyond Streamlit Community Cloud); an
-in-app user-management page; CPA, NACE and HS classification reference data
-(no authoritative, machine-readable source verified yet -- the generic
-loader that would take one already exists); a cascading (multi-total)
-secondary-suppression solver.
+Forecasting and scenario tooling; OIDC (would require hosting beyond
+Streamlit Community Cloud); an in-app user-management page; CPA, NACE and HS
+classification reference data (no authoritative, machine-readable source
+verified yet -- the generic loader that would take one already exists); a
+cascading (multi-total) secondary-suppression solver.

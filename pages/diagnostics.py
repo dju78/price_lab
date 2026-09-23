@@ -36,6 +36,9 @@ def render() -> None:
     st.caption("The final index level under each elementary formula, on the same cleaned "
                "data: a quantified consequence of the formula choice, not just a preference.")
     st.dataframe(dg.method_sensitivity(imputed, cfg.index), use_container_width=True)
+    st.caption("A formula comparison is methodological sensitivity, not sampling uncertainty; "
+               "the full range across every choice is on the Uncertainty page.")
+    common.show_uncertainty("The headline")
 
     st.markdown("**Chain drift**")
     st.caption("The chained level against the direct fixed-base level over the same span, "

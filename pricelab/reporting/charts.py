@@ -69,21 +69,28 @@ UNITS: dict[str, str] = {
     "other": "other",
 }
 BASES = ("nominal", "real")
-_UNIT_ATTR, _BASIS_ATTR = "_pricelab_unit", "_pricelab_basis"
+#: Two kinds of spread that answer different questions and must never share
+#: an axis: how much a number would move under a different sample, and how
+#: much under a different defensible choice of method.
+BANDS = ("sampling uncertainty", "methodological sensitivity")
+_UNIT_ATTR, _BASIS_ATTR, _BAND_ATTR = "_pricelab_unit", "_pricelab_basis", "_pricelab_band"
 
 
 class ChartUnitError(ValueError):
     """A figure draws incompatible quantities on one axis."""
 
 
-def mark(artist: Any, unit: str, basis: str | None = None) -> Any:
+def mark(artist: Any, unit: str, basis: str | None = None, band: str | None = None) -> Any:
     """Record the unit (and, for money, nominal or real) an artist is drawn
-    in. Returns the artist, so a call can wrap the plotting call. A list of
-    lines, or a bar container, marks each member."""
+    in, and -- for a spread -- which kind of spread it is. Returns the
+    artist, so a call can wrap the plotting call. A list of lines, or a bar
+    container, marks each member."""
     if unit not in UNITS:
         raise ChartUnitError(f"unknown unit {unit!r}; one of {sorted(UNITS)}")
     if basis is not None and basis not in BASES:
         raise ChartUnitError(f"basis must be one of {BASES}, not {basis!r}")
+    if band is not None and band not in BANDS:
+        raise ChartUnitError(f"band must be one of {BANDS}, not {band!r}")
     if isinstance(artist, (list, tuple)):
         targets = list(artist)
     elif hasattr(artist, "patches"):
@@ -93,6 +100,7 @@ def mark(artist: Any, unit: str, basis: str | None = None) -> Any:
     for target in targets:
         setattr(target, _UNIT_ATTR, unit)
         setattr(target, _BASIS_ATTR, basis)
+        setattr(target, _BAND_ATTR, band)
     return artist
 
 
@@ -101,7 +109,14 @@ def _data_artists(ax: Axes) -> list[Any]:
 
 
 def check_axes(ax: Axes) -> None:
-    """Raise `ChartUnitError` if this axis mixes units or unlabelled bases."""
+    """Raise `ChartUnitError` if this axis mixes units, unlabelled bases, or
+    a confidence interval with a sensitivity range."""
+    bands = {getattr(a, _BAND_ATTR, None) for a in _data_artists(ax)} - {None}
+    if len(bands) > 1:
+        raise ChartUnitError(
+            f"the axis {ax.get_title()!r} draws a confidence interval (sampling uncertainty) "
+            "and a sensitivity range (methodological choice) together. They answer different "
+            "questions and must never share an axis or be read as one band")
     units: dict[str, list[str]] = {}
     for artist in _data_artists(ax):
         unit = getattr(artist, _UNIT_ATTR, None)
@@ -454,6 +469,47 @@ def deflation_chart(result: Any, figsize: tuple[float, float] = (10, 4.8)) -> Fi
     ax.set_title(f"{result.nominal_name}, nominal and real", loc="left", fontsize=12,
                  color=INK, pad=12)
     _footnote(fig, result.label + ".")
+    return check_figure(fig)
+
+
+def interval_chart(result: Any, figsize: tuple[float, float] = (10, 2.6)) -> Figure:
+    """A confidence interval for a movement, alone on its axis, labelled as
+    sampling uncertainty. The sensitivity range has its own chart."""
+    fig, ax = _fig(figsize)
+    mark(ax.plot([result.lower_pct, result.upper_pct], [0, 0], lw=6, color=PRIMARY,
+                 solid_capstyle="butt", label=f"{result.level:.0%} confidence interval"),
+         "percent_change", band="sampling uncertainty")
+    mark(ax.plot([result.estimate_pct], [0], "o", color=INK, ms=8, label="estimate"),
+         "percent_change", band="sampling uncertainty")
+    ax.set_yticks([])
+    ax.set_xlabel("Change in All items, % (sampling uncertainty only)")
+    ax.set_title("Sampling uncertainty: how much the change would move under a different sample",
+                 loc="left", fontsize=11, color=INK, pad=10)
+    ax.legend(frameon=False, fontsize=8, loc="upper left")
+    _footnote(fig, result.label)
+    return check_figure(fig)
+
+
+def sensitivity_chart(result: Any, figsize: tuple[float, float] = (10, 5)) -> Figure:
+    """Each alternative choice's headline, as bars against the published
+    level, alone on its axis and labelled as methodological sensitivity --
+    never a confidence interval."""
+    fig, ax = _fig(figsize)
+    computed = result.computed.sort_values("headline")
+    labels = [f"{d}: {s}"[:70] for d, s in zip(computed["dimension"], computed["setting"],
+                                              strict=True)]
+    mark(ax.barh(labels, computed["headline"].to_numpy(dtype=float), color=MUTED, height=0.6),
+         "index_level", band="methodological sensitivity")
+    mark(ax.axvline(result.baseline, color=INK, lw=1.5, label="published"),
+         "index_level", band="methodological sensitivity")
+    ax.set_xlabel(f"All items at {result.period:%b %Y} under each alternative choice "
+                  f"({result.reference:%b %Y} = 100)")
+    ax.set_xlim(min(computed["headline"].min(), result.baseline) * 0.97,
+                max(computed["headline"].max(), result.baseline) * 1.02)
+    ax.grid(axis="y", visible=False)
+    ax.set_title("Methodological sensitivity (not a confidence interval)", loc="left",
+                 fontsize=11, color=INK, pad=10)
+    _footnote(fig, result.label)
     return check_figure(fig)
 
 

@@ -56,6 +56,7 @@ def render() -> None:
         if len(s_):
             m[2].metric("Peak rate", f"{s_.max():.1f}%", f"{s_.idxmax():%b %Y}",
                         delta_color="off")
+        common.show_uncertainty("All items")
     n_repaired = res["quality"]["scale_errors_repaired"]
     n_detected = res["quality"]["scale_errors_detected"]
     m[3].metric("Faults repaired" if n_repaired == n_detected else "Faults repaired / detected",

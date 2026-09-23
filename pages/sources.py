@@ -158,5 +158,6 @@ def render() -> None:
                 f"compiled ({headline})": ours / ours.iloc[0] * 100,
                 f"{held['source']}": theirs / theirs.iloc[0] * 100})
             st.line_chart(frame)
+            common.show_uncertainty(f"The compiled {headline}")
         else:
             st.caption("No overlap in periods with the compiled index, so no comparison.")

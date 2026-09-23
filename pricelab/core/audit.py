@@ -63,6 +63,8 @@ CONSTRUCTION_INDEX = "construction_index"
 ESCALATION = "escalation"
 PROPERTY_INDEX = "property_index"
 OWNER_OCCUPIED_HOUSING = "owner_occupied_housing"
+UNCERTAINTY = "uncertainty"
+SENSITIVITY = "sensitivity"
 
 
 class AuditEventORM(Base):

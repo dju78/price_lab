@@ -170,6 +170,11 @@ def _rates(components: dc.Components, periods_per_year: int) -> None:
                 help=f"since {table.index[0]:%b %Y}")
     st.caption("Each rate answers a different question; a figure quoted without saying which "
                "one invites comparison with another.")
+    common.show_uncertainty(
+        f"{components.root} rates of change",
+        run_headline=components.source == "the compiled run",
+        reason="the agency's published index is fetched as a figure, and its own sampling "
+               "error is not published through the connector")
     st.pyplot(rates_chart({dc.RATE_LABELS["year_on_year_pct"]: table["year_on_year_pct"],
                            dc.RATE_LABELS["three_month_on_three_month_annualised_pct"]:
                                table["three_month_on_three_month_annualised_pct"]},

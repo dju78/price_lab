@@ -172,6 +172,10 @@ def _adjustment(indices: pd.DataFrame, cfg: SeasonalConfig) -> None:
     st.pyplot(seasonal_adjustment_chart(adjustment), use_container_width=True)
     st.caption("Unadjusted and adjusted on the same axes. "
                + _sentence(adjustment.label))
+    common.show_uncertainty(
+        "The seasonally adjusted series", run_headline=False,
+        reason="an interval, where the Uncertainty page has one, is for the unadjusted "
+               "movement; the adjustment adds model uncertainty that is not quantified here")
 
     s = adjustment.stability
     k1, k2, k3 = st.columns(3)

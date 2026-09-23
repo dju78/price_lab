@@ -35,6 +35,9 @@ def _series(label: str, key: str) -> pd.Series | None:
 
 def _show(result: hs.OOHResult) -> None:
     st.success(result.label)
+    common.show_uncertainty(
+        hs.OOH_QUESTIONS[result.approach]["name"], run_headline=False,
+        reason="the rents, prices and outlays behind it arrive with no sampling design")
     for note in result.notes:
         st.caption(note)
     st.line_chart(result.index)
@@ -74,6 +77,9 @@ def _rents() -> None:
         return
     st.session_state["hs_rent_result"] = result
     st.success(result.label)
+    common.show_uncertainty(
+        "The rental price index", run_headline=False,
+        reason="the rents arrive with no sampling design")
     st.line_chart(result.index)
     st.dataframe(pd.DataFrame({"index": result.index, "matched dwellings": result.matched})
                  .round(3), use_container_width=True)

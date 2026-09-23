@@ -119,6 +119,7 @@ def deployment(tmp_path, monkeypatch):
     monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "trade.db"))
     get_settings.cache_clear()
     db.reset_db_state()
+    from pricelab.core import audit, ledger, registry, security  # noqa: F401  register tables
     db.init_db()
     yield tmp_path
     db.reset_db_state()

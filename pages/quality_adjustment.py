@@ -403,6 +403,7 @@ def _impact_section(res: dict[str, Any]) -> None:
               help=f"Measured as {impact.annual_measure.replace('_', ' ')} at {impact.final_period:%b %Y}.")
     c3.metric("Effect of linking at all", f"{impact.linking_effect_points:+.2f} pts",
               help="As compiled minus the matched-model default that skips every replacement.")
+    common.show_uncertainty("The headline with and without the adjustments")
     st.pyplot(charts.impact_chart(impact), use_container_width=True)
     st.markdown("**Scenarios**")
     st.dataframe(impact.scenarios.round(3), use_container_width=True)

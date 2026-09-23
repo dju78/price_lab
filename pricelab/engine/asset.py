@@ -41,7 +41,7 @@ Sources: Eurostat, *Handbook on Residential Property Prices Indices (RPPIs)*
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -54,6 +54,7 @@ __all__ = [
     "METHODS",
     "METHOD_TEXT",
     "MethodComparison",
+    "PairRules",
     "PropertyError",
     "PropertyIndexResult",
     "compare_methods",
@@ -160,7 +161,9 @@ def _prepare(tx: pd.DataFrame, extra: Sequence[str] = ()) -> pd.DataFrame:
     missing = sorted(needed - set(tx.columns))
     if missing:
         raise PropertyError(f"the transactions have no {missing} column(s)")
-    frame = tx.dropna(subset=list(needed)).reset_index(drop=True).copy()
+    # A missing property identity (a sale with no address, in real data)
+    # rules a sale out of repeat sales only; the pairing drops it there.
+    frame = tx.dropna(subset=list(needed - {"property_id"})).reset_index(drop=True).copy()
     frame["period"] = pd.DatetimeIndex(frame["period"])
     if (frame["price"] <= 0).any():
         raise PropertyError("sale prices must be positive")
@@ -225,17 +228,34 @@ def stratified_median(tx: pd.DataFrame, *, stratum_col: str = "stratum",
         notes=tuple(notes))
 
 
+def _cells(frame: pd.DataFrame, stratum_col: str, size_col: str | None,
+           cell_cols: Sequence[str], bands: int) -> pd.Series:
+    """The cell of each sale: the stratum, then either a size band (quantiles
+    of `size_col` over the whole sample, so a band means the same thing in
+    every period) or the values of `cell_cols` where there is no size."""
+    cell = frame[stratum_col].astype(str)
+    if size_col is not None:
+        band = pd.qcut(frame[size_col], bands, labels=False, duplicates="drop")
+        return cell + " / band " + (band + 1).astype(str)
+    for column in cell_cols:
+        cell = cell + " / " + frame[column].astype(str)
+    return cell
+
+
 def mix_adjusted_mean(tx: pd.DataFrame, *, stratum_col: str = "stratum",
-                      size_col: str = "floor_area", bands: int = 3,
+                      size_col: str | None = "floor_area", bands: int = 3,
+                      cell_cols: Sequence[str] = (),
                       base: pd.Timestamp | None = None) -> PropertyIndexResult:
-    """Mean price per cell (stratum by size band), each cell against its
-    base-period mean, combined with the base period's value of sales per
-    cell. Size bands are quantiles of `size_col` over the whole sample, so
-    a cell means the same thing in every period."""
-    frame = _prepare(tx, (stratum_col, size_col))
+    """Mean price per cell, each cell against its base-period mean,
+    combined with the base period's value of sales per cell. A cell is the
+    stratum by size band, or -- where the data has no size, as HM Land
+    Registry's does not -- the stratum by `cell_cols` (tenure and new build,
+    say)."""
+    if size_col is None and not cell_cols:
+        raise PropertyError("a mix-adjusted mean needs a size column or cell columns")
+    frame = _prepare(tx, (stratum_col, *( [size_col] if size_col else []), *cell_cols))
     b = _base(frame, base)
-    frame["size_band"] = pd.qcut(frame[size_col], bands, labels=False, duplicates="drop")
-    frame["cell"] = frame[stratum_col].astype(str) + " / band " + (frame["size_band"] + 1).astype(str)
+    frame["cell"] = _cells(frame, stratum_col, size_col, cell_cols, bands)
     grouped = frame.groupby(["period", "cell"])["price"]
     means = grouped.mean().unstack()
     counts = grouped.size().unstack().fillna(0).astype(int)
@@ -253,22 +273,69 @@ def mix_adjusted_mean(tx: pd.DataFrame, *, stratum_col: str = "stratum",
 # ---------------------------------------------------------------------
 # Repeat sales
 # ---------------------------------------------------------------------
-def repeat_sales_pairs(tx: pd.DataFrame) -> pd.DataFrame:
+@dataclass(frozen=True)
+class PairRules:
+    """Which consecutive sales count as a repeat sales pair.
+
+    None of these bite on constructed data; every one of them bites on real
+    transactions, where a large share of re-sales within a year are not
+    price change at all.
+    """
+
+    min_months: int = 0
+    """Pairs closer than this are left out. Real re-sales within months are
+    mostly same-day double registrations, onward sales and quick resales;
+    the S&P CoreLogic Case-Shiller indices exclude pairs under six months."""
+    exclude_new_build_first: bool = False
+    """Leave out a pair whose first sale was a new build (a `new_build`
+    column equal to "new"): the new-build premium is not price change."""
+    max_ratio: float | None = None
+    """Leave out a pair whose price rose or fell by more than this factor:
+    a property doubling or halving in months is a different property (split,
+    rebuilt) or a transaction that is not at market value."""
+
+
+def repeat_sales_pairs(tx: pd.DataFrame, rules: PairRules | None = None) -> pd.DataFrame:
     """Consecutive sales of the same property, one row per pair. Two sales
     of one property in the same period carry no price change across time
-    and are not paired."""
-    frame = _prepare(tx).sort_values(["property_id", "period"])
-    previous = frame.groupby("property_id")[["period", "price"]].shift(1)
+    and are not paired; a sale with no property identity cannot be paired.
+    `rules` filters the pairs further, and the counts it removed are in
+    `pairs.attrs["excluded"]`."""
+    frame = _prepare(tx).dropna(subset=["property_id"]).sort_values(["property_id", "period"])
+    carried = ["period", "price"] + (["new_build"] if "new_build" in frame.columns else [])
+    previous = frame.groupby("property_id")[carried].shift(1)
     pairs = pd.DataFrame({
         "property_id": frame["property_id"], "first_period": previous["period"],
         "first_price": previous["price"], "second_period": frame["period"],
-        "second_price": frame["price"]}).dropna()
+        "second_price": frame["price"]})
+    if "new_build" in carried:
+        pairs["first_new_build"] = previous["new_build"]
+    pairs = pairs.dropna(subset=["first_period", "first_price"])
     pairs = pairs[pairs["second_period"] > pairs["first_period"]]
-    return pairs.reset_index(drop=True)
+    excluded: dict[str, int] = {}
+    if rules is not None:
+        months = ((pairs["second_period"].dt.year - pairs["first_period"].dt.year) * 12
+                  + pairs["second_period"].dt.month - pairs["first_period"].dt.month)
+        close = months < rules.min_months
+        excluded[f"less than {rules.min_months} months apart"] = int(close.sum())
+        pairs, months = pairs[~close], months[~close]
+        if rules.exclude_new_build_first and "first_new_build" in pairs.columns:
+            new = pairs["first_new_build"] == "new"
+            excluded["first sale a new build"] = int(new.sum())
+            pairs = pairs[~new]
+        if rules.max_ratio is not None:
+            ratio = pairs["second_price"] / pairs["first_price"]
+            wild = (ratio > rules.max_ratio) | (ratio < 1.0 / rules.max_ratio)
+            excluded[f"price moved by more than a factor of {rules.max_ratio:g}"] = int(wild.sum())
+            pairs = pairs[~wild]
+    pairs = pairs.reset_index(drop=True)
+    pairs.attrs["excluded"] = excluded
+    return pairs
 
 
 def repeat_sales(tx: pd.DataFrame, *, weighted: bool = False,
-                 base: pd.Timestamp | None = None) -> PropertyIndexResult:
+                 base: pd.Timestamp | None = None,
+                 rules: PairRules | None = None) -> PropertyIndexResult:
     """Repeat sales index.
 
     Bailey-Muth-Nourse: for each pair, ln(P2/P1) = beta(t2) - beta(t1) + e,
@@ -282,10 +349,10 @@ def repeat_sales(tx: pd.DataFrame, *, weighted: bool = False,
     geometric form; the arithmetic, value-weighted form estimated by
     instrumental variables is not implemented.
     """
-    pairs = repeat_sales_pairs(tx)
+    pairs = repeat_sales_pairs(tx, rules)
     if pairs.empty:
-        raise PropertyError("no property sold twice in different periods; a repeat sales "
-                            "index has nothing to estimate from")
+        raise PropertyError("no property sold twice in different periods under the pair "
+                            "rules; a repeat sales index has nothing to estimate from")
     frame = _prepare(tx)
     b = _base(frame, base)
     periods = sorted(set(pairs["first_period"]) | set(pairs["second_period"]) | {b})
@@ -329,14 +396,17 @@ def repeat_sales(tx: pd.DataFrame, *, weighted: bool = False,
     counts = pd.concat([pairs["first_period"], pairs["second_period"]]).value_counts()
     share = len(pairs) / max(len(frame), 1)
     notes.append(f"{len(pairs):,} pairs from {pairs['property_id'].nunique():,} properties; "
-                 f"{share:.0%} of the {len(frame):,} sales are the second sale of a pair")
+                 f"{share:.1%} of the {len(frame):,} sales are the second sale of a pair")
+    for reason, count in pairs.attrs.get("excluded", {}).items():
+        notes.append(f"{count:,} pair(s) excluded: {reason}")
     return PropertyIndexResult(method=method, index=pd.Series(levels).sort_index(),
                                transactions=counts.sort_index(), base=b,
                                detail=pairs, notes=tuple(notes))
 
 
 def repeat_sales_vintages(tx: pd.DataFrame, *, weighted: bool = False,
-                          first_end: pd.Timestamp | None = None) -> list[rv.Vintage]:
+                          first_end: pd.Timestamp | None = None,
+                          rules: PairRules | None = None) -> list[rv.Vintage]:
     """The repeat sales index as it would have been published at the end
     of each period: the history re-estimated on the sales known by then.
 
@@ -352,7 +422,7 @@ def repeat_sales_vintages(tx: pd.DataFrame, *, weighted: bool = False,
     for number, end in enumerate([pd.Timestamp(p) for p in periods if p >= start], start=1):
         known = frame[frame["period"] <= end]
         try:
-            result = repeat_sales(known, weighted=weighted)
+            result = repeat_sales(known, weighted=weighted, rules=rules)
         except PropertyError:
             continue
         out.append(rv.Vintage(
@@ -363,10 +433,11 @@ def repeat_sales_vintages(tx: pd.DataFrame, *, weighted: bool = False,
 
 
 def repeat_sales_revisions(tx: pd.DataFrame, *, weighted: bool = False,
-                           first_end: pd.Timestamp | None = None) -> rv.RevisionAnalysis:
+                           first_end: pd.Timestamp | None = None,
+                           rules: PairRules | None = None) -> rv.RevisionAnalysis:
     """The revision profile repeat sales generates by construction, through
     `engine.revision.analyse` -- the same machinery as registry revisions."""
-    vintages = repeat_sales_vintages(tx, weighted=weighted, first_end=first_end)
+    vintages = repeat_sales_vintages(tx, weighted=weighted, first_end=first_end, rules=rules)
     if len(vintages) < 2:
         raise PropertyError("fewer than two vintages could be estimated, so nothing is revised")
     return rv.analyse(vintages, series_name=METHOD_NAMES["repeat_sales_case_shiller"
@@ -426,12 +497,18 @@ class MethodComparison:
     """The characteristics of what sold each period, valued at base-period
     hedonic prices, base = 100: how much 'more house' was sold."""
     explanation: tuple[str, ...]
+    unavailable: Mapping[str, str] = field(default_factory=dict)
+    """Methods the data could not support, with the reason: a year of real
+    transactions in one district may hold two usable repeat sales pairs, and
+    the other methods still answer."""
 
 
 def compare_methods(tx: pd.DataFrame, *, stratum_col: str = "stratum",
-                    size_col: str = "floor_area", appraisal_col: str = "appraisal",
+                    size_col: str | None = "floor_area", appraisal_col: str = "appraisal",
                     characteristics: Sequence[str] = ("floor_area",),
-                    categorical: Sequence[str] = ("stratum",)) -> MethodComparison:
+                    categorical: Sequence[str] = ("stratum",),
+                    cell_cols: Sequence[str] = (),
+                    rules: PairRules | None = None) -> MethodComparison:
     """Every method on the same transactions, and the differences explained.
 
     The explanation is quantitative. The hedonic fit values each period's
@@ -442,17 +519,32 @@ def compare_methods(tx: pd.DataFrame, *, stratum_col: str = "stratum",
     method's gap to the hedonic index, so a reader can see how much of the
     gap it accounts for.
     """
-    results: dict[str, PropertyIndexResult] = {
-        "stratified_median": stratified_median(tx, stratum_col=stratum_col),
-        "mix_adjusted_mean": mix_adjusted_mean(tx, stratum_col=stratum_col, size_col=size_col),
-        "repeat_sales_bmn": repeat_sales(tx),
-        "repeat_sales_case_shiller": repeat_sales(tx, weighted=True),
-        "hedonic": hedonic_index(tx, characteristics=characteristics, categorical=categorical),
+    builders: dict[str, Callable[[], PropertyIndexResult]] = {
+        "stratified_median": lambda: stratified_median(tx, stratum_col=stratum_col),
+        "mix_adjusted_mean": lambda: mix_adjusted_mean(tx, stratum_col=stratum_col,
+                                                       size_col=size_col, cell_cols=cell_cols),
+        "repeat_sales_bmn": lambda: repeat_sales(tx, rules=rules),
+        "repeat_sales_case_shiller": lambda: repeat_sales(tx, weighted=True, rules=rules),
+        "hedonic": lambda: hedonic_index(tx, characteristics=characteristics,
+                                         categorical=categorical),
+        "spar": lambda: sale_price_appraisal_ratio(tx, appraisal_col=appraisal_col),
     }
-    if appraisal_col in tx.columns and tx[appraisal_col].notna().any():
-        results["spar"] = sale_price_appraisal_ratio(tx, appraisal_col=appraisal_col)
+    results: dict[str, PropertyIndexResult] = {}
+    unavailable: dict[str, str] = {}
+    for key, build in builders.items():
+        if key == "spar" and (appraisal_col not in tx.columns
+                              or not tx[appraisal_col].notna().any()):
+            unavailable[key] = "the transactions carry no appraisal to compare sale prices with"
+            continue
+        try:
+            results[key] = build()
+        except PropertyError as exc:
+            if key == "hedonic":
+                raise
+            unavailable[key] = str(exc)
     table = pd.DataFrame({key: r.index for key, r in results.items()})
-    frame = _prepare(tx, (*characteristics, *categorical))
+    frame = _prepare(tx, (*characteristics, *categorical,
+                          *([size_col] if size_col else []), *cell_cols))
     base = results["hedonic"].base
 
     # The quality mix of what sold, at base-period hedonic prices.
@@ -477,13 +569,13 @@ def compare_methods(tx: pd.DataFrame, *, stratum_col: str = "stratum",
     # quality mix change *within* its own strata or cells, combined with the
     # same base-period value weights the method uses.
     frame["log_quality"] = predicted.to_numpy(dtype=float)
-    frame["size_band"] = pd.qcut(frame[size_col], 3, labels=False, duplicates="drop")
-    frame["cell"] = frame[stratum_col].astype(str) + " / band " + (
-        frame["size_band"] + 1).astype(str)
+    frame["cell"] = _cells(frame, stratum_col, size_col, cell_cols, 3)
+    cell_name = ("cells (stratum by size band)" if size_col else
+                 f"cells (stratum by {', '.join(cell_cols)})")
     for key, group in (("stratified_median", stratum_col), ("mix_adjusted_mean", "cell")):
         within = _within_mix(frame, group, base, last)
         gap = float(table.loc[last, key]) - hed
-        unit = "strata" if key == "stratified_median" else "cells (stratum by size band)"
+        unit = "strata" if key == "stratified_median" else cell_name
         lines.append(
             f"{METHOD_NAMES[key]}: {float(table.loc[last, key]):.2f}, {gap:+.2f} points from the "
             f"hedonic index. It fixes the mix of {unit} but not what sells within them, and "
@@ -492,31 +584,36 @@ def compare_methods(tx: pd.DataFrame, *, stratum_col: str = "stratum",
             + ("; a median also moves with the middle of each stratum's distribution rather than "
                "its mean, which accounts for more of it" if key == "stratified_median" else "")
             + ".")
-    pairs = results["repeat_sales_bmn"].detail
+    pairs = results["repeat_sales_bmn"].detail if "repeat_sales_bmn" in results else None
     n_pairs = len(pairs) if pairs is not None else 0
     for key in ("repeat_sales_bmn", "repeat_sales_case_shiller"):
+        if key not in results:
+            continue
         gap = float(table.loc[last, key]) - hed
         lines.append(
             f"{METHOD_NAMES[key]}: {float(table.loc[last, key]):.2f}, {gap:+.2f} points from the "
             f"hedonic index. It rests on {n_pairs:,} pairs of sales of the same property "
-            f"({n_pairs / max(len(frame), 1):.0%} of all sales), so quality is held by matching "
+            f"({n_pairs / max(len(frame), 1):.1%} of all sales), so quality is held by matching "
             "rather than by a model, for a sample that is not the whole market; its history "
             "will be revised as later sales arrive.")
-    bmn, cs = (float(table.loc[last, k]) for k in ("repeat_sales_bmn",
-                                                   "repeat_sales_case_shiller"))
-    lines.append(f"The two repeat sales forms differ by {cs - bmn:+.2f} points: Case-Shiller "
-                 "weights down pairs whose sales are far apart.")
+    if {"repeat_sales_bmn", "repeat_sales_case_shiller"} <= set(results):
+        bmn, cs = (float(table.loc[last, k]) for k in ("repeat_sales_bmn",
+                                                       "repeat_sales_case_shiller"))
+        lines.append(f"The two repeat sales forms differ by {cs - bmn:+.2f} points: "
+                     "Case-Shiller weights down pairs whose sales are far apart.")
     if "spar" in results:
         gap = float(table.loc[last, "spar"]) - hed
         lines.append(
             f"{METHOD_NAMES['spar']}: {float(table.loc[last, 'spar']):.2f}, {gap:+.2f} points from "
             "the hedonic index. It holds quality through each property's own appraisal, so it is "
             "only as even-handed as the appraisal is across the market.")
+    for key, reason in unavailable.items():
+        lines.append(f"{METHOD_NAMES[key]}: not computed -- {reason}.")
     spread = table.loc[last].max() - table.loc[last].min()
     lines.append(f"The methods span {spread:.2f} index points at {last:%b %Y}. They are not "
                  "estimates of one number; each answers the question stated beside it.")
     return MethodComparison(results=results, table=table, quality_mix=quality_mix,
-                            explanation=tuple(lines))
+                            explanation=tuple(lines), unavailable=unavailable)
 
 
 def _within_mix(frame: pd.DataFrame, group: str, base: pd.Timestamp, last: pd.Timestamp

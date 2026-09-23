@@ -40,6 +40,7 @@ import pages.seasonal
 import pages.sources
 import pages.spatial
 import pages.trade
+import pages.uncertainty
 from pages import common
 from pricelab.core import audit, db
 from pricelab.core.logging import configure_logging
@@ -189,6 +190,7 @@ _PAGE_SPECS = [
     (pages.escalation.render, "Contract escalation", "📑", "escalation"),
     (pages.property.render, "Property prices", "🏠", "property"),
     (pages.housing.render, "Rents and owner-occupied housing", "🔑", "housing"),
+    (pages.uncertainty.render, "Uncertainty", "🎯", "uncertainty"),
     (pages.findings.render, "Findings", "🗒️", "findings"),
     (pages.diagnostics.render, "Diagnostics", "🔎", "diagnostics"),
     (pages.reports.render, "Reports", "📤", "reports"),

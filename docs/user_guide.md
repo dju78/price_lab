@@ -162,6 +162,24 @@ section under the question it answers. Decide which question you are asking
 before looking at any of them; they are not four estimates of one number
 ([methodology/housing.md](methodology/housing.md)).
 
+**Uncertainty.** Two different questions, in two sections. *Sampling
+uncertainty*: name the column that identifies the outlet (the primary
+sampling unit) and, if the sample was stratified, the strata; the page then
+bootstraps the headline's movement by resampling whole outlets within
+strata, and shows beside it how much narrower an interval that ignored the
+design would have been. If you do not know how the sample was drawn, leave
+the design unset: no interval is published, and every headline says so.
+*Methodological sensitivity*: the headline recompiled under each defensible
+alternative choice, with the highest and lowest settings named. It is not a
+confidence interval, is never drawn with one, and must not be added to one.
+Every headline in the analyst view carries its interval or a statement that
+none has been quantified.
+
+**Property prices from HM Land Registry.** Upload a price paid file exactly
+as published (headerless; an extract for a district keeps within the upload
+limit). The page shows what the file held and what was excluded, rule by
+rule, then runs the methods with the settings the data allows.
+
 The Excel evidence pack now has a **Contributions** sheet: the same table as
 the bulletin, with the tree level and the residual row, where the arithmetic
 can be checked in place.

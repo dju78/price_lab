@@ -206,3 +206,75 @@ def read_upload_table(upload: Any, required: tuple[str, ...]) -> Any:
     if "period" in frame.columns:
         frame["period"] = pd.to_datetime(frame["period"], errors="raise")
     return frame
+
+
+# ---------------------------------------------------------------------
+# Uncertainty beside every headline
+# ---------------------------------------------------------------------
+#: Every page in the analyst view that shows a published headline figure,
+#: and what it shows. Each calls `show_uncertainty` where the figure
+#: appears, so the figure carries its interval or a statement that none has
+#: been quantified. `tests/test_uncertainty.py` scans pages/ and fails when
+#: a page shows a headline without being listed here, or is listed without
+#: calling it -- the surface inventory pattern of the seasonal work.
+HEADLINE_SURFACES: dict[str, str] = {
+    "findings": "All items level, average annual rate and peak rate",
+    "index_build": "category and All items indices, levels and annualised rates",
+    "decomposition": "rates of change of the headline, and its change decomposed",
+    "multilateral": "the multilateral All items headline",
+    "quality_adjustment": "the effect of the quality adjustments on the headline",
+    "seasonal": "the seasonally adjusted headline",
+    "property": "residential property price indices",
+    "trade": "import and export price indices and the terms of trade",
+    "construction": "construction input cost and output price indices",
+    "spatial": "purchasing power parities",
+    "deflation": "real values",
+    "housing": "the rental price index and the owner-occupied housing indices",
+    "diagnostics": "the headline under alternative formulae, and its chain drift",
+    "sources": "the compiled headline beside an official series",
+}
+
+#: Pages that read the indices or show metrics without showing a published
+#: headline figure, and why -- so the scan can tell an exemption from an
+#: omission.
+HEADLINE_EXEMPT: dict[str, str] = {
+    "audit_log": "reads the headline only to check it against the registered figure",
+    "outliers": "counts of screened, flagged and excluded quotes",
+    "revisions": "revision statistics about the headline, not the headline itself",
+}
+
+UNCERTAINTY_STATE = "un_interval"
+SENSITIVITY_STATE = "un_sensitivity"
+
+
+def show_uncertainty(figure: str, *, run_headline: bool = True, reason: str | None = None
+                     ) -> list[str]:
+    """Caption the figure with its sampling uncertainty, or with the
+    statement that none has been quantified -- and, separately and labelled
+    as such, with the methodological sensitivity range where one has been
+    computed. The two are never combined into one statement.
+
+    `run_headline` is True for the compiled run's All items figures, which
+    the Uncertainty page can quantify; for other measures (property prices,
+    trade, parities) `reason` says why no interval exists. Returns the
+    captions shown, for tests.
+    """
+    from pricelab.engine.uncertainty import NOT_QUANTIFIED
+
+    shown: list[str] = []
+    label = (get_active_analysis() or {}).get("label")
+    held = st.session_state.get(UNCERTAINTY_STATE) if run_headline else None
+    if held is not None and held.get("label") == label:
+        shown.append(f"{figure} -- sampling uncertainty: {held['result'].label}")
+    elif run_headline:
+        shown.append(f"{figure} -- {NOT_QUANTIFIED} Declare the design on the Uncertainty "
+                     "page to estimate an interval.")
+    else:
+        shown.append(f"{figure} -- sampling uncertainty has not been quantified: "
+                     + (reason or "no sampling design is available for this measure") + ".")
+    sensitivity = st.session_state.get(SENSITIVITY_STATE) if run_headline else None
+    if sensitivity is not None and sensitivity.get("label") == label:
+        shown.append(f"{figure} -- {sensitivity['result'].label}")
+    for text in shown:
+        st.caption(text)
+    return shown
