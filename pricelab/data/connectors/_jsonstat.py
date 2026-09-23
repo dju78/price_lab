@@ -34,13 +34,16 @@ def validate_jsonstat(raw: Any, source_name: str) -> None:
 
 
 def parse_jsonstat(raw: dict[str, Any]) -> pd.DataFrame:
-    """Decode every observation's time period and value, for whichever
-    other dimensions the query already narrowed to a single category each
-    (the common case for a filtered single-series request). If more than
-    one non-time dimension varies, every combination is returned with its
-    flat index preserved as `dimension_index`, since this generic decoder
-    has no way to know which of several possible series a caller wants
-    collapsed into one.
+    """Decode every observation's time period and value.
+
+    A dimension the query narrowed to a single category (the common case
+    for a filtered single-series request) is not returned: it is the same
+    on every row. A dimension that varies -- a request for several COICOP
+    divisions at once, say -- comes back as a column of its own, named
+    after the dimension and holding each row's category code. Without it
+    the rows of different series are indistinguishable, and a decoder that
+    returned twelve divisions' observations as one unlabelled column would
+    be handing the caller a series that does not exist.
     """
     dim_ids: list[str] = raw["id"]
     sizes: list[int] = raw["size"]
@@ -51,6 +54,11 @@ def parse_jsonstat(raw: dict[str, Any]) -> pd.DataFrame:
     time_pos = dim_ids.index("time")
     time_index: dict[str, int] = raw["dimension"]["time"]["category"]["index"]
     position_to_period = {v: k for k, v in time_index.items()}
+    varying = {
+        pos: {v: k for k, v in raw["dimension"][dim]["category"]["index"].items()}
+        for pos, dim in enumerate(dim_ids)
+        if dim != "time" and sizes[pos] > 1 and "category" in raw["dimension"].get(dim, {})
+        and "index" in raw["dimension"][dim]["category"]}
 
     rows: list[dict[str, Any]] = []
     for flat_str, value in raw["value"].items():
@@ -61,7 +69,10 @@ def parse_jsonstat(raw: dict[str, Any]) -> pd.DataFrame:
             idx_per_dim.append(remaining // stride)
             remaining %= stride
         period_code = position_to_period[idx_per_dim[time_pos]]
-        rows.append({"period": period_code, "value": value, "_flat_index": flat})
+        row: dict[str, Any] = {"period": period_code, "value": value, "_flat_index": flat}
+        for pos, codes in varying.items():
+            row[dim_ids[pos]] = codes[idx_per_dim[pos]]
+        rows.append(row)
 
     df = pd.DataFrame(rows)
     if df.empty:

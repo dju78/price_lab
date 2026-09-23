@@ -5,6 +5,75 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## Unreleased — Phase 7a: decomposition, core measures and deflation (2026-09-23)
+
+### Added
+- **`engine/decomposition.py`**: period-on-period, year-on-year, annualised,
+  three-months-on-three and cumulative rates; **contributions at every level
+  of the classification tree**, built on `engine/aggregation`, reconciling to
+  the headline to eight decimal places with the residual reported;
+  **core measures** — exclusion based (a parent node excludes everything
+  beneath it), trimmed mean at a configurable trim, weighted median,
+  variance weighted, sticky price — each stating its parameters and data
+  requirements, with `core_measure_availability` saying why a measure the
+  data cannot support is not offered; **base effects** split exactly into
+  carry-over and impulse, and the change in the rate into this period's
+  movement and the base effect; **diffusion** and **dispersion**.
+- **`engine/deflation.py`**: deflation with explicit alignment (a monthly
+  series and a quarterly deflator raise; conversion is the user's call via
+  `to_frequency`, recorded with the result); real wages and income; exact
+  real growth beside the approximation; constant prices and volume indices;
+  PPP conversion and price level indices. Every result names its deflator,
+  reference period and alignment.
+- **Real agency data**: the Eurostat connector can fetch several series in
+  one request by key path (`eurostat.hicp_key`) and `eurostat.hicp_tree`
+  builds the HICP's three-level tree the way it is compiled within a year.
+  Recorded euro-area responses (55 series, 2022-12 to 2025-12, with the item
+  weights) are the fixtures the contribution tests run on; the re-aggregated
+  headline matches the published one to within 0.004 index points.
+- **The chart rule**: every artist in `reporting/charts.py` declares its
+  unit, and `check_figure` refuses an axis that mixes an index level, a
+  percentage change or a percentage-point contribution, or that puts nominal
+  and real together without saying which is which. New charts:
+  `seasonal_adjustment_chart`, `contributions_chart`, `rates_chart`,
+  `deflation_chart`.
+- **`reporting/exports.SEASONAL_SURFACES`**: every surface an adjusted series
+  reaches, enumerated in code and checked by `tests/test_seasonal_carried.py`,
+  which also fails when a module handles the adjusted series without being
+  enumerated.
+- **New pages**: Decomposition (the compiled run or the published HICP) and
+  Deflation, each with page-level AppTests.
+- **`docs/methodology/`**: decomposition and deflation notes (eighteen in
+  total); the seasonal note gains the surface table, the null-seasonality
+  tolerance and the direct-adjustment section.
+
+### Changed
+- `SeasonalAdjustment.label` now states that the adjustment was **direct** and
+  that seasonally adjusted components need not sum to an adjusted total. The
+  constrained adjustment is labelled, not implemented.
+- The Seasonality page draws the shared seasonal adjustment chart (engine in
+  the title, legend and note) instead of an unlabelled line chart; the chart
+  is also in the Word report, the deck and the bulletin.
+- `parse_jsonstat` returns a column for each dimension that varies across the
+  response, so a multi-series request can be told apart. A single-series
+  response decodes exactly as before.
+
+### Fixed
+- The SDMX-ML message carried the seasonally adjusted series with nothing
+  saying what adjusted it: the CSV's `basis` column never reached it. A
+  `BASIS` series attribute now carries the engine and the direct-adjustment
+  statement (and the multilateral method on those series). Found by the
+  surface inventory test.
+
+### Notes
+- X-13ARIMA-SEATS is still not installed on this machine; every seasonal
+  surface was verified on the STL fallback, and the X-13 path remains
+  exercised through a substituted runner.
+- The null-seasonality tolerance is the series' own noise, sigma: the
+  adjustment's root-mean-square change must not exceed it. Over 40 seeds of
+  ten years the measured change was 0.62 sigma (median) and 0.77 sigma
+  (worst); on four years the worst case reached 1.13 sigma.
+
 ## Unreleased — Phase 6: seasonality, outliers and revision control (2026-09-22)
 
 ### Added

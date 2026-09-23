@@ -110,7 +110,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 776 tests
+make test        # 862 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/, data/ and reporting/
 ```
@@ -246,6 +246,15 @@ pricelab/
     revision.py         revision triangles over the registry's own vintages,
                         mean and mean absolute revision, a bias test, and
                         published against current for any reference period
+    decomposition.py    rates of change; contributions at every level of the
+                        tree, reconciled to eight decimal places; exclusion,
+                        trimmed mean, weighted median, variance-weighted and
+                        sticky-price core measures, each stating its
+                        parameters and data requirements; base effects;
+                        diffusion and dispersion
+    deflation.py        deflation with explicit frequency alignment (a
+                        mismatch raises, never resamples); real wages and
+                        income; constant prices and volume indices; PPPs
     custom.py           analyst-defined formulae via the restricted evaluator
     quality_adjustment.py
                         overlap, direct comparison, quantity, option cost,
@@ -259,7 +268,10 @@ pricelab/
     auto.py             schema inference and self-configuration from the diagnosis
     insights.py         the interpretation layer: ranked findings in plain English
   reporting/
-    charts.py           one chart factory serving both the screen and the exports
+    charts.py           one chart factory serving both the screen and the exports;
+                        every artist declares its unit, and a figure mixing
+                        units (or unlabelled nominal and real) on one axis
+                        is refused
     deck.py             automatic slide deck, structured by what was actually found
     report.py           Word and Markdown report, plus the method note
     excel.py            the Excel evidence pack, nine sheets, sanitised
@@ -270,7 +282,8 @@ pricelab/
 pages/            one module per lifecycle stage; app.py wires them into
                   role-filtered st.navigation
   ingest.py, quality.py, outliers.py, imputation.py, quality_adjustment.py,
-  index_build.py, multilateral.py, seasonal.py, findings.py, diagnostics.py,
+  index_build.py, multilateral.py, seasonal.py, decomposition.py,
+  deflation.py, findings.py, diagnostics.py,
   reports.py, sources.py, revisions.py, audit_log.py,
   common.py (shared session-state helpers)
 migrations/       Alembic; seven revisions covering users, sessions, audit events,
@@ -278,7 +291,7 @@ migrations/       Alembic; seven revisions covering users, sessions, audit event
                   the classification tree, validation overrides, column
                   mappings, the quality adjustment ledger and the outlier
                   review queue's decisions
-tests/            776 tests
+tests/            862 tests
 scripts/
   generate_synthetic_data.py   the price-quote fixture, not the product
   generate_scanner_data.py     the scanner transaction fixture, with churn,

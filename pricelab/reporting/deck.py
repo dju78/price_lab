@@ -508,6 +508,19 @@ def build_deck(res: dict[str, Any], nar: Narrative, charts: dict[str, Any], labe
     slide_actions(prs, nar)
     slide_method(prs, res, nar)
     slide_supplementary(prs, res)
+    seasonal = res.get("seasonal")
+    if "seasonal_adjustment" in png and seasonal is not None and seasonal.adjustment is not None:
+        # The adjusted line, never alone: the chart draws the unadjusted
+        # series beside it, and the slide text is the full label.
+        adjustment = seasonal.adjustment
+        slide_finding(prs, Finding(
+            kind="seasonal",
+            headline=f"{adjustment.series_name}, seasonally adjusted with "
+                     f"{adjustment.engine_label}, beside the unadjusted series",
+            detail=adjustment.label[:1].upper() + adjustment.label[1:] + ".",
+            evidence="Both series are in the exported workbook and the CSV.",
+            importance=70, chart="seasonal_adjustment"),
+            png["seasonal_adjustment"], "Seasonal adjustment")
     slide_provenance(prs, stamp)
     # python-pptx caps a core property at 255 characters, so the full JSON
     # lives in the provenance slide's notes; the subject just names the run.

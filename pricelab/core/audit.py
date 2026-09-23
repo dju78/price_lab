@@ -55,6 +55,8 @@ OUTLIER_DECISION_WITHDRAWN = "outlier_decision_withdrawn"
 SEASONAL_ADJUSTMENT = "seasonal_adjustment"
 REVISION_ANALYSIS = "revision_analysis"
 RUN_CORRECTED = "run_corrected"
+DECOMPOSITION = "decomposition"
+DEFLATION = "deflation"
 
 
 class AuditEventORM(Base):

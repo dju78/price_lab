@@ -207,7 +207,7 @@ def build_bulletin(
         story.append(Paragraph(f"• <b>{_t(f.headline)}</b> {_t(f.evidence)}", st["body"]))
 
     story.append(Paragraph("Charts", st["h2"]))
-    for key in ("index", "inflation", "quality_adjustment"):
+    for key in ("index", "inflation", "quality_adjustment", "seasonal_adjustment"):
         if key in charts:
             story.append(Image(io.BytesIO(to_png(charts[key], dpi=150)), width=170 * mm,
                                height=85 * mm, kind="proportional"))

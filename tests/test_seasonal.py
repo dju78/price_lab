@@ -355,7 +355,8 @@ def test_x13_is_used_and_named_when_the_binary_is_there(monkeypatch):
     assert calls == ["/opt/x13"]
     assert adjustment.engine == "x13"
     assert not adjustment.fell_back
-    assert adjustment.label == "seasonally adjusted with X-13ARIMA-SEATS"
+    assert adjustment.label == ("seasonally adjusted with X-13ARIMA-SEATS; "
+                                + adjustment.additivity_note)
     assert "STL" not in adjustment.label
 
 
@@ -386,8 +387,9 @@ def test_asking_for_stl_gets_stl_with_nothing_to_qualify(monkeypatch):
     adjustment = sn.adjust(_index_series(), SeasonalConfig(adjustment_engine="stl"))
     assert adjustment.engine == "stl"
     assert not adjustment.fell_back
-    assert adjustment.label == "seasonally adjusted with STL (seasonal-trend decomposition " \
-                               "by loess)"
+    assert adjustment.label == ("seasonally adjusted with STL (seasonal-trend decomposition "
+                                "by loess); " + adjustment.additivity_note)
+    assert "not X-13ARIMA-SEATS" not in adjustment.label       # nothing to qualify
 
 
 # ---------------------------------------------------------------------

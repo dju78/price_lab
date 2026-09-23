@@ -539,6 +539,8 @@ def build_docx(res: dict[str, Any], nar: Narrative, charts: dict[str, Any], labe
         doc.add_heading(title, level=2)
         if note:
             _rich(doc.add_paragraph(), note)
+        if title == "Seasonal adjustment" and "seasonal_adjustment" in charts:
+            doc.add_picture(io.BytesIO(to_png(charts["seasonal_adjustment"])), width=Inches(6.0))
         _table(doc, with_index_column(table), max_rows=30)
 
     doc.add_heading("Method note", level=2)

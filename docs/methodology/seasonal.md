@@ -109,10 +109,31 @@ adjusted". STL is a robust loess decomposition — a good one, and not the same
 thing: no trading-day or Easter regressors, no outlier model, no ARIMA
 extension of the series ends, no X-11 quality diagnostics. Presenting an STL
 result as *the* seasonal adjustment without saying so is a misrepresentation.
-`SeasonalAdjustment.label` carries the sentence and every caller prints it:
-the page before the chart, the chart caption, the CSV's first line, the
-method note, the Word report, the deck, the Excel pack's "Series basis"
-sheet, and the bulletin's "How each series was produced".
+`SeasonalAdjustment.label` carries the sentence and every caller prints it.
+The places it reaches are enumerated in code, in
+`reporting/exports.SEASONAL_SURFACES`:
+
+| Surface | Where the engine and the unadjusted series appear |
+|---|---|
+| page | `pages/seasonal.py`: the status line before the chart, the chart, its caption, the CSV download's first line |
+| chart | `reporting/charts.seasonal_adjustment_chart`: title and legend name the engine; the note under the axes carries the full label; both series drawn |
+| method note | `engine/seasonal.adjustment_note`, quoted by every report, deck and bulletin |
+| Markdown report | the Seasonality method section and the Seasonal adjustment table |
+| Word report | the same section and table, and the chart |
+| deck | the "What produced these series" slide and the seasonal adjustment chart slide |
+| Excel pack | the Seasonal adjustment sheet and the Series basis sheet |
+| bulletin | the chart, the table, "How each series was produced", the methodology note |
+| CSV | the `basis` column on the adjusted rows, and the unadjusted rows |
+| SDMX-ML | a `BASIS` attribute on the adjusted series, and the unadjusted series |
+
+`tests/test_seasonal_carried.py` renders every one of them and checks that
+each names the engine, says when it is the fallback, carries the unadjusted
+series, and states the direct-adjustment warning below. It also scans
+`pages/` and `reporting/` for any module that handles the adjusted series and
+fails if one is not in the table: a new output cannot ship without joining
+the check. Writing that test found one gap — the SDMX message carried the
+adjusted series under its key with no statement of what adjusted it — which
+the `BASIS` attribute closes.
 
 `adjustment_engine` is a request, not a guarantee. `"x13"` raises where the
 binary is absent rather than substituting; `"auto"` falls back and records
@@ -152,6 +173,46 @@ average out over a year cannot change a trend, so any material value here is
 the adjustment manufacturing or destroying growth, and it is reported whether
 or not it is large.
 
+## A series with no seasonality
+
+The companion check to the spurious-trend test: adjusting a series that has
+no seasonal pattern must return it essentially unchanged. Two tolerances,
+because there are two cases.
+
+**No noise.** A pure trend is returned identical to floating-point
+precision: the test bound is 1e-10 in log terms, and the measured change is
+1.7e-14. Anything above rounding would be a seasonal pattern invented from a
+straight line.
+
+**Noise.** A noisy series cannot come back *exactly* unchanged. STL
+estimates each calendar month's factor from that month's few observations,
+so the estimate carries sampling error of roughly σ/√(observations per
+month), and dividing it out moves each point by a fraction of the noise.
+The right yardstick for "essentially unchanged" is therefore the irregular
+component itself, not a fixed percentage — a fixed 0.1% would be failed by
+a correct adjustment of a noisy series and passed by a broken one on a
+smooth series. The test: the root-mean-square change, in logs, is at most σ,
+and the trend moves by less than 0.1 points a year. Over 40 seeds of ten
+years of monthly data the measured change was a median 0.62σ and at worst
+0.77σ; the test runs ten of those seeds. On four years of data the worst of
+40 seeds reached 1.13σ: short samples fit larger spurious factors, which is
+one more reason the stability test reports its sub-sample count.
+
+The same test is shown to discriminate: a genuine 5% seasonal wave, adjusted,
+changes the series by more than 5σ.
+
+## Direct adjustment, and the parts that need not add up
+
+Every adjustment here is **direct**: the named series itself is adjusted,
+not assembled from separately adjusted components (indirect adjustment). The
+two give different answers and neither is wrong, but they do not agree: the
+seasonally adjusted components need not sum to the seasonally adjusted
+total, and `tests/test_seasonal_carried.py` shows the gap on the bundled
+collection. Offices that publish both either constrain the components to the
+total (benchmarking) or publish the gap. This platform does neither, so it
+says so: `SeasonalAdjustment.additivity_note` is part of `label`, and so
+appears on every surface in the table above.
+
 ## The seasonal multilateral forms
 
 The year-over-year monthly index and the rolling year index live in
@@ -176,4 +237,7 @@ reimplemented. There is no trading-day, moving-holiday or leap-year
 adjustment on the STL path. Seasonal adjustment is applied to one series at a
 time and is not made additively consistent across an aggregation structure:
 adjusting the components and adjusting the total give different answers, and
-this module does not reconcile them.
+this module does not reconcile them — it labels the gap instead (above). There
+is no test for identifiable seasonality before adjusting (X-13's combined
+test, or QS): a series with none is adjusted anyway, and the null test above
+bounds what that does to it.

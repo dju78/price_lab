@@ -25,6 +25,8 @@ the standard recommends and why.
 | `engine/seasonal.py` | [seasonal.md](seasonal.md) | Strictly seasonal items; class confinement and weight update; the Rothwell index; counter-seasonal estimation; seasonal adjustment by X-13ARIMA-SEATS or STL, with the engine named |
 | `engine/outliers.py` | [outliers.md](outliers.md) | Tukey fences, the quartile method, Hidiroglou-Berthelot, ratio screening; the review queue and the exclusion report |
 | `engine/revision.py` | [revision.md](revision.md) | Revision triangles, mean and mean absolute revision, the bias test, published against current |
+| `engine/decomposition.py` | [decomposition.md](decomposition.md) | Rates of change; contributions at every level of the tree, reconciled to eight decimals; exclusion, trimmed mean, weighted median, variance-weighted and sticky-price core measures; base effects; diffusion and dispersion |
+| `engine/deflation.py` | [deflation.md](deflation.md) | Deflation with explicit alignment; real wages and income; constant prices and volume indices; PPP conversion and price level indices |
 | `engine/quality_adjustment.py` | [quality_adjustment.md](quality_adjustment.md) | Overlap, direct comparison, quantity, option cost, class/targeted/overall mean; the ledger; the impact report |
 | `engine/hedonic.py` | [hedonic.md](hedonic.md) | Time dummy, characteristics price and imputation hedonics; functional forms; diagnostics |
 | `engine/custom.py` | [custom.md](custom.md) | Analyst-defined formulae through the restricted evaluator; the non-standard mark |

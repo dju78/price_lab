@@ -19,6 +19,8 @@ from __future__ import annotations
 import streamlit as st
 
 import pages.audit_log
+import pages.decomposition
+import pages.deflation
 import pages.diagnostics
 import pages.findings
 import pages.imputation
@@ -173,6 +175,8 @@ _PAGE_SPECS = [
     (pages.index_build.render, "Index build", "📈", "index-build"),
     (pages.multilateral.render, "Multilateral", "🧮", "multilateral"),
     (pages.seasonal.render, "Seasonality", "🍓", "seasonality"),
+    (pages.decomposition.render, "Decomposition", "🧱", "decomposition"),
+    (pages.deflation.render, "Deflation", "💶", "deflation"),
     (pages.findings.render, "Findings", "🗒️", "findings"),
     (pages.diagnostics.render, "Diagnostics", "🔎", "diagnostics"),
     (pages.reports.render, "Reports", "📤", "reports"),

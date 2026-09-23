@@ -78,8 +78,35 @@ that gap is a judgement about what the basket means while part of it does
 not exist. Separately, seasonal adjustment: read the engine name before you
 read the line. Where X-13ARIMA-SEATS is not installed the page says so and
 STL runs instead, and every output says which one produced the series. The
-unadjusted series is drawn on the same axes and written into the same file
-([methodology/seasonal.md](methodology/seasonal.md)).
+unadjusted series is drawn on the same axes and written into the same file,
+and every output says the adjustment was direct: seasonally adjusted
+components need not add up to an adjusted total, so do not sum them and
+expect it to match ([methodology/seasonal.md](methodology/seasonal.md)).
+
+**Decomposition.** What is driving the headline, and how broad it is. Work
+from your own compiled run (it needs expenditure weights; without them the
+page says why nothing additive can be computed) or fetch the published HICP
+from Eurostat with its item weights. The page gives every standard rate of
+change side by side; contributions at every level of the classification
+tree, with the reconciliation gap to the headline shown (it should read of
+order 1e-14 percentage points); core measures — exclusion, trimmed mean,
+weighted median, variance weighted, sticky price — each with its parameters
+and, where the data cannot support it, the reason; the base-effect split of
+the year-on-year rate into carry-over and this year's impulse; and the share
+of the basket rising, the spread and the skew
+([methodology/decomposition.md](methodology/decomposition.md)).
+
+**Deflation.** Upload a nominal series (earnings, income, sales) as a
+two-column CSV and deflate it by a series of the compiled index, an official
+series fetched on Sources, or an uploaded deflator. Pick the reference
+period — a month, or a whole year — and the result names the deflator and
+the reference period on screen, on the chart and on the download's first
+line. If the two series have different frequencies you get an error, not a
+quietly resampled answer: choose how to convert the nominal series (average,
+sum for a flow, last value for a stock) and the conversion is recorded with
+the result. The same page converts values at purchasing power parities, and
+asks before holding an annual PPP constant through the months
+([methodology/deflation.md](methodology/deflation.md)).
 
 **Multilateral.** Only if your collection carries quantities or
 expenditure, and only worth it if it is transaction or scanner data:

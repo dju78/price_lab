@@ -12,6 +12,7 @@ more than one is present) rather than relying on the query string alone.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -40,3 +41,138 @@ class EurostatConnector(BaseConnector):
     def _api_version(self, raw: Any) -> str | None:
         version = raw.get("version") if isinstance(raw, dict) else None
         return str(version) if version is not None else None
+
+
+# ---------------------------------------------------------------------
+# The HICP as a classification tree
+# ---------------------------------------------------------------------
+#: Eurostat datasets holding the HICP's monthly indices and its item weights.
+HICP_INDEX_DATASET = "prc_hicp_midx"
+HICP_WEIGHT_DATASET = "prc_hicp_inw"
+HICP_ROOT = "CP00"
+
+
+#: The ECOICOP codes of the all-items HICP, its twelve divisions and their
+#: groups, as Eurostat publishes them (checked against the dataset's code
+#: list on 2026-09-23). CP08 has one published group covering a small part
+#: of its weight, which `hicp_tree` handles by keeping CP08 as a leaf.
+HICP_CODES: tuple[str, ...] = (
+    "CP00", "CP01", "CP011", "CP012", "CP02", "CP021", "CP022", "CP03", "CP031", "CP032",
+    "CP04", "CP041", "CP043", "CP044", "CP045", "CP05", "CP051", "CP052", "CP053", "CP054",
+    "CP055", "CP056", "CP06", "CP061", "CP062", "CP063", "CP07", "CP071", "CP072", "CP073",
+    "CP08", "CP081", "CP09", "CP091", "CP092", "CP093", "CP094", "CP095", "CP096", "CP10",
+    "CP101", "CP102", "CP103", "CP104", "CP105", "CP11", "CP111", "CP112", "CP12", "CP121",
+    "CP123", "CP124", "CP125", "CP126", "CP127")
+
+
+def hicp_key(dataset: str, codes: list[str], geo: str, *, unit: str | None = "I15") -> str:
+    """The `dataset` argument that asks the SDMX 2.1 endpoint for several
+    COICOP codes in one request, by key path rather than query string.
+
+    The query-string filters are accepted and ignored by this endpoint (see
+    the module docstring), but a key path is honoured: `M.I15.CP01+CP02.EA`
+    returns those two series and nothing else. The weights dataset has no
+    unit dimension, hence `unit=None` for it.
+    """
+    joined = "+".join(codes)
+    if dataset == HICP_WEIGHT_DATASET or unit is None:
+        return f"{dataset}/A.{joined}.{geo}"
+    return f"{dataset}/M.{unit}.{joined}.{geo}"
+
+
+def hicp_parent(code: str) -> str | None:
+    """ECOICOP parent by code: CP011 -> CP01 -> CP00 -> None."""
+    if code == HICP_ROOT:
+        return None
+    if len(code) == 4:          # a division, CPnn
+        return HICP_ROOT
+    return code[:4]
+
+
+@dataclass(frozen=True)
+class HICPTree:
+    """Leaf indices, their weights and the tree above them, ready for
+    `engine.aggregation.aggregate_tree`, plus the published headline to
+    check the re-aggregation against."""
+
+    leaf_indices: pd.DataFrame
+    leaf_weights: dict[str, float]
+    parent_of: dict[str, str | None]
+    supplied_parent_weights: dict[str, float]
+    published: pd.DataFrame
+    """Every published series, rebased like the leaves, including the
+    divisions and the all-items index the tree re-derives."""
+    weight_year: int
+    base_period: pd.Timestamp
+    notes: tuple[str, ...]
+
+
+def hicp_tree(indices: pd.DataFrame, weights: pd.DataFrame, year: int, *,
+              coverage_tolerance: float = 0.01) -> HICPTree:
+    """Build the three-level HICP tree for one year from two decoded fetches.
+
+    `indices` and `weights` are the frames `parse_jsonstat` returns for a
+    multi-code request (a `coicop` column beside `period` and `value`).
+
+    The year is the unit of HICP compilation: each year's item weights are
+    price-updated to December of the year before, and the indices are
+    chain-linked there. So the leaves are rebased to December of `year - 1`
+    and weighted with `year`'s weights, which is the arithmetic the
+    published index itself uses within that year -- and is why a
+    re-aggregation of the published divisions reproduces the published
+    all-items index to rounding, which the tests check.
+
+    A division is used as a leaf in its own right when its published groups
+    do not cover its weight (within `coverage_tolerance` of it): an
+    aggregate built from a fraction of its parts would be a different index
+    with the parent's name on it. Each such substitution is named in
+    `notes`.
+    """
+    for frame, name in ((indices, "indices"), (weights, "weights")):
+        if "coicop" not in frame.columns:
+            raise ValueError(
+                f"the {name} frame has no 'coicop' column: it must come from a request for "
+                "several COICOP codes, so each row says which series it belongs to")
+    wide = indices.pivot_table(index="period", columns="coicop", values="value")
+    wide.index = pd.DatetimeIndex(wide.index)
+    base = pd.Timestamp(year - 1, 12, 1)
+    if base not in wide.index:
+        raise ValueError(
+            f"the indices do not include December {year - 1}, the period {year}'s HICP weights "
+            "are price-updated to; fetch from that month onwards")
+    span = wide.loc[base:pd.Timestamp(year, 12, 1)]
+    rebased = span / span.loc[base] * 100.0
+
+    w = weights[pd.DatetimeIndex(weights["period"]).year == year]
+    if w.empty:
+        raise ValueError(f"no item weights for {year} in the weights frame")
+    weight_of = {str(c): float(v) for c, v in zip(w["coicop"], w["value"], strict=True)}
+
+    codes = [c for c in rebased.columns if c in weight_of]
+    divisions = sorted(c for c in codes if len(c) == 4 and c != HICP_ROOT)
+    notes: list[str] = []
+    leaves: list[str] = []
+    for division in divisions:
+        groups = [c for c in codes if len(c) == 5 and c.startswith(division)]
+        covered = sum(weight_of[g] for g in groups)
+        if groups and abs(covered - weight_of[division]) <= coverage_tolerance * max(
+                weight_of[division], 1e-12) + 0.05:
+            leaves.extend(groups)
+        else:
+            leaves.append(division)
+            if groups:
+                notes.append(
+                    f"{division}: its published groups ({', '.join(groups)}) carry "
+                    f"{covered:.2f} of its {weight_of[division]:.2f} per mille, so the division "
+                    "is used as a leaf itself rather than rebuilt from a fraction of its parts")
+    parent_of: dict[str, str | None] = {HICP_ROOT: None}
+    for leaf in leaves:
+        parent = hicp_parent(leaf)
+        parent_of[leaf] = parent
+        if parent is not None and parent != HICP_ROOT:
+            parent_of[parent] = HICP_ROOT
+    supplied = {c: weight_of[c] for c in parent_of if c not in leaves and c in weight_of}
+    return HICPTree(
+        leaf_indices=rebased[leaves], leaf_weights={c: weight_of[c] for c in leaves},
+        parent_of=parent_of, supplied_parent_weights=supplied, published=rebased,
+        weight_year=year, base_period=base, notes=tuple(notes))

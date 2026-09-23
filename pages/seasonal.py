@@ -164,7 +164,12 @@ def _adjustment(indices: pd.DataFrame, cfg: SeasonalConfig) -> None:
     for warning in adjustment.warnings:
         st.warning(warning)
 
-    st.line_chart(adjustment.frame[["unadjusted", "adjusted"]])
+    # The same figure the Word report, the deck and the bulletin embed, so
+    # the chart on screen carries the engine in its title, legend and note
+    # exactly as the exported one does.
+    from pricelab.reporting.charts import seasonal_adjustment_chart
+
+    st.pyplot(seasonal_adjustment_chart(adjustment), use_container_width=True)
     st.caption("Unadjusted and adjusted on the same axes. "
                + _sentence(adjustment.label))
 

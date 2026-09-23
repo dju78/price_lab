@@ -3,9 +3,23 @@
 One factory, two consumers: the app renders the figures, the deck embeds them
 as PNG. Building them once means a chart in the exported deck is the same chart
 the user approved on screen, which is the whole point of an export.
+
+Units on an axis
+----------------
+Every plotted artist is marked with the unit it is drawn in (`mark`), and
+`check_figure` refuses a figure that puts two units on one axis -- an index
+level beside a percentage change, a percentage change beside a
+percentage-point contribution -- or that puts a nominal and a real series on
+one axis without each line saying which it is. `build_all_charts` checks
+every figure it returns, and `tests/test_decomposition.py` checks every chart
+this module can draw, so a chart that mixes them fails a test rather than
+reaching a reader. An unmarked artist is itself a failure: a rule that only
+applies to the artists somebody remembered to label is not a rule.
 """
 
 import io
+import textwrap
+from collections.abc import Mapping
 from typing import Any, cast
 
 import matplotlib
@@ -42,6 +56,94 @@ plt.rcParams.update({
 })
 
 
+# ----------------------------------------------------------------------
+# Units
+# ----------------------------------------------------------------------
+UNITS: dict[str, str] = {
+    "index_level": "index level",
+    "percent_change": "percentage change",
+    "percentage_points": "percentage-point contribution",
+    "currency": "currency value",
+    "price": "price",
+    "count": "count",
+    "other": "other",
+}
+BASES = ("nominal", "real")
+_UNIT_ATTR, _BASIS_ATTR = "_pricelab_unit", "_pricelab_basis"
+
+
+class ChartUnitError(ValueError):
+    """A figure draws incompatible quantities on one axis."""
+
+
+def mark(artist: Any, unit: str, basis: str | None = None) -> Any:
+    """Record the unit (and, for money, nominal or real) an artist is drawn
+    in. Returns the artist, so a call can wrap the plotting call. A list of
+    lines, or a bar container, marks each member."""
+    if unit not in UNITS:
+        raise ChartUnitError(f"unknown unit {unit!r}; one of {sorted(UNITS)}")
+    if basis is not None and basis not in BASES:
+        raise ChartUnitError(f"basis must be one of {BASES}, not {basis!r}")
+    if isinstance(artist, (list, tuple)):
+        targets = list(artist)
+    elif hasattr(artist, "patches"):
+        targets = list(artist.patches)
+    else:
+        targets = [artist]
+    for target in targets:
+        setattr(target, _UNIT_ATTR, unit)
+        setattr(target, _BASIS_ATTR, basis)
+    return artist
+
+
+def _data_artists(ax: Axes) -> list[Any]:
+    return [*ax.lines, *ax.collections, *ax.patches, *ax.images]
+
+
+def check_axes(ax: Axes) -> None:
+    """Raise `ChartUnitError` if this axis mixes units or unlabelled bases."""
+    units: dict[str, list[str]] = {}
+    for artist in _data_artists(ax):
+        unit = getattr(artist, _UNIT_ATTR, None)
+        if unit is None:
+            raise ChartUnitError(
+                f"an unmarked {type(artist).__name__} on the axis titled {ax.get_title()!r}: "
+                "every plotted artist must declare its unit with charts.mark")
+        units.setdefault(unit, []).append(str(artist.get_label()))
+    if len(units) > 1:
+        described = "; ".join(f"{UNITS[u]} ({', '.join(sorted(set(v))[:3])})"
+                              for u, v in units.items())
+        raise ChartUnitError(
+            f"one axis ({ax.get_title()!r}) mixes {len(units)} units: {described}. Draw each on "
+            "an axis of its own")
+    bases = {getattr(a, _BASIS_ATTR, None) for a in _data_artists(ax)} - {None}
+    if len(bases) > 1:
+        for artist in _data_artists(ax):
+            basis = getattr(artist, _BASIS_ATTR, None)
+            label = str(artist.get_label())
+            if basis is not None and not label.startswith("_") and basis not in label.lower():
+                raise ChartUnitError(
+                    f"nominal and real series share the axis {ax.get_title()!r}, and the "
+                    f"{basis} series is labelled {label!r}, which does not say it is {basis}")
+            if basis is not None and label.startswith("_"):
+                raise ChartUnitError(
+                    f"nominal and real series share the axis {ax.get_title()!r}, and a {basis} "
+                    "series there has no label at all")
+        if not ax.get_ylabel():
+            raise ChartUnitError(
+                f"nominal and real series share the axis {ax.get_title()!r} with no axis label "
+                "saying what they are measured in")
+
+
+def check_figure(fig: Figure) -> Figure:
+    """`check_axes` on every data axis of the figure; returns it unchanged."""
+    for ax in fig.axes:
+        if getattr(ax, "_colorbar", None) is not None:
+            continue   # a colour bar's scale, not data
+        check_axes(ax)
+    return fig
+
+
 def _fig(figsize: tuple[float, float]) -> tuple[Figure, Axes]:
     """Create a figure outside pyplot's global registry.
 
@@ -74,11 +176,11 @@ def quality_bands(clean: pd.DataFrame, figsize: tuple[float, float] = (10, 5)) -
     fig, ax = _fig(figsize)
     ok = clean[clean["flag"].isin(["none", "missing_code"])]
     bad = clean[clean["flag"].str.startswith("scale_")]
-    ax.scatter(ok["period"], ok["price_reported"], s=5, color=PRIMARY, alpha=0.35,
-               linewidths=0, label="As reported")
+    mark(ax.scatter(ok["period"], ok["price_reported"], s=5, color=PRIMARY, alpha=0.35,
+                    linewidths=0, label="As reported"), "price")
     if len(bad):
-        ax.scatter(bad["period"], bad["price_reported"], s=22, color=ACCENT,
-                   alpha=0.9, linewidths=0, label="Flagged as unit error")
+        mark(ax.scatter(bad["period"], bad["price_reported"], s=22, color=ACCENT,
+                        alpha=0.9, linewidths=0, label="Flagged as unit error"), "price")
     ax.set_yscale("log")
     ax.set_ylabel("Reported price, log scale")
     ax.legend(frameon=False, loc="upper left", fontsize=9)
@@ -109,11 +211,12 @@ def index_chart(I: pd.DataFrame, cfg: IndexConfig | None = None,
     # printed: each series also gets its own dash pattern, so eleven lines
     # stay tellable apart in one ink.
     for i, c in enumerate(cats):
-        ax.plot(I.index, I[c], lw=1.2, color=SERIES[i % len(SERIES)], alpha=0.85, label=c,
-                linestyle=LINE_STYLES[i % len(LINE_STYLES)])
+        mark(ax.plot(I.index, I[c], lw=1.2, color=SERIES[i % len(SERIES)], alpha=0.85, label=c,
+                     linestyle=LINE_STYLES[i % len(LINE_STYLES)]), "index_level")
     if "All items" in I.columns:
-        ax.plot(I.index, I["All items"], lw=3, color=INK, label="All items", zorder=5)
-    ax.axhline(100, color=MUTED, lw=0.8, ls="--")
+        mark(ax.plot(I.index, I["All items"], lw=3, color=INK, label="All items", zorder=5),
+             "index_level")
+    mark(ax.axhline(100, color=MUTED, lw=0.8, ls="--"), "index_level")
     index_ref = resolve_index_reference_period(cfg or IndexConfig(), I.index)
     ax.set_ylabel(f"Index, {index_ref:%b %Y} = 100")
     # Below the axes, not over the data: a legend inside the plot area sat
@@ -133,12 +236,12 @@ def inflation_chart(yoy: pd.DataFrame, col: str = "All items",
     # accept, and the conversion is what matplotlib does internally anyway.
     periods = pd.DatetimeIndex(s.index).to_numpy()
     values = s.to_numpy(dtype=float)
-    ax.plot(periods, values, lw=2.4, color=PRIMARY)
-    ax.fill_between(periods, 0, values, color=PRIMARY, alpha=0.10)
-    ax.axhline(0, color=MUTED, lw=0.9)
+    mark(ax.plot(periods, values, lw=2.4, color=PRIMARY), "percent_change")
+    mark(ax.fill_between(periods, 0, values, color=PRIMARY, alpha=0.10), "percent_change")
+    mark(ax.axhline(0, color=MUTED, lw=0.9), "percent_change")
     peak_at = pd.Timestamp(cast(Any, s.idxmax()))
-    ax.scatter(np.array([peak_at], dtype="datetime64[ns]"), [s.max()], s=70, color=ACCENT,
-               zorder=5)
+    mark(ax.scatter(np.array([peak_at], dtype="datetime64[ns]"), [s.max()], s=70, color=ACCENT,
+                    zorder=5), "percent_change")
     ax.annotate(f"{s.max():.1f}%  {peak_at:%b %Y}", (peak_at, s.max()),
                 textcoords="offset points", xytext=(10, 6), color=ACCENT,
                 fontsize=10, fontweight="bold")
@@ -156,8 +259,8 @@ def method_chart(comp: pd.DataFrame, figsize: tuple[float, float] = (10, 5)) -> 
     fig, ax = _fig(figsize)
     d = comp.dropna().sort_values("difference_pp")
     colors = [ACCENT if abs(v) >= 5 else MUTED for v in d["difference_pp"]]
-    ax.barh(d.index, d["difference_pp"], color=colors, height=0.65)
-    ax.axvline(0, color=INK, lw=1)
+    mark(ax.barh(d.index, d["difference_pp"], color=colors, height=0.65), "percentage_points")
+    mark(ax.axvline(0, color=INK, lw=1), "percentage_points")
     ax.set_xlabel("Matched index minus naive average of prices, percentage points")
     ax.grid(axis="y", visible=False)
     ax.set_title("What ignoring item replacement would cost",
@@ -170,7 +273,7 @@ def seasonality_chart(seas: pd.DataFrame,
     fig, ax = _fig(figsize)
     d = seas[seas.index != "All items"].sort_values("amplitude_pct")
     colors = [ACCENT if v >= 10 else MUTED for v in d["amplitude_pct"]]
-    ax.barh(d.index, d["amplitude_pct"], color=colors, height=0.65)
+    mark(ax.barh(d.index, d["amplitude_pct"], color=colors, height=0.65), "percent_change")
     ax.set_xlabel("Peak to trough within the year, %")
     ax.grid(axis="y", visible=False)
     ax.set_title("Seasonal amplitude, measured on the index",
@@ -181,7 +284,7 @@ def seasonality_chart(seas: pd.DataFrame,
 def coverage_chart(matched: pd.DataFrame, figsize: tuple[float, float] = (10, 4)) -> Figure:
     fig, ax = _fig(figsize)
     d = matched.drop(columns=["All items"], errors="ignore").T
-    im = ax.imshow(d.values, aspect="auto", cmap="Blues", vmin=0)
+    im = mark(ax.imshow(d.values, aspect="auto", cmap="Blues", vmin=0), "count")
     ax.set_yticks(range(len(d.index)), d.index, fontsize=8)
     step = max(1, len(d.columns) // 10)
     ax.set_xticks(range(0, len(d.columns), step),
@@ -202,8 +305,8 @@ def hedonic_residual_chart(result: Any, figsize: tuple[float, float] = (10, 4.5)
     observations to go and look at.
     """
     fig, ax = _fig(figsize)
-    ax.axhline(0, color=MUTED, linewidth=1)
-    ax.scatter(result.fitted, result.residuals, s=14, color=PRIMARY, alpha=0.7)
+    mark(ax.axhline(0, color=MUTED, linewidth=1), "other")
+    mark(ax.scatter(result.fitted, result.residuals, s=14, color=PRIMARY, alpha=0.7), "other")
     ax.set_xlabel("fitted (transformed price)")
     ax.set_ylabel("residual")
     ax.set_title(f"Hedonic residuals: {result.spec.functional_form}, adjusted R² "
@@ -217,9 +320,10 @@ def hedonic_leverage_chart(result: Any, figsize: tuple[float, float] = (10, 4.5)
     The dashed line is the conventional 2k/n leverage threshold."""
     fig, ax = _fig(figsize)
     sd = float(result.residuals.std()) or 1.0
-    ax.scatter(result.leverage, result.residuals / sd, s=14, color=PRIMARY, alpha=0.7)
+    mark(ax.scatter(result.leverage, result.residuals / sd, s=14, color=PRIMARY, alpha=0.7),
+         "other")
     threshold = 2.0 * result.n_params / max(result.n_obs, 1)
-    ax.axvline(threshold, color=ACCENT, linewidth=1, linestyle="--")
+    mark(ax.axvline(threshold, color=ACCENT, linewidth=1, linestyle="--"), "other")
     ax.set_xlabel("leverage (hat value)")
     ax.set_ylabel("standardised residual")
     ax.set_title("Hedonic leverage", loc="left", fontsize=12, color=INK, pad=12)
@@ -235,8 +339,9 @@ def impact_chart(impact: Any, figsize: tuple[float, float] = (10, 4),
     labels = {"as_configured": "As compiled", "linked_unadjusted": "Linked, no adjustment",
               "no_link": "Not linked (matched model)"}
     colours = [ACCENT, PRIMARY, MUTED]
-    bars = ax.bar([labels[k] for k in levels.index], levels.values, color=colours, width=0.55,
-                  hatch=["", "//", ".."], edgecolor="white")   # tellable apart in one ink
+    bars = mark(ax.bar([labels[k] for k in levels.index], levels.values, color=colours,
+                       width=0.55, hatch=["", "//", ".."], edgecolor="white"),   # one ink
+                "index_level")
     for bar, value in zip(bars, levels.values, strict=True):
         ax.annotate(f"{value:.2f}", (bar.get_x() + bar.get_width() / 2, bar.get_height()),
                     ha="center", va="bottom", fontsize=9, color=INK)
@@ -250,8 +355,111 @@ def impact_chart(impact: Any, figsize: tuple[float, float] = (10, 4),
     return fig
 
 
+def _footnote(fig: Figure, text: str, width: int = 150) -> None:
+    """A wrapped note under the axes: where a qualification that must travel
+    with the chart goes, so a PNG lifted out of a report still carries it."""
+    fig.text(0.01, -0.01, textwrap.fill(text, width), ha="left", va="top", fontsize=7,
+             color=INK)
+
+
+def seasonal_adjustment_chart(adjustment: Any, figsize: tuple[float, float] = (10, 4.8)
+                              ) -> Figure:
+    """The unadjusted and adjusted series on the same axes, with the engine
+    that produced the adjusted one in the title, the legend and the note.
+
+    Both lines, always: the reader has to be able to see what the adjustment
+    removed. And the engine in three places, because each can be cropped
+    out of a screenshot on its own.
+    """
+    fig, ax = _fig(figsize)
+    frame = adjustment.frame
+    periods = pd.DatetimeIndex(frame.index).to_numpy()
+    mark(ax.plot(periods, frame["unadjusted"].to_numpy(dtype=float), lw=1.2, color=MUTED,
+                 linestyle="--", label="Unadjusted, as compiled"), "index_level")
+    mark(ax.plot(periods, frame["adjusted"].to_numpy(dtype=float), lw=2.4, color=PRIMARY,
+                 label=f"Seasonally adjusted ({adjustment.engine_label})"), "index_level")
+    ax.set_ylabel(f"{adjustment.series_name}, index level")
+    ax.legend(frameon=False, fontsize=9, loc="upper left")
+    fallback = " (fallback, not X-13ARIMA-SEATS)" if adjustment.fell_back else ""
+    ax.set_title(f"{adjustment.series_name}: seasonally adjusted with "
+                 f"{adjustment.engine_label}{fallback}", loc="left", fontsize=12, color=INK, pad=12)
+    _footnote(fig, adjustment.label[:1].upper() + adjustment.label[1:] + ".")
+    return check_figure(fig)
+
+
+def contributions_chart(contrib: pd.DataFrame, title: str = "Contributions to the change",
+                        figsize: tuple[float, float] = (10, 5)) -> Figure:
+    """Stacked contributions per period, in percentage points, with their
+    total marked. The total is the sum of the contributions -- the same
+    number as the headline's percentage change, drawn and labelled in
+    percentage points, because a percentage change and a percentage-point
+    contribution do not share an axis here even when they are equal."""
+    fig, ax = _fig(figsize)
+    periods = pd.DatetimeIndex(contrib.index)
+    x = np.arange(len(periods))
+    positive, negative = np.zeros(len(x)), np.zeros(len(x))
+    for i, column in enumerate(contrib.columns):
+        values = contrib[column].fillna(0.0).to_numpy(dtype=float)
+        bottom = np.where(values >= 0, positive, negative)
+        mark(ax.bar(x, values, bottom=bottom, color=SERIES[i % len(SERIES)], width=0.8,
+                    label=str(column)), "percentage_points")
+        positive += np.where(values >= 0, values, 0.0)
+        negative += np.where(values < 0, values, 0.0)
+    total = contrib.sum(axis=1, min_count=1).to_numpy(dtype=float)
+    mark(ax.plot(x, total, color=INK, marker="o", lw=0, ms=4,
+                 label="Total (sum of contributions)"), "percentage_points")
+    mark(ax.axhline(0, color=INK, lw=0.8), "percentage_points")
+    step = max(1, len(x) // 12)
+    ax.set_xticks(x[::step], [f"{p:%b %y}" for p in periods[::step]], fontsize=8)
+    ax.set_ylabel("Contribution, percentage points")
+    ax.legend(frameon=False, fontsize=7, ncol=6, loc="upper center",
+              bbox_to_anchor=(0.5, -0.1))
+    ax.set_title(title, loc="left", fontsize=12, color=INK, pad=12)
+    return check_figure(fig)
+
+
+def rates_chart(series: Mapping[str, pd.Series], title: str, ylabel: str = "% change",
+                figsize: tuple[float, float] = (10, 4.5)) -> Figure:
+    """Several rates of change on one axis -- all percentage changes."""
+    fig, ax = _fig(figsize)
+    for i, (name, values) in enumerate(series.items()):
+        clean = values.dropna()
+        mark(ax.plot(pd.DatetimeIndex(clean.index).to_numpy(), clean.to_numpy(dtype=float),
+                     lw=2.2 if i == 0 else 1.4, color=INK if i == 0 else SERIES[i % len(SERIES)],
+                     linestyle=LINE_STYLES[i % len(LINE_STYLES)], label=name), "percent_change")
+    mark(ax.axhline(0, color=MUTED, lw=0.8), "percent_change")
+    ax.yaxis.set_major_formatter(FuncFormatter(_percent_label))
+    ax.set_ylabel(ylabel)
+    ax.legend(frameon=False, fontsize=8, loc="upper left")
+    ax.set_title(title, loc="left", fontsize=12, color=INK, pad=12)
+    return check_figure(fig)
+
+
+def deflation_chart(result: Any, figsize: tuple[float, float] = (10, 4.8)) -> Figure:
+    """Nominal and real on one axis, which is allowed only because both are
+    in the same currency and each line says which it is: "nominal (current
+    prices)" and "real (constant Dec 2024 prices)". The axis label and the
+    note name the deflator and the reference period."""
+    fig, ax = _fig(figsize)
+    frame = result.frame
+    periods = pd.DatetimeIndex(frame.index).to_numpy()
+    mark(ax.plot(periods, frame["nominal"].to_numpy(dtype=float), lw=1.4, color=MUTED,
+                 linestyle="--", label=f"{result.nominal_name}, nominal (current prices)"),
+         "currency", "nominal")
+    mark(ax.plot(periods, result.real.reindex(frame.index).to_numpy(dtype=float), lw=2.4,
+                 color=PRIMARY, label=f"{result.nominal_name}, real ({result.unit})"),
+         "currency", "real")
+    ax.set_ylabel(f"Value: nominal in current prices, real in {result.unit}")
+    ax.legend(frameon=False, fontsize=9, loc="upper left")
+    ax.set_title(f"{result.nominal_name}, nominal and real", loc="left", fontsize=12,
+                 color=INK, pad=12)
+    _footnote(fig, result.label + ".")
+    return check_figure(fig)
+
+
 def build_all_charts(res: dict[str, Any]) -> dict[str, Figure]:
-    """Every chart the narrative might reference, rendered once."""
+    """Every chart the narrative might reference, rendered once, each one
+    checked for mixed units on an axis before it is handed to anybody."""
     I, yoy = res["indices"], res["inflation"]
     cfg = res["config"].index if "config" in res else None
     charts = {
@@ -273,4 +481,9 @@ def build_all_charts(res: dict[str, Any]) -> dict[str, Figure]:
         charts["quality_adjustment"] = impact_chart(
             res["quality_adjustment_impact"],
             reference_period=resolve_index_reference_period(cfg or IndexConfig(), I.index))
+    seasonal = res.get("seasonal")
+    if seasonal is not None and seasonal.adjustment is not None:
+        charts["seasonal_adjustment"] = seasonal_adjustment_chart(seasonal.adjustment)
+    for figure in charts.values():
+        check_figure(figure)
     return charts

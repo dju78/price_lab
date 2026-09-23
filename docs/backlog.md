@@ -724,13 +724,120 @@ revision analysis by horizon or decomposed by source; a real-time database of
 source data as it arrived; selective editing that ranks outlier flags by
 their effect on the aggregate rather than by how many screens agreed.
 
+## Phase 7a - Decomposition, core measures and deflation (done, 2026-09-23)
+
+**Task 0, the three items carried from seasonal adjustment.**
+(a) `reporting/exports.SEASONAL_SURFACES` enumerates, in code, every place an
+adjusted series reaches a reader: the page, the chart, the method note, the
+Markdown and Word reports, the deck, the Excel pack, the bulletin, the CSV and
+the SDMX message. `tests/test_seasonal_carried.py` renders each and checks it
+names the engine (and says when it is the fallback), carries the unadjusted
+series, and states the direct-adjustment warning; a second test scans
+`pages/` and `reporting/` and fails if a module handles the adjusted series
+without being enumerated. Writing it found one real gap: the SDMX message
+carried "seasonally adjusted: All items" with nothing saying what adjusted it.
+A `BASIS` series attribute now carries the basis (schema-valid). The page now
+draws the shared `charts.seasonal_adjustment_chart` rather than an unlabelled
+`st.line_chart`, so the chart on screen names the engine in its title,
+legend and note exactly as the exported one does; the chart is also in the
+Word report, the deck and the bulletin.
+(b) The null test: a pure trend comes back unchanged to 1e-10 (measured
+1.7e-14); a noisy season-free series is moved by at most its own noise, sigma,
+in root-mean-square terms, and its trend by under 0.1 points a year. The
+tolerance is the irregular's standard deviation rather than a fixed
+percentage, for the reasons in docs/methodology/seasonal.md; measured over 40
+seeds of ten years, a median 0.62 sigma and a worst case of 0.77 sigma. On four
+years the worst case reached 1.13 sigma, which is recorded, not hidden.
+(c) Every adjustment is direct, and `SeasonalAdjustment.label` now says so and
+warns that adjusted components need not sum to an adjusted total. The
+constrained adjustment is not implemented; a test on the bundled collection
+shows the gap it would close.
+
+**Task 1, decomposition.** `engine/decomposition.py`. Rates: period on
+period, year on year, annualised, three months on three (and annualised), and
+cumulative. Contributions at every level of the tree, built on
+`aggregation.aggregate_tree` and `aggregation.contributions` -- one
+definition of the aggregate and one of a contribution -- with each child's
+contribution to its parent rescaled to the headline, which nests exactly
+because every parent's weighted level is the sum of its children's. The
+residual is reported (`residual_pp`), not asserted.
+
+The real-data requirement meant the Phase 2 connector had to learn to label
+its rows: `parse_jsonstat` dropped the code of any dimension that varied, so a
+request for twelve divisions came back as twelve series' observations in one
+unlabelled column. A varying dimension now comes back as a column; a single
+series decodes exactly as before. `eurostat.hicp_key` asks the SDMX 2.1
+endpoint for several codes by key path (its query-string filters are accepted
+and ignored), and `eurostat.hicp_tree` builds the HICP's three-level tree the
+way the HICP is compiled within a year. Recorded responses for the euro area
+(55 series, 2022-12 to 2025-12, and the 2023-2025 item weights) are the test
+fixtures. Re-aggregating the 42 groups reproduces the published all-items
+index to within 0.004 points in every month of 2025; contributions reconcile
+to eight decimals at every level for every month (residual of order 1e-14).
+CP08's lone published group covers 1.20 of its 25.51 per mille, so CP08 is a
+leaf and the page says so; CP05's groups sum to 61.01 against 61.02, which the
+aggregation reports.
+
+Core measures: exclusion (a parent excludes everything beneath it -- "CP01"
+removes food's groups), trimmed mean at a configurable trim with partial
+weights at the trim points, weighted median with the even-split convention,
+variance weighted on a trailing window with a reported floor, and sticky price
+from item-level frequency of change at the Atlanta Fed's 4.3-month cut-off.
+All use effective weights, so a zero-trim trimmed mean is the headline
+exactly. `core_measure_availability` gives each measure's reason for not
+running, and the page prints every measure's requirement beside it: on the
+HICP the sticky-price measure is shown as needing item-level prices the
+published indices do not carry. Base effects: carry-over plus impulse equals
+the year-on-year rate, and this period's movement minus the base effect equals
+the change in it, both exact. Diffusion (shares rising, the diffusion index,
+the basket share above a threshold) and dispersion (weighted spread and
+skew).
+
+**Task 2, deflation.** `engine/deflation.py`. `deflate` with explicit
+alignment: frequency read from the data, a mismatch raises naming both, a
+missing deflator period raises unless `allow_partial`, and conversion is
+`to_frequency`, called by the user and recorded. Real wages and income, exact
+real growth beside the "nominal minus inflation" approximation and its error,
+constant prices and volume indices, PPP conversion (an annual PPP held through
+the year only when asked) and price level indices. Every result's label names
+the deflator, the reference period and the alignment.
+
+**The chart rule.** Every artist in `reporting/charts.py` now declares its
+unit (`charts.mark`), and `check_figure` refuses an axis that mixes units --
+an index level beside a percentage change, a percentage change beside a
+percentage-point contribution -- or that puts nominal and real together
+without each line and the axis saying which is which. An unmarked artist is
+itself a failure. `build_all_charts` checks every figure; the tests check
+every chart function and the negative cases. The contributions chart draws its
+total as "Total (sum of contributions)" in percentage points rather than as
+the headline's percentage change, which is the same number in a different
+unit.
+
+**Pages**: Decomposition (the compiled run or the published HICP) and
+Deflation, each with page-level AppTests, including the HICP fetched through
+the connector and audited, and a run without weights refused with the reason.
+
+**Tests.** 85 new (`test_decomposition.py` 50, `test_deflation.py` 17,
+`test_seasonal_carried.py` 18; two in `test_seasonal.py` updated for the
+longer label); 862 in
+the suite on SQLite; engine coverage 94% (decomposition 94%, deflation 92%).
+
+**Deferred.** Contributions spanning a chain link (the Ribe decomposition for
+annually chain-linked indices); a year-on-year contribution across December
+uses one set of weights and is labelled an approximation. Chain-linked volume
+measures and double deflation. A test for identifiable seasonality before
+adjusting. Core measures on seasonally adjusted components. Carrying the
+decomposition and deflation results into the report, deck and bulletin: they
+are analyst tools with their own downloads, not part of a run's publication,
+and wiring them into the release outputs is a publication decision rather than
+a methodological one.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
-Bootstrap and variance-based uncertainty measures; decomposition
-(contributions, core inflation measures, base effects, diffusion);
-deflation, real values, PPP and spatial price levels; asset, trade and
-construction indices; forecasting and scenario tooling; OIDC (would require
-hosting beyond Streamlit Community Cloud); an in-app user-management page;
-CPA, NACE and HS classification reference data (no authoritative, machine-
-readable source verified yet -- the generic loader that would take one
-already exists); a cascading (multi-total) secondary-suppression solver.
+Bootstrap and variance-based uncertainty measures; spatial price levels
+(regional PPPs); asset, trade and construction indices; forecasting and
+scenario tooling; OIDC (would require hosting beyond Streamlit Community
+Cloud); an in-app user-management page; CPA, NACE and HS classification
+reference data (no authoritative, machine-readable source verified yet --
+the generic loader that would take one already exists); a cascading
+(multi-total) secondary-suppression solver.

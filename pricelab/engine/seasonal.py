@@ -822,6 +822,11 @@ class SeasonalAdjustment:
     stability: StabilityReport
     diagnostics: Mapping[str, float] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
+    approach: str = "direct"
+    """"direct": this series itself was adjusted. "indirect" would be an
+    aggregate assembled from separately adjusted components. The platform
+    adjusts directly and only directly, and says which in every output,
+    because the two give different answers and neither is wrong."""
 
     @property
     def fell_back(self) -> bool:
@@ -832,6 +837,22 @@ class SeasonalAdjustment:
         return ENGINE_LABELS.get(self.engine, self.engine)
 
     @property
+    def additivity_note(self) -> str:
+        """Direct or indirect, and what that means for the parts.
+
+        A directly adjusted total and the separately adjusted components
+        beneath it are estimated independently, so the components need not
+        add up to the total, and the gap is not an error. Offices that
+        publish both either constrain the components (benchmarking) or
+        publish the gap; this platform does neither, so it says so rather
+        than letting a reader sum adjusted components and wonder why they
+        miss.
+        """
+        return (f"adjusted directly (the {self.series_name} series itself, not an aggregate of "
+                "separately adjusted components), so seasonally adjusted components need not "
+                "sum to an adjusted total and no constraint forcing them to has been applied")
+
+    @property
     def label(self) -> str:
         """The phrase every output prints beside the adjusted series.
 
@@ -839,12 +860,14 @@ class SeasonalAdjustment:
         ran -- because a reader cannot be expected to infer from silence
         that X-13 was used. When the fallback ran it says so in the same
         breath, so there is no way to quote the first half without the
-        second.
+        second. It ends with the additivity statement, for the same reason:
+        one phrase, travelling everywhere, rather than a second phrase a
+        format could forget.
         """
         if self.fell_back:
             return (f"seasonally adjusted with {self.engine_label}, not X-13ARIMA-SEATS "
-                    f"({self.fallback_reason})")
-        return f"seasonally adjusted with {self.engine_label}"
+                    f"({self.fallback_reason}); {self.additivity_note}")
+        return f"seasonally adjusted with {self.engine_label}; {self.additivity_note}"
 
     @property
     def frame(self) -> pd.DataFrame:

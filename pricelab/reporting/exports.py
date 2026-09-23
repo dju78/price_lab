@@ -105,6 +105,36 @@ def seasonal_basis(res: Mapping[str, Any]) -> str:
     return str(seasonal.adjustment.label)
 
 
+#: Every place a seasonally adjusted series reaches a reader, and what that
+#: place carries with it. Each must show the engine that ran (with the
+#: fallback said as such), the unadjusted series beside the adjusted one,
+#: and the direct-adjustment statement with its additivity warning.
+#: `tests/test_seasonal_surfaces.py` renders each and checks all three, and
+#: fails if a module in reporting/ or pages/ touches the adjusted series
+#: without being listed here.
+SEASONAL_SURFACES: dict[str, str] = {
+    "page": "pages/seasonal.py: the status line before the chart, the chart itself, its "
+            "caption, and the CSV download's first line",
+    "chart": "reporting/charts.seasonal_adjustment_chart: the title and legend name the "
+             "engine; the note under the axes carries the full label; both series drawn",
+    "method_note": "engine/seasonal.adjustment_note, via reporting/report.seasonal_note: the "
+                   "paragraph every report, deck and bulletin quotes",
+    "markdown": "reporting/report.build_markdown: the Seasonality method section and the "
+                "Seasonal adjustment table (both series in adjacent columns)",
+    "word": "reporting/report.build_docx: the same section and table, and the chart",
+    "deck": "reporting/deck.build_deck: the 'What produced these series' slide and the "
+            "seasonal adjustment chart slide",
+    "excel": "reporting/excel.build_evidence_pack: the Seasonal adjustment sheet and the "
+             "Series basis sheet",
+    "bulletin": "reporting/bulletin.build_bulletin: the chart, the table, 'How each series "
+                "was produced' and the methodology note",
+    "csv": "reporting/exports.index_csv: the basis column on the adjusted rows, and the "
+           "unadjusted rows",
+    "sdmx": "reporting/exports.to_sdmx_ml: the BASIS attribute on the adjusted series, and "
+            "the unadjusted series",
+}
+
+
 def series_basis(res: Mapping[str, Any]) -> dict[str, str]:
     """Every series the run can publish, mapped to what produced it.
 
@@ -334,6 +364,14 @@ def to_sdmx_ml(res: Mapping[str, Any], stamp: ProvenanceStamp, *, message_id: st
         _sub(key, "generic", "Value", id="SERIES", value=str(sanitize_cell(series_name)))
         attrs = _sub(series, "generic", "Attributes")
         _sub(attrs, "generic", "Value", id="UNIT_MEASURE", value="INDEX")
+        # What produced a supplementary series, on the series itself: the
+        # seasonal engine and the direct-adjustment statement, the
+        # multilateral method and window. A series key alone ("seasonally
+        # adjusted: All items") says a series was adjusted but not by what,
+        # and an SDMX consumer never sees the CSV's basis column.
+        basis = str(group["basis"].iloc[0]) if "basis" in group.columns else ""
+        if basis:
+            _sub(attrs, "generic", "Value", id="BASIS", value=str(sanitize_cell(basis)))
         head = stamp.headline or {}
         _sub(attrs, "generic", "Value", id="BASE_PER",
              value=str(head.get("reference_period", "")))
