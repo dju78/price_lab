@@ -61,6 +61,8 @@ SPATIAL_COMPARISON = "spatial_comparison"
 TRADE_INDEX = "trade_index"
 CONSTRUCTION_INDEX = "construction_index"
 ESCALATION = "escalation"
+PROPERTY_INDEX = "property_index"
+OWNER_OCCUPIED_HOUSING = "owner_occupied_housing"
 
 
 class AuditEventORM(Base):

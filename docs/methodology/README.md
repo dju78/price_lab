@@ -31,6 +31,8 @@ the standard recommends and why.
 | `engine/trade.py` | [trade.md](trade.md) | Import and export price indices, unit value indices and their bias, terms of trade |
 | `engine/construction.py` | [construction.md](construction.md) | Construction input cost and output price indices, and the gap between them |
 | `engine/escalation.py` | [escalation.md](escalation.md) | Contract indexation: lags, averaging, dead bands, triggers, indexed share, caps and collars; the plain-language clause summary |
+| `engine/asset.py` | [asset.md](asset.md) | Stratified median, mix-adjusted mean, repeat sales (Bailey-Muth-Nourse and Case-Shiller), SPAR and hedonic property price indices; why they differ; repeat sales revisions; stratum suppression |
+| `engine/housing.py` | [housing.md](housing.md) | Rental price index; rental equivalence, net acquisitions, user cost and payments as four questions |
 | `engine/quality_adjustment.py` | [quality_adjustment.md](quality_adjustment.md) | Overlap, direct comparison, quantity, option cost, class/targeted/overall mean; the ledger; the impact report |
 | `engine/hedonic.py` | [hedonic.md](hedonic.md) | Time dummy, characteristics price and imputation hedonics; functional forms; diagnostics |
 | `engine/custom.py` | [custom.md](custom.md) | Analyst-defined formulae through the restricted evaluator; the non-standard mark |

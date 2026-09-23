@@ -25,11 +25,13 @@ import pages.deflation
 import pages.diagnostics
 import pages.escalation
 import pages.findings
+import pages.housing
 import pages.imputation
 import pages.index_build
 import pages.ingest
 import pages.multilateral
 import pages.outliers
+import pages.property
 import pages.quality
 import pages.quality_adjustment
 import pages.reports
@@ -185,6 +187,8 @@ _PAGE_SPECS = [
     (pages.trade.render, "Trade prices", "🚢", "trade"),
     (pages.construction.render, "Construction", "🏗️", "construction"),
     (pages.escalation.render, "Contract escalation", "📑", "escalation"),
+    (pages.property.render, "Property prices", "🏠", "property"),
+    (pages.housing.render, "Rents and owner-occupied housing", "🔑", "housing"),
     (pages.findings.render, "Findings", "🗒️", "findings"),
     (pages.diagnostics.render, "Diagnostics", "🔎", "diagnostics"),
     (pages.reports.render, "Reports", "📤", "reports"),

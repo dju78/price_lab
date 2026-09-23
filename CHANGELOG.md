@@ -5,6 +5,58 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## Unreleased — Phase 8: asset and property price indices (2026-09-23)
+
+### Added
+- **`engine/asset.py`**: residential property price indices by stratified
+  median, mix-adjusted mean, repeat sales (Bailey-Muth-Nourse and
+  Case-Shiller weighted), sale price appraisal ratio and hedonic (through
+  `engine/hedonic.fit_hedonic`). Every result states what it measures and its
+  principal limitation; `compare_methods` runs all of them on the same sales
+  and explains the gaps with numbers (the change in the quality mix of what
+  sold, within strata and within cells, against each method's gap).
+- **Repeat sales revisions** through `engine/revision.py`: the index as it
+  would have been published at the end of each period, as vintages, in the
+  same triangle as every other revision; the Revisions page shows them.
+- **Diagnostics and suppression**: sales per stratum per period, the share of
+  sales each method uses and of a stock sold, and the per-stratum table under
+  `suppress_with_secondary`.
+- **`engine/housing.py`**: a matched-rent price index, and owner-occupied
+  housing as four questions -- rental equivalence, net acquisitions (with
+  land excluded on request), user cost (which may go negative, and says so)
+  and payments (which refuses capital repayment).
+- **Contributions in the Excel evidence pack**, on their own sheet, with the
+  tree level stated and the residual as a row; the test that pins the sheet
+  list now names it.
+- **Real data**: spatial parities from Eurostat's PPPs by analytical
+  category (`eurostat.ppp_comparison_inputs`), and published house price
+  totals rebuilt from their new- and existing-dwelling parts
+  (`eurostat.hpi_components`); recorded fixtures of both.
+- **New pages**: Property prices, and Rents and owner-occupied housing.
+- **`docs/methodology/`**: asset and housing notes (24 in total); the spatial
+  note gains the real-data finding.
+
+### Changed
+- The spatial module now withholds a region with no chain of shared products
+  to the base -- reporting it with the reason -- instead of refusing the whole
+  comparison. Real data forced this: Japan, the United States and the United
+  Kingdom publish only aggregate PPPs and share no detailed category with
+  anyone.
+- The Revisions page's display is a shared function (`show_analysis`), used
+  for registry corrections and repeat sales alike.
+
+### Notes
+- Spatial real-data check: weighted CPD over the 15 detailed categories with
+  expenditure weights, against Eurostat's published PPPs for actual
+  individual consumption: median gap 5.5%, systematic (Spearman −0.77 with
+  the price level index), because the categories cover about half of
+  consumption and leave out the non-traded services cheapest in low-price
+  countries.
+- House price real-data check: published totals rebuilt from their parts to
+  within 0.061 index points (Germany) and under 0.02 elsewhere.
+- Repeat sales revision magnitude on the demonstration market: mean absolute
+  revision 0.42 index points.
+
 ## Unreleased — Phase 7b: spatial, trade, construction and contract escalation (2026-09-23)
 
 ### Added

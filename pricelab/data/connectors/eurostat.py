@@ -199,3 +199,83 @@ def hicp_chain_inputs(indices: pd.DataFrame, weights: pd.DataFrame, codes: list[
         if code in codes:
             by_year.setdefault(int(period.year), {})[str(code)] = float(value)
     return wide[codes], by_year, wide[HICP_ROOT].rename(HICP_ROOT)
+
+
+# ---------------------------------------------------------------------
+# Purchasing power parities by expenditure category
+# ---------------------------------------------------------------------
+PPP_DATASET = "prc_ppp_ind"
+#: Eurostat's aggregate geography codes, which are not regions to compare.
+_AGGREGATE_GEO = ("EU", "EA", "CPC")
+
+
+def ppp_comparison_inputs(frame: pd.DataFrame, *, parent: str = "A01",
+                          base: str = "EU27_2020", year: int | None = None,
+                          ) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
+    """A spatial comparison's inputs from `prc_ppp_ind`: each region's most
+    detailed published categories under `parent`, their PPPs as the prices
+    and their national-currency expenditure as the weights; the published
+    PPP of `parent` itself, to compare the result with; and each region's
+    coverage -- the share of its `parent` expenditure the categories used
+    account for.
+
+    "Most detailed published" is per region: a country that publishes only
+    aggregates contributes the aggregate, which no other region prices at
+    that level, so it arrives in the comparison unconnected and is reported
+    as such rather than dropped in silence.
+    """
+    data = frame.copy()
+    if year is not None:
+        data = data[pd.DatetimeIndex(data["period"]).year == year]
+    regions = sorted(g for g in data["geo"].unique()
+                     if g == base or not str(g).startswith(_AGGREGATE_GEO))
+    data = data[data["geo"].isin(regions) & data["ppp_cat"].astype(str).str.startswith(parent)]
+    ppp_item = next(i for i in data["na_item"].unique() if str(i).startswith("PPP_"))
+    ppp = data[data["na_item"] == ppp_item]
+    spend = data[data["na_item"] == "EXP_NAC"]
+    rows = []
+    for region, group in ppp.groupby("geo"):
+        codes = set(group["ppp_cat"].astype(str)) - {parent} or {parent}
+        leaves = [c for c in codes if not any(o != c and o.startswith(c) for o in codes)]
+        rows.append(group[group["ppp_cat"].isin(leaves)].assign(region=region))
+    long = pd.concat(rows).rename(columns={"ppp_cat": "product", "value": "price"})
+    long = long.merge(spend.rename(columns={"geo": "region", "ppp_cat": "product",
+                                            "value": "expenditure"})[
+        ["region", "product", "expenditure"]], on=["region", "product"], how="left")
+    published = ppp[ppp["ppp_cat"] == parent].set_index("geo")["value"].astype(float)
+    parent_spend = spend[spend["ppp_cat"] == parent].set_index("geo")["value"].astype(float)
+    used = long.groupby("region")["expenditure"].sum(min_count=1)
+    coverage = (used / parent_spend.reindex(used.index)).rename("coverage")
+    return (long[["region", "product", "price", "expenditure"]].reset_index(drop=True),
+            published.rename(f"published {parent} PPP"), coverage)
+
+
+# ---------------------------------------------------------------------
+# House price indices: new and existing dwellings
+# ---------------------------------------------------------------------
+HPI_DATASET = "prc_hpi_q"
+HPI_WEIGHT_DATASET = "prc_hpi_inw"
+
+
+def hpi_components(indices: pd.DataFrame, weights: pd.DataFrame, geo: str
+                   ) -> tuple[pd.DataFrame, dict[int, dict[str, float]], pd.Series]:
+    """For one geography: the new- and existing-dwelling sub-indices, each
+    year's weights for them (per mille, labelled with the year they apply
+    in), and the published total -- the inputs for rebuilding the total with
+    `engine.decomposition.chain_linked_aggregate` at a fourth-quarter link.
+    """
+    mine = indices[indices["geo"] == geo]
+    if mine.empty:
+        raise ValueError(f"no house price indices for {geo!r}")
+    wide = mine.pivot_table(index="period", columns="purchase", values="value")
+    wide.index = pd.DatetimeIndex(wide.index)
+    parts = ["DW_NEW", "DW_EXST"]
+    missing = [c for c in [*parts, "TOTAL"] if c not in wide.columns]
+    if missing:
+        raise ValueError(f"{geo} has no {missing} series")
+    by_year: dict[int, dict[str, float]] = {}
+    w = weights[(weights["geo"] == geo) & weights["purchase"].isin(parts)]
+    for period, purchase, value in zip(pd.DatetimeIndex(w["period"]), w["purchase"], w["value"],
+                                       strict=True):
+        by_year.setdefault(int(period.year), {})[str(purchase)] = float(value)
+    return wide[parts], by_year, wide["TOTAL"].rename("TOTAL")

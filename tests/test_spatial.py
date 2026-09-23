@@ -88,11 +88,19 @@ def test_every_pair_s_matched_products_are_reported():
             assert overlap.loc[a, b] == shared
 
 
-def test_a_region_sharing_nothing_with_the_base_is_refused():
-    prices = pd.DataFrame({"region": ["A", "A", "Z"], "product": ["x", "y", "q"],
-                           "price": [1.0, 2.0, 3.0], "quantity": [1.0, 1.0, 1.0]})
-    with pytest.raises(sp.SpatialError, match="share no chain of products"):
-        sp.cpd(prices, base="A")
+def test_a_region_sharing_nothing_with_the_base_is_withheld_not_fatal():
+    """Real comparison data has regions that publish only aggregates (see
+    tests/test_spatial_eurostat.py); one of them must not sink the rest."""
+    prices = pd.concat([_known(thin=False), pd.DataFrame(
+        {"region": ["Z"], "product": ["only_in_z"], "price": [3.0], "quantity": [1.0],
+         "expenditure": [1.0]})])
+    for result in (sp.cpd(prices, base="A"), sp.geary_khamis(prices, base="A")):
+        assert np.isnan(result.ppp_estimated["Z"]) and np.isnan(result.ppp["Z"])
+        assert "no chain of products" in result.withheld["Z"]
+        assert result.ppp["B"] == pytest.approx(1.7)
+    alone = pd.DataFrame({"region": ["A", "Z"], "product": ["x", "q"], "price": [1.0, 3.0]})
+    with pytest.raises(sp.SpatialError, match="no region is connected"):
+        sp.cpd(alone, base="A")
 
 
 def test_price_level_indices_compare_parities_with_exchange_rates():

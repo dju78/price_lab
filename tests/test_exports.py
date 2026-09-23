@@ -149,6 +149,9 @@ def test_the_excel_pack_is_free_of_formula_injection_on_every_sheet(run):
 
     wb = load_workbook(io.BytesIO(_artifacts(run)["xlsx"]))
     assert wb.sheetnames == list(excel.SHEETS)
+    # Named, not only counted: the contributions sheet is where an auditor
+    # checks the decomposition's arithmetic, so its absence must fail here.
+    assert "Contributions" in wb.sheetnames
     seen_payload = False
     for ws in wb.worksheets:
         assert not _is_dangerous(ws.title)

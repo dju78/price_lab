@@ -42,7 +42,34 @@ pairing with any other region shares fewer than `min_overlap` products
 (five by default): its estimate is shown with the count and the reason, and
 it is left out of the published parities and of any conversion built on
 them. A region that shares no chain of products with the base at all has no
-identified parity by any method, and is refused.
+identified parity by any method: it is reported with that reason and the
+rest of the comparison goes ahead without it.
+
+## Real data
+
+`tests/test_spatial_eurostat.py` runs a weighted CPD on Eurostat's
+purchasing power parities by analytical category for 2023, fetched through
+the Eurostat connector (`data/connectors/eurostat.ppp_comparison_inputs`):
+each country's most detailed published categories under actual individual
+consumption, their PPPs as prices and their national-currency expenditure as
+weights, against the EU27 base.
+
+The real data's raggedness was not the thin overlap constructed data had
+produced but *disconnection*: Japan, the United States and the United
+Kingdom publish only aggregates, so they share no detailed category with
+anyone. The engine used to refuse the whole comparison in that case; it now
+withholds such regions with the reason. The 36 connected countries share 15
+categories each — 23 are priced, but expenditure is published for only 15.
+
+Against Eurostat's published PPPs for actual individual consumption the
+result is a median 5.5% away, and the gap is systematic rather than noise:
+the 15 categories cover a median 49% of each country's consumption and leave
+out rents, most health and education and government-provided services —
+the non-traded services cheapest in low-price countries — so the cheaper
+the country, the more the result overstates its price level (Spearman
+correlation of −0.77 between the gap and Eurostat's price level index).
+Eurostat itself aggregates basic-heading parities -- far more detailed than
+these categories -- by the EKS method, not a handful of categories by CPD.
 
 ## Citation
 

@@ -3,7 +3,7 @@ asks for, every string cell sanitised, every suppressed cell labelled.
 
 Sheets, in order: Provenance, Source data, Weights, Elementary aggregates,
 Upper level aggregates, Quality adjustment ledger, Final index,
-Methodology log, Audit extract. The sheet list is itself recorded in the
+Contributions, Series basis, Methodology log, Audit extract. The sheet list is itself recorded in the
 stamp (`extra["sheets"]`) so the reader of the Provenance sheet can tell
 whether a sheet is missing.
 
@@ -38,7 +38,7 @@ from .report import method_note
 #: section, and the Provenance sheet lists whatever the pack actually has.
 SHEETS = ("Provenance", "Source data", "Weights", "Elementary aggregates",
           "Upper level aggregates", "Quality adjustment ledger", "Final index",
-          "Series basis", "Methodology log", "Audit extract")
+          "Contributions", "Series basis", "Methodology log", "Audit extract")
 
 _HEADER_FILL = PatternFill("solid", fgColor="E9EEF2")
 _SUPPRESSED_FILL = PatternFill("solid", fgColor="FDEBD0")
@@ -191,6 +191,20 @@ def build_evidence_pack(
 
     ws = wb.create_sheet(_sheet_name("Final index"))
     _write_frame(ws, wide_publication(table))
+
+    # What drove the headline, in the one output where an auditor checks the
+    # arithmetic: the same table the bulletin, the reports and the deck
+    # print, with the level of the tree stated above it and the residual as
+    # its last row, so the sum can be checked against the published change in
+    # the sheet itself. A run without weights gets the reason instead.
+    ws = wb.create_sheet(_sheet_name("Contributions"))
+    from .report import contributions_summary
+
+    note, contributions = contributions_summary(dict(res))
+    _write_frame(ws, pd.DataFrame({"note": [note]}))
+    if len(contributions):
+        ws.append([])
+        _write_frame(ws, contributions.reset_index())
 
     # Which method produced which series, for every series in the pack that
     # was not produced by the run's own elementary formula. A reader holding

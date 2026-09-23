@@ -901,11 +901,72 @@ survey-price trade indices; hedonic or repeat-tender construction output
 indices; multi-index escalation formulas and provisional-then-final payments
 when a lagged index is revised.
 
+## Phase 8 - Asset and property price indices (done, 2026-09-23)
+
+**Task 0a, contributions in the Excel pack.** A "Contributions" sheet after
+"Final index", built from the same `report.contributions_summary` as the
+bulletin, the reports and the deck: the note stating the tree level, then
+the table ending in the sum, the published change and the residual. The
+pinned sheet list (`excel.SHEETS`, asserted in `test_exports.py`) now names
+it, and that test asserts it by name.
+
+**Task 0b, spatial on real data.** Succeeded, against Eurostat's PPPs by
+analytical category (`prc_ppp_ind`, 2023, recorded). Each country's most
+detailed published categories under actual individual consumption are the
+products, their PPPs the prices and their national-currency expenditure the
+weights. The real data did something constructed data had not: three
+countries (JP, US, UK) publish only aggregates and are *disconnected*, and
+the engine used to refuse the whole comparison when any region had no chain
+to the base. It now withholds such a region with the reason. Of 23 priced
+categories only 15 carry expenditure, so the weighted comparison rests on 15;
+no connected country fell below the thin-overlap threshold. Against the
+published A01 PPPs: median gap 5.5%, explained by coverage (median 49% of
+consumption) and systematic (Spearman −0.77 with the price level index).
+
+**Task 1, property price indices.** `engine/asset.py`, five families (six
+series, with both repeat sales forms), each stating what it measures and its
+limitation. `compare_methods` explains the gaps quantitatively: on the
+demonstration market the quality of what sold rose 6.86%, within strata 5.93%
+(about 7 of the median's 12.9 points above the hedonic), within cells −1.41%
+(about −1.7 against the mix-adjusted mean's −1.3). The first draft of that
+explanation asserted the mix was "largely inside" the mix-adjusted mean;
+measuring it showed the size bands absorb it, and the text now reports the
+measured within-cell shift instead.
+
+**Task 2, rents and owner-occupied housing.** `engine/housing.py`: a matched
+rent index, and the four approaches as four questions -- the page shows the
+questions side by side and gives each its own section, with no selector.
+
+**Task 3, diagnostics and suppression.** Counts per stratum and period,
+coverage by method and of a stock, and stratum suppression through
+`suppress_with_secondary`. Repeat sales revisions through
+`engine/revision.analyse`, shown on the Revisions page by a display
+function the page now shares with registry corrections. Measured on the
+demonstration market: mean absolute revision 0.42 index points.
+
+**Task 4, real house price data.** Eurostat publishes indices, not
+transactions, so the transaction methods cannot be run on agency data
+through an existing connector; the aggregation can be checked, and was: the
+published totals rebuilt from the published new- and existing-dwelling
+indices and weights, chained at Q4, to within 0.061 index points (DE) and
+under 0.02 for IE, NL, FR, ES, DK, PL and the EU.
+
+**Tests.** New: `test_property.py` 22, `test_housing.py` 7,
+`test_spatial_eurostat.py` 2, 2 more in `test_release_contributions.py`;
+`test_spatial.py`'s disconnected-region test rewritten for the new behaviour; 33 in all, 940 in the suite.
+
+**Deferred.** The arithmetic (value-weighted, IV) Case-Shiller form;
+depreciation and renovation adjustment of repeat sales; hedonic double
+imputation; land and structure decomposition; quality adjustment of rents;
+running the transaction methods on real transactions (HM Land Registry price
+paid data would serve, but it is not reachable through an existing
+connector).
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
-Bootstrap and variance-based uncertainty measures; asset price indices;
-forecasting and scenario tooling; OIDC (would require hosting beyond
-Streamlit Community Cloud); an in-app user-management page; CPA, NACE and HS
-classification reference data (no authoritative, machine-readable source
-verified yet -- the generic loader that would take one already exists); a
-cascading (multi-total) secondary-suppression solver.
+Bootstrap and variance-based uncertainty measures; forecasting and scenario
+tooling; OIDC (would require hosting beyond Streamlit Community Cloud); an
+in-app user-management page; CPA, NACE and HS classification reference data
+(no authoritative, machine-readable source verified yet -- the generic
+loader that would take one already exists); a cascading (multi-total)
+secondary-suppression solver.

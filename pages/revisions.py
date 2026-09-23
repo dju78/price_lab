@@ -45,6 +45,16 @@ def render() -> None:
         "big that difference has been, and whether it has a sign — because an estimate revised "
         "up two years out of three is not early, it is biased.")
 
+    property_revisions = st.session_state.get("pr_revision")
+    if property_revisions is not None:
+        st.markdown("#### Repeat sales house price index")
+        st.caption(
+            "Estimated on the Property prices page. A repeat sales index re-estimates its whole "
+            "history every time a period is added, so each vintage below is the index as it "
+            "would have been published with the sales known at the time.")
+        show_analysis(property_revisions, key="rv_property")
+        st.divider()
+
     runs = _registered_runs()
     if not runs:
         st.info("No run has been registered yet. Register one on Reports; a correction to an "
@@ -101,6 +111,26 @@ def render() -> None:
         "bias_significant": analysis.bias.significant})
     st.session_state["rv_analysis"] = analysis
 
+    show_analysis(analysis, key=f"rv_{run_id}")
+
+    st.markdown("#### Corrections on the record")
+    corrections = pd.DataFrame([
+        {"vintage": v.vintage, "run_id": v.run_id, "created_at": v.created_at,
+         "approved": v.approved, "supersedes": v.supersedes_run_id,
+         "reason": v.correction_reason or ""} for v in analysis.vintages])
+    st.dataframe(corrections, use_container_width=True)
+    st.caption("Every vintage above is still registered and still reproduces from its own "
+               "stored input: correcting a run adds a record, it never edits one.")
+    st.info(rv.revision_note(analysis))
+
+
+def show_analysis(analysis: rv.RevisionAnalysis, *, key: str) -> None:
+    """The revision picture for any series: the metrics, the bias verdict,
+    the triangle, what each vintage changed, and published against current.
+
+    Shared by registry corrections and by the repeat sales house price index
+    (pages/property.py), which revises its history every period by
+    construction -- so a user reads both kinds of revision in one frame."""
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Vintages compared", f"{len(analysis.vintages)}")
     m2.metric("Mean revision", f"{analysis.mean_revision:+.3f} pts")
@@ -125,15 +155,5 @@ def render() -> None:
     st.dataframe(analysis.comparison.round(4), use_container_width=True, height=280)
     st.download_button(
         "Download the triangle (CSV)",
-        safe_csv_with_notice(analysis.triangle.reset_index()),
-        file_name=f"revision_triangle_{run_id}.csv", mime="text/csv", key="rv_csv")
-
-    st.markdown("#### Corrections on the record")
-    corrections = pd.DataFrame([
-        {"vintage": v.vintage, "run_id": v.run_id, "created_at": v.created_at,
-         "approved": v.approved, "supersedes": v.supersedes_run_id,
-         "reason": v.correction_reason or ""} for v in analysis.vintages])
-    st.dataframe(corrections, use_container_width=True)
-    st.caption("Every vintage above is still registered and still reproduces from its own "
-               "stored input: correcting a run adds a record, it never edits one.")
-    st.info(rv.revision_note(analysis))
+        safe_csv_with_notice(analysis.triangle.reset_index(), analysis.series_name),
+        file_name=f"revision_triangle_{key}.csv", mime="text/csv", key=f"{key}_csv")

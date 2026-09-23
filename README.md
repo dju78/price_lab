@@ -110,7 +110,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 907 tests
+make test        # 940 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/, data/ and reporting/
 ```
@@ -265,6 +265,14 @@ pricelab/
     escalation.py       contract indexation (lag, averaging, dead band, trigger,
                         indexed share, cap, collar) with a payment schedule and
                         a plain-language summary of the clause as applied
+    asset.py            residential property price indices: stratified median,
+                        mix-adjusted mean, repeat sales (BMN and Case-Shiller),
+                        SPAR and hedonic, each stating what it measures and
+                        rests on; the differences explained; repeat sales
+                        revisions through engine/revision.py
+    housing.py          rental price index; owner-occupied housing as four
+                        questions (rental equivalence, net acquisitions, user
+                        cost, payments)
     custom.py           analyst-defined formulae via the restricted evaluator
     quality_adjustment.py
                         overlap, direct comparison, quantity, option cost,
@@ -294,6 +302,7 @@ pages/            one module per lifecycle stage; app.py wires them into
   ingest.py, quality.py, outliers.py, imputation.py, quality_adjustment.py,
   index_build.py, multilateral.py, seasonal.py, decomposition.py,
   deflation.py, spatial.py, trade.py, construction.py, escalation.py,
+  property.py, housing.py,
   findings.py, diagnostics.py,
   reports.py, sources.py, revisions.py, audit_log.py,
   common.py (shared session-state helpers)
@@ -302,7 +311,7 @@ migrations/       Alembic; seven revisions covering users, sessions, audit event
                   the classification tree, validation overrides, column
                   mappings, the quality adjustment ledger and the outlier
                   review queue's decisions
-tests/            907 tests
+tests/            940 tests
 scripts/
   generate_synthetic_data.py   the price-quote fixture, not the product
   generate_scanner_data.py     the scanner transaction fixture, with churn,

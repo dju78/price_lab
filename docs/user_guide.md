@@ -144,6 +144,28 @@ words and names every month in which a cap or collar bound, with the payment
 it would otherwise have been. Download it beside the CSV for the contract
 file ([methodology/escalation.md](methodology/escalation.md)).
 
+**Property prices.** Upload transactions (property_id, period, price,
+stratum, floor_area, and appraisal if you have one), or use the
+demonstration market. "Compile all methods" runs the five families on the
+same sales: each number comes with what it measures and what it rests on,
+and "Why they differ" explains the gaps with numbers — how much the quality
+of what sold changed, how much of that each method carries, how many repeat
+pairs there are. Below: sales per stratum, the share of sales each method
+uses, the per-stratum table with thin strata suppressed, and the repeat
+sales revision profile, which also appears on the Revisions page. The last
+section rebuilds a country's published house price index from its published
+parts ([methodology/asset.md](methodology/asset.md)).
+
+**Rents and owner-occupied housing.** A rental price index from matched
+rents, and the four owner-occupied housing approaches — each in its own
+section under the question it answers. Decide which question you are asking
+before looking at any of them; they are not four estimates of one number
+([methodology/housing.md](methodology/housing.md)).
+
+The Excel evidence pack now has a **Contributions** sheet: the same table as
+the bulletin, with the tree level and the residual row, where the arithmetic
+can be checked in place.
+
 **Multilateral.** Only if your collection carries quantities or
 expenditure, and only worth it if it is transaction or scanner data:
 products churning, prices bouncing between shelf and promotion, quantities

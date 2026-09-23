@@ -154,3 +154,37 @@ def test_the_bulletin_carries_the_contributions(weighted_run, tmp_path, monkeypa
     assert "level 1 of the classification tree" in text
     assert "Residual, pp" in text
     assert "Sum of contributions" in text
+
+
+def test_the_excel_pack_carries_the_contributions_on_their_own_sheet(weighted_run):
+    """Phase 8, Task 0a: the evidence pack, where an auditor checks the
+    arithmetic, has the table with its level and its residual."""
+    from openpyxl import load_workbook
+
+    from pricelab.reporting.excel import SHEETS, build_evidence_pack
+
+    df, res = weighted_run
+    book = load_workbook(io.BytesIO(build_evidence_pack(res, build_stamp(res, "w"), source=df)))
+    assert "Contributions" in SHEETS and "Contributions" in book.sheetnames
+    cells = [[c for c in row] for row in book["Contributions"].iter_rows(values_only=True)]
+    text = " ".join(str(c) for row in cells for c in row if c is not None)
+    assert "level 1 of the classification tree" in text
+    labels = [row[0] for row in cells if row and row[0]]
+    assert "Residual, pp (sum minus published change)" in labels
+    assert {"Bread", "Fuel", "Rent", "Sum of contributions"} <= set(labels)
+    rows = {row[0]: row for row in cells if row and row[0]}
+    total = sum(rows[c][3] for c in ("Bread", "Fuel", "Rent"))
+    assert total == pytest.approx(rows["Sum of contributions"][3], abs=1e-5)
+
+
+def test_an_unweighted_run_s_pack_says_why_there_are_no_contributions():
+    from openpyxl import load_workbook
+
+    from pricelab.reporting.excel import build_evidence_pack
+
+    df = _collection(weighted=False)
+    res = run_pipeline(df, RunConfig())
+    book = load_workbook(io.BytesIO(build_evidence_pack(res, build_stamp(res, "u"), source=df)))
+    text = " ".join(str(c) for row in book["Contributions"].iter_rows(values_only=True)
+                    for c in row if c is not None)
+    assert "no expenditure weights" in text
