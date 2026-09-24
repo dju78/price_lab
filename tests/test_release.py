@@ -40,8 +40,22 @@ def test_the_methodology_statement_cites_every_note_and_every_link_resolves():
     notes = {f"methodology/{p.name}" for p in (DOCS / "methodology").glob("*.md")
              if p.name != "README.md"}
     assert cited == notes, (sorted(notes - cited), sorted(cited - notes))
+    assert f"{len(notes)} notes" in statement
     for link in cited:
         assert (DOCS / link).exists(), link
+
+
+@needs_docs
+def test_documented_repository_counts_match_reality():
+    """Derived repository counts stated in primary docs match actual values."""
+    statement = (DOCS / "methodology_statement.md").read_text("utf-8")
+    notes = [p for p in (DOCS / "methodology").glob("*.md") if p.name != "README.md"]
+    assert f"{len(notes)} notes" in statement
+
+    readme = (REPO_ROOT / "README.md").read_text("utf-8")
+    assert "1032 tests" in readme
+    test_files = list((REPO_ROOT / "tests").glob("test_*.py"))
+    assert len(test_files) == 70
 
 
 @needs_docs

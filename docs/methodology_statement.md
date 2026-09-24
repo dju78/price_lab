@@ -1,6 +1,6 @@
 # How PriceLab compiles a price index: methodology statement
 
-PriceLab 1.0.0. This statement is written for a statistician who will not
+PriceLab 1.0.3. This statement is written for a statistician who will not
 read the code. It says what the platform does to a price collection to
 produce an index, which standard each step follows, what the defaults are,
 and what has and has not been checked against published figures. Each topic

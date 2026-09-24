@@ -1,6 +1,6 @@
 # Limitations register
 
-Every known limitation of PriceLab 1.0.0, from each phase's record of what it
+Every known limitation of PriceLab 1.0.3, from each phase's record of what it
 deferred (`docs/backlog.md`), from each methodology note's list of what its
 module does not do (`docs/methodology/`), and from the release verification.
 For each: where it arose, why it was left, and what it means for someone
