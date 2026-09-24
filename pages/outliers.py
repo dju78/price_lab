@@ -120,6 +120,7 @@ def render() -> None:
         st.download_button(
             "Download the decisions (CSV)", safe_csv_with_notice(taken),
             file_name="outlier_decisions.csv", mime="text/csv", key="ol_decisions_csv")
+        _withdraw_form(content_hash)
 
         cleaned, report = ol.apply_decisions(res["clean"], entries)
         st.markdown("#### What the exclusions removed")
@@ -185,6 +186,36 @@ def _decision_form(queue: pd.DataFrame, scan: ol.OutlierScan, content_hash: str)
     st.success(f"Recorded: {ol.DECISION_LABELS[decision]} — {reason.strip()}")
     del scan
     st.rerun()
+
+
+def _withdraw_form(content_hash: str) -> None:
+    """Withdraw a live decision. It is never deleted: the row stays, marked
+    withdrawn with who withdrew it and why, and stops being applied."""
+    if not content_hash:
+        return
+    with db.session_scope() as session:
+        live = [(r.id, f"{r.period} · {r.item_id} · {ol.DECISION_LABELS.get(r.decision, r.decision)}"
+                 f" · {r.reason}")
+                for r in ledger.load_outlier_decisions(session, content_hash)]
+    if not live:
+        return
+    with st.expander("Withdraw a decision"):
+        labels = dict(live)
+        record_id = st.selectbox("Decision", list(labels), format_func=labels.get,
+                                 key="ol_withdraw_choice")
+        reason = st.text_input("Reason for withdrawing it (required)", key="ol_withdraw_reason")
+        if not st.button("Withdraw decision", key="ol_withdraw_go"):
+            return
+        if not reason.strip():
+            st.error("Withdrawing a decision needs a reason. Nothing was changed.")
+            return
+        with db.session_scope() as session:
+            ledger.withdraw_outlier_decision(session, common.current_username(), int(record_id),
+                                             reason.strip())
+        common.record(audit.OUTLIER_DECISION_WITHDRAWN, labels[record_id], {
+            "record_id": int(record_id), "reason": reason.strip(),
+            "content_hash": content_hash})
+        st.rerun()
 
 
 def _recompile_button(entries: list[OutlierDecision], cfg: OutlierConfig) -> None:

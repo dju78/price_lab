@@ -11,7 +11,6 @@ from __future__ import annotations
 import io
 import json
 import re
-import zipfile
 from typing import Any
 
 from lxml import etree
@@ -106,7 +105,3 @@ def from_sdmx(data: bytes) -> ProvenanceStamp:
             if body is not None and body.text:
                 return _parse(body.text)
     raise StampNotFound("no provenance annotation")
-
-
-def is_office_zip(data: bytes) -> bool:
-    return zipfile.is_zipfile(io.BytesIO(data))

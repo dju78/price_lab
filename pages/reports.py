@@ -187,7 +187,7 @@ def render() -> None:
                     st.error(str(exc))
                 else:
                     st.session_state["last_run_id"] = new_id
-                    common.record(audit.CALCULATION_RUN, label, {
+                    common.record(audit.RUN_CORRECTED, label, {
                         "correction_of": approved_options[target], "run_id": new_id,
                         "vintage": new_vintage, "reason": reason})
                     st.success(f"Registered as run {new_id}, vintage {new_vintage}, superseding "

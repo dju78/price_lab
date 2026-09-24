@@ -221,9 +221,9 @@ def test_a_custom_aggregate_formula_is_evaluated_and_marks_the_run_non_standard(
 
 
 def test_conformity_is_checked_against_the_classification_tree_when_categories_are_codes(deployment, monkeypatch):
-    from pricelab.data.classification import seed_coicop_divisions
+    from pricelab.data.classification import seed_coicop_2018
     with db.session_scope() as s:
-        seed_coicop_divisions(s)
+        seed_coicop_2018(s)
     at = _ingest(monkeypatch, "coded.csv", _panel_csv(categories=("10", "11", "99")))
     text = "\n".join(w.value for w in at.warning) + "\n".join(c.value for c in at.caption) + _text(at)
     assert "conformity" in text and "99" in text
@@ -360,6 +360,9 @@ def test_reports_page_registers_a_correction_of_an_approved_run(deployment, monk
         assert rows[1].vintage == 2 and rows[1].supersedes_run_id == first_id
         assert rows[1].correction_reason == "late quotes received"
         assert rows[0].approved and rows[0].correction_reason is None
+        from pricelab.core.audit import RUN_CORRECTED, AuditEventORM
+        corrected = s.query(AuditEventORM).filter_by(action=RUN_CORRECTED).all()
+        assert len(corrected) == 1 and "late quotes received" in corrected[0].params_json
 
 
 # ---------------------------------------------------------------------

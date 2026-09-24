@@ -1,13 +1,17 @@
-__pycache__/
-*.pyc
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+# Docker matches these against the whole path from the context root, and a
+# bare `*` never crosses a `/`: `__pycache__/` alone would exclude only a
+# top-level one. `**/` makes each rule apply at any depth.
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
 .git/
-*.pptx
-*.docx
-*.xlsx
+**/*.pptx
+**/*.docx
+**/*.xlsx
 !supermarket_price_collection.xlsx
-*.db
+**/*.db
 .venv/
 .claude/
+store/

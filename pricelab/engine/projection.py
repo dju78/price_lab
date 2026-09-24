@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -37,18 +37,12 @@ __all__ = [
     "Assumption",
     "Backtest",
     "BenchmarkComparison",
-    "Projection",
     "ProjectionIncomplete",
     "digest",
     "missing_parts",
 ]
 
 KINDS: tuple[str, ...] = ("forecast", "scenario")
-
-#: The four parts, in the words the refusals use.
-PARTS: tuple[str, ...] = ("interval", "backtest performance", "benchmark comparison",
-                          "assumptions")
-
 
 class ProjectionIncomplete(ValueError):
     """A projection lacks one of the four parts it must carry to leave."""
@@ -224,27 +218,6 @@ class Backtest:
     @property
     def digest(self) -> str:
         return digest(self.errors)
-
-
-class Projection(Protocol):
-    """What `reporting/projections.py` exports: a forecast or a scenario."""
-
-    kind: str
-
-    @property
-    def path(self) -> pd.DataFrame: ...
-
-    @property
-    def backtest(self) -> Backtest | None: ...
-
-    @property
-    def benchmark(self) -> BenchmarkComparison | None: ...
-
-    @property
-    def assumptions(self) -> tuple[Assumption, ...]: ...
-
-    @property
-    def label(self) -> str: ...
 
 
 def missing_parts(projection: Any) -> list[str]:

@@ -177,6 +177,16 @@ page.render()
 def test_every_enumerated_surface_names_the_engine_and_carries_both_series(
         adjusted, collection, tmp_path, monkeypatch):
     res = adjusted
+    # Its own database from the start: the page and the evidence pack read
+    # the audit log. Without this they read whatever default database the
+    # working copy happens to hold -- which made the test pass on a
+    # developer's machine and fail in the Docker image's clean /app.
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", database_url(tmp_path, "page.db"))
+    monkeypatch.setenv("PRICELAB_STORE_DIR", str(tmp_path / "page_store"))
+    get_settings.cache_clear()
+    db.reset_db_state()
+    from pricelab.core import audit, ledger, registry, security  # noqa: F401  register tables
+    db.init_db()
     stamp = build_stamp(res, "seasonal run")
     nar = build_narrative(res)
     charts = build_all_charts(res)

@@ -1,6 +1,7 @@
 # PriceLab
 
-**[Live demo →](https://pricequalitylab.streamlit.app/)** — upload your own file, or download
+**[Live demo →](https://pricequalitylab.streamlit.app/)** (runs the version last pushed,
+which predates the 1.0.0 platform build) — upload your own file, or download
 [`supermarket_price_collection.xlsx`](supermarket_price_collection.xlsx) from this repo and use that.
 
 Upload a price collection. Get a defensible index, the findings written out, and a
@@ -110,7 +111,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 988 tests
+make test        # 999 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/, data/ and reporting/
 ```
@@ -328,7 +329,7 @@ migrations/       Alembic; eight revisions covering users, sessions, audit event
                   the classification tree, validation overrides, column
                   mappings, the quality adjustment ledger, the outlier
                   review queue's decisions and registered projections
-tests/            988 tests
+tests/            999 tests
 scripts/
   generate_synthetic_data.py   the price-quote fixture, not the product
   generate_scanner_data.py     the scanner transaction fixture, with churn,
@@ -337,10 +338,15 @@ scripts/
   backup.py, restore.py        the database and the Parquet store, with a manifest
 app.py            auth gate, shared chrome, page registry; no analytical logic
 Dockerfile        lint, type-check and tests all run during the build
-docker-compose.yml the container plus a named volume for the SQLite file
+docker-compose.yml the container, PostgreSQL, a named volume for the store,
+                  and a `tests` profile that runs the suite against PostgreSQL
 docs/backlog.md   the phased plan for growing this into a governed,
                   multi-domain index platform
 docs/methodology/ one note per engine module: formula, citation, assumptions, biases
+docs/methodology_statement.md  how an index is compiled, for a statistician
+docs/limitations_register.md   every known limitation and what it means
+docs/wiring_audit.md           every module, reachable from a page or why not
+docs/release_verification.md   what 1.0.0 verified, what it could not, the X-13 decision
 docs/user_guide.md, docs/admin_guide.md, docs/tutorial.md, CHANGELOG.md
 ```
 
@@ -364,37 +370,20 @@ top of that, never as the actual control.
 
 ## Known limitations
 
-Quality adjustment is applied only to the replacements a compiler values and approves
-on the Quality adjustment page; every other departing item is treated as unrelated
-to its successor, which implicitly attributes their whole price gap to quality (the
-matched-model default). The hedonic model needs a characteristics file uploaded on
-that page -- the price panel itself carries no characteristics. The weighted bilateral formulae
-(Fisher, Tornqvist, Walsh, Lowe, Young and the rest, in `engine/bilateral.py`) are
-library-level only: they need quantity or expenditure data that the upload schema does
-not yet carry, so the Ingest page still offers the four elementary formulae plus a
-custom expression, and an all-items aggregate with no weights supplied remains an
-equally weighted geometric mean, indicative rather than authoritative. Seasonal treatment is limited to holding the level across an out-of-season
-gap; a counter-seasonal fixed weight approach is not implemented. Mechanism
-classification is a proposal for a human to confirm, not a determination.
+Every known limitation, where it arose, why it was left and what it means for
+someone relying on an output, is in
+[docs/limitations_register.md](docs/limitations_register.md), grouped by
+whether it touches a published number, only an analyst view, or only
+operations. How the platform compiles an index, and what has been verified
+against published figures, is in
+[docs/methodology_statement.md](docs/methodology_statement.md). The three a
+reader most often needs first:
+- a replacement's price gap is attributed to quality unless a compiler values
+  it (the matched-model default);
+- a seasonally adjusted series from this release is STL's, because
+  X-13ARIMA-SEATS has never run against the real program here;
+- no sampling interval exists without a declared design.
 
-The full COICOP 2018 tree (871 codes, divisions through sub-classes) is seeded
-from the UN Stats structure file (see `data/classification.py`); CPA, NACE and
-HS are not seeded, since no authoritative, machine-readable source for any of
-them was found and verified in the time available -- the loader that would
-take one is generic and already tested against a synthetic tree. Small-cell secondary
-suppression (`core.security.suppress_with_secondary`) handles one published total
-per group; a hierarchy with several overlapping totals over the same cells would
-need a cascading solver this does not implement. User accounts are provisioned with
-`scripts/create_user.py`; there is no in-app user-management page yet. Multilateral
-methods, hedonic quality adjustment, deflation, spatial comparison, asset and trade
-indices, forecasting and PostgreSQL/OIDC are all out of scope for the current phase
-— see `docs/backlog.md` for what is planned and what is deliberately deferred.
-
-The Docker image pins `python:3.12-slim`, the version the test suite and the
-interface were verified against. A very new CPython (3.14, at the time of
-writing) paired with Streamlit's file-watcher thread has been observed to
-crash the interpreter outright on Windows during rapid reload cycles; this is
-an interpreter and dependency interaction, not a PriceLab defect, and the
-pinned Docker base does not exhibit it. `.streamlit/config.toml` also turns
-the watcher off outright, since a deployed container's code does not change
-at runtime and has no need of it.
+The Docker image and compose stack have not been built on this release (no
+container engine on the development machine); what was checked without one is
+in [docs/release_verification.md](docs/release_verification.md).

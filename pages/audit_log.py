@@ -1,7 +1,9 @@
 """Audit: the append-only, hash-chained event log; chain verification;
-identifying which run an export came from; and verifying that a
-registered run still reproduces its registered headline and that its raw
-layer still replays through its transformation log.
+identifying which run an export came from; verifying that a registered
+run still reproduces its registered headline and that its raw layer still
+replays through its transformation log; rebuilding a registered forecast or
+scenario and checking its backtest digest for digest; and replaying the
+stored characteristics layers.
 
 Open to every role, viewer included: the auditor in the platform's
 audience list is a viewer with read access to the audit log, and none of
@@ -108,6 +110,71 @@ def verify_run(run_id: str, actor: str) -> dict[str, Any]:
     return checks
 
 
+def verify_characteristics_layers() -> list[dict[str, Any]]:
+    """Replay every characteristics layer in the store from its raw layer
+    through its transformation log, one check per log."""
+    store_dir = Path(get_settings().store_dir)
+    checks: list[dict[str, Any]] = []
+    for log_path in sorted((store_dir / "cleaned").glob("characteristics-*.log.json")):
+        log = store.CharacteristicsTransformationLog.from_json(
+            log_path.read_text(encoding="utf-8"))
+        raw_path = store_dir / "raw" / f"{log.raw_content_hash}.parquet"
+        name = f"characteristics {log.raw_content_hash[:12]}"
+        if not raw_path.exists():
+            checks.append({"layer": name, "ok": False,
+                           "detail": "raw layer missing from this deployment's store"})
+            continue
+        try:
+            cleaned = store.replay_characteristics(pd.read_parquet(raw_path), log)
+        except store.ImmutableLayerError as exc:
+            checks.append({"layer": name, "ok": False, "detail": str(exc)})
+        else:
+            checks.append({"layer": name, "ok": True,
+                           "detail": f"replays identically ({len(cleaned):,} items, "
+                                     f"{len(log.steps)} logged steps)"})
+    return checks
+
+
+def _verify_projections() -> None:
+    from pricelab.core.registry import ProjectionRunORM, reproduce_projection
+
+    st.markdown("#### Verify a registered forecast or scenario")
+    with db.session_scope() as s:
+        rows = s.query(ProjectionRunORM).order_by(ProjectionRunORM.id.desc()).limit(100).all()
+        options = {f"{r.kind} {r.projection_id} of {r.series}, run {r.run_id} "
+                   f"({r.created_by}, {r.created_at[:10]})": r.projection_id for r in rows}
+    if not options:
+        st.caption("No forecast or scenario has been registered yet.")
+        return
+    choice = st.selectbox("Projection", list(options), key="au_projection")
+    if not st.button("Rebuild and verify", key="au_projection_go"):
+        return
+    with db.session_scope() as s:
+        projection, matches = reproduce_projection(s, options[choice],
+                                                   common.current_username())
+    if matches:
+        st.success("Rebuilt from the run's stored input and the registered specification: the "
+                   "backtest errors and the path match the registered digests exactly.")
+    else:
+        st.error("Rebuilt, but the backtest errors or the path differ from the registered "
+                 "digests: this projection does not reproduce.")
+    st.caption(projection.label)
+
+
+def _verify_characteristics() -> None:
+    st.markdown("#### Replay the characteristics layers")
+    if not st.button("Replay every characteristics layer", key="au_characteristics_go"):
+        return
+    checks = verify_characteristics_layers()
+    if not checks:
+        st.caption("No characteristics file has been stored in this deployment.")
+        return
+    common.record(audit.CALCULATION_RUN, "characteristics replay",
+                  {"layers": len(checks), "ok": sum(c["ok"] for c in checks)})
+    for check in checks:
+        (st.success if check["ok"] else st.error)(f"{check['layer']}: {check['detail']}")
+
+
 def render() -> None:
     st.markdown("### Audit")
     st.caption("The event log is append-only and hash-chained: each record carries the hash "
@@ -161,6 +228,9 @@ def render() -> None:
                          use_container_width=True, hide_index=True)
             if stamp.registered:
                 st.session_state["audit_run_id"] = stamp.run_id
+
+    _verify_projections()
+    _verify_characteristics()
 
     st.markdown("#### Verify a registered run")
     with db.session_scope() as s:

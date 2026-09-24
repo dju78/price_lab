@@ -77,12 +77,13 @@ EXPORTS_WITHOUT_PROJECTIONS: dict[str, str] = {
 
 #: The modules allowed to handle a projection: the engines that build it,
 #: this module, the charts that draw it with its label, the registry that
-#: records and rebuilds it, and the two pages that show it.
+#: records and rebuilds it, the two pages that show it, and the Audit page
+#: that rebuilds a registered one (showing it with its label).
 PROJECTION_MODULES: tuple[str, ...] = (
     "pricelab/engine/projection.py", "pricelab/engine/forecasting.py",
     "pricelab/engine/scenarios.py", "pricelab/reporting/projections.py",
     "pricelab/reporting/charts.py", "pricelab/core/registry.py", "pages/forecasting.py",
-    "pages/scenarios.py",
+    "pages/scenarios.py", "pages/audit_log.py",
 )
 
 

@@ -6,10 +6,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libexpat1 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+# The package source goes in before the install: an editable install of a
+# pyproject whose package directory does not exist yet maps no package, and
+# the image would then import `pricelab` only because /app happens to be the
+# working directory. Dependencies are re-resolved when the source changes;
+# correctness over layer caching.
 COPY pyproject.toml .
+COPY pricelab/ ./pricelab/
 RUN pip install --no-cache-dir -e ".[dev]"
 
-COPY pricelab/ ./pricelab/
 COPY pages/ ./pages/
 COPY migrations/ ./migrations/
 COPY alembic.ini .

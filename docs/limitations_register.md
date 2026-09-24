@@ -1,0 +1,113 @@
+# Limitations register
+
+Every known limitation of PriceLab 1.0.0, from each phase's record of what it
+deferred (`docs/backlog.md`), from each methodology note's list of what its
+module does not do (`docs/methodology/`), and from the release verification.
+For each: where it arose, why it was left, and what it means for someone
+relying on an output.
+
+Grouped by reach:
+
+- **A. Affects a published number.** The compiled run's index and everything
+  built from it for release: the bulletin, the CSV and SDMX publication
+  table, the Excel evidence pack, the Word and Markdown reports and the deck,
+  including the multilateral and seasonally adjusted series and the
+  contributions they carry.
+- **B. Affects only an analyst view.** A page's own analysis with its own
+  download, which is not part of a run's publication: decomposition of a
+  published index, deflation, spatial, trade, construction, escalation,
+  property, housing, uncertainty, sensitivity, forecasts and scenarios.
+- **C. Operational.** How the platform is built, deployed and run.
+
+"Arose in" names the phase whose record states it. Phases follow the build
+plan: 1 foundation, 2 data, 3 index engine, 4 quality adjustment, 5
+multilateral, 6 seasonality, outliers and revisions, 7a decomposition and
+deflation, 7b spatial, trade, construction and escalation, 8 property and
+housing, 9a uncertainty and sensitivity, 9b forecasting and scenarios, 10
+reporting and hardening; "release" is the close-out.
+
+## A. Affects a published number
+
+### How the index is compiled
+
+| # | Limitation | Arose in | Why it was left | What it means for you |
+|---|---|---|---|---|
+| A1 | **A replacement's price gap is treated as quality by default.** The matched model compares only items priced in both periods; a new item replacing an old one enters without a price link unless an analyst approves a valuation in the quality adjustment ledger. | 1, 4 | It is the CPI Manual's matched-model principle, and the default any other treatment would have to be chosen over. Explicit adjustment needs a valuation, which is a judgement the platform records rather than makes. | Where products are replaced often and replacements are not valued, the index attributes their price changes to quality. The ledger's impact report shows what the approved valuations changed; nothing shows what unvalued replacements would have. |
+| A2 | **A period with too few matched items holds its level.** Below `min_matched_items` (default 2) a chained category repeats its last level. A category wholly out of season does the same. | 3 | The alternative is imputation, which is a separate, explicit choice (A3). | That category reports no price change for those periods. On the bundled collection 10% of the December 2025 aggregate (Strawberries, out of season) is held this way. The matched count is published beside every level. |
+| A3 | **No imputation by default, and imputation can move the headline a long way.** Missing prices are left missing unless the run configures an imputation method. | 1, 3, 9b | Filling is a modelling choice the compiler should make and see. | On the bundled collection, carrying prices forward or filling from the overall mean moves December 2025 by about 17 index points (135.60 to 118.9 and 118.1), by filling that 10%. The Uncertainty page shows the imputed share of the aggregate beside every imputation setting. |
+| A4 | **Without weights the aggregate is an equally weighted geometric mean.** | 1, 3 | A collection without weights gives no basis for any other. | Every category counts equally, whatever its share of spending. The platform labels such an aggregate indicative, and the headline should be read that way. |
+| A5 | **"Laspeyres" without quantities is the Young form**, a weighted mean of price relatives, not the quantity-basket Laspeyres. | 3 | Every run through the interface uses `engine.index`, which predates quantity data; with quantities the quantity basket is used. | The two coincide only when the weights are the base period's own expenditure shares. The method note names the form used. |
+| A6 | **Upper-level substitution bias.** A fixed-weight upper-level aggregate does not reflect substitution between categories. | 3 | Superlative upper-level aggregation needs current-period expenditure, which a price collection does not have. | The headline carries the usual Laspeyres-type upward bias of a fixed-weight CPI. |
+| A7 | **Chain drift is reported, not corrected.** A chained index on a non-transitive formula (Carli) drifts from its direct counterpart. | 3 | Correction would mean choosing a different formula or a multilateral method, both available as choices. | Read the chain-drift diagnostic on the Diagnostics page before publishing a chained Carli series. Jevons and Dutot do not drift. |
+| A8 | **A unit value index rests on the compiler's homogeneity assertion.** The `unit` column is carried but not used to refuse mixed units, and the assertion is for the whole run, not per category. | quantity ingestion | The CPI Manual makes homogeneity the compiler's judgement. | A unit value index over products that are not homogeneous reports a change in the mix as a change in price. Quantities appear in the Excel pack's source data but not in its Weights sheet. |
+| A9 | **Quality adjustment is applied to the incoming series** (current-period adjustment) rather than to the reference price. | 4 | It keeps reported prices untouched; in a chained short-term index the relatives are the same. | None for a chained index. A fixed-base index compiled across a replacement gets the same relative, by a different route. |
+| A10 | **Hedonic characteristics are not part of the upload.** A hedonic valuation needs a separate characteristics file on the Quality adjustment page. | 4 | The price schema was fixed before hedonics; characteristics go through the same provenance path (raw layer, log, replay, vintage stamp). | None beyond the extra step; the characteristics' vintage travels with every valuation read from them. |
+| A11 | **Automatic data repair covers order-of-100 unit faults only.** A factor-of-10 error or a transposed digit is left to the plausibility findings; the missingness-mechanism classification is a heuristic shown for confirmation. | 1 | A unit fault has a known multiplier; other errors do not, and guessing would modify prices silently. | Validation findings flag such values for a person to decide, but they are not repaired. |
+| A12 | **No outlier is excluded automatically, and editing is not selective.** Flags are ranked by how many screens agreed, not by their effect on the aggregate; there is no macro-editing pass and no enumerator-level scoring. | 6 | Exclusion is an analyst's decision with a stated reason, by design. The other tools were not in scope. | A large queue is reviewed in agreement order, not impact order. Exclusions are reported as a share of the quotes they would have fed. |
+
+### Seasonality
+
+| # | Limitation | Arose in | Why it was left | What it means for you |
+|---|---|---|---|---|
+| A13 | **X-13ARIMA-SEATS has never run against the real program.** Every run so far has used the STL fallback, labelled as such; the X-13 branch has been exercised only through a substituted runner. | 6, release | X-13 is not installed on the development machine; installing it is the owner's decision (see `docs/release_verification.md`). | A seasonally adjusted series from this release is an STL series, and says so on every output. The X-13 path is untested against the program. |
+| A14 | **No calendar adjustment and no X-11/SEATS diagnostics on the STL path.** No trading-day, moving-holiday or leap-year adjustment, no M and Q statistics, no sliding spans, and no test for identifiable seasonality before adjusting. | 6, 7a | They are X-13's and were not reimplemented. | Calendar effects stay in the adjusted series. A series with no real seasonality is adjusted anyway; the null test bounds what that does to it (median 0.62 of the irregular's standard deviation). |
+| A15 | **Direct adjustment only.** Adjusted components need not add up to the adjusted total, and no constrained adjustment reconciles them. | 6, 7a | Constrained adjustment was deferred. The gap is labelled on every output. | Do not sum seasonally adjusted components and expect the adjusted headline. |
+| A16 | **Strictly seasonal items are handled by the run's own settings.** With seasonal treatment disabled (the default) an out-of-season category holds its level (A2). Class confinement, weight update, Rothwell and counter-seasonal estimation are available when enabled. | 6 | The treatment is a choice to make explicitly. | See A2 and A3. On the bundled collection weight update instead of class confinement moves December 2025 by 0.6 points. |
+
+### Multilateral series
+
+| # | Limitation | Arose in | Why it was left | What it means for you |
+|---|---|---|---|---|
+| A17 | **The multilateral headline is not transitive.** Each category's multilateral series is transitive, but the roll-up through the tree is a weighted mean of them. | 6 | Rolling up through the same aggregation as the bilateral headline was preferred to a second aggregation. | The All items multilateral series can drift slightly between periods where its categories do not. The method note says so. |
+| A18 | **One method and window for all categories; no standard errors on multilateral levels; no seasonal GEKS forms beyond the year-over-year and rolling-year windows.** | 5, 6 | Not in scope. | Categories with very different churn get the same treatment. The comparison view shows the spread across methods, windows and rules instead of an error. |
+
+### Contributions, revisions and disclosure
+
+| # | Limitation | Arose in | Why it was left | What it means for you |
+|---|---|---|---|---|
+| A19 | **Contributions in the release outputs are at level 1 of the tree** (the run's categories), ending in the sum, the published change and the residual. Ribe contributions across a chain link are computed for one level at a time. | 7a, 7b | Whole-tree Ribe contributions were deferred. | A contribution below the run's categories is not published. For a fixed-weight year-over-year change across December, the tree contribution uses one weight set and is labelled an approximation. |
+| A20 | **Revision analysis is by vintage, not by horizon or source.** There are no horizon summaries, no decomposition into late returns, method change and reweighting, and no real-time database of source data as it arrived. | 6 | Not in scope. | You can see what was said and how it changed. You cannot see why it changed or what today's method would have said on the day's data. |
+| A21 | **Secondary suppression protects one published total per group.** Cells in overlapping totals (a category and a region) need a cascading solver, which is not implemented; the function refuses such a request rather than run an incomplete pass. | 1 | Not in scope. | Publishing cross-classified tables with small cells needs another tool. |
+| A22 | **Default primary suppression threshold of 3 matched quotes.** | 10 | A deployment setting (`PRICELAB_SUPPRESSION_MIN_COUNT`). | Set it to your organisation's rule; the value used is on every export's provenance stamp. |
+
+### Uncertainty of the published number
+
+| # | Limitation | Arose in | Why it was left | What it means for you |
+|---|---|---|---|---|
+| A23 | **A confidence interval exists only for a declared sampling design, and has never been tested on a real designed sample.** Every headline says when it carries none. | 9a | The design cannot be inferred from an upload; assuming simple random sampling of quotes gives intervals about half as wide as they should be (measured: 65.5% coverage for a nominal 95%). | Without your declaration of outlets and strata, the published number has no sampling interval. With it, the interval rests on your declaration, which the platform cannot check. Coverage was verified only by simulation: 95.5% for a nominal 95%. |
+| A24 | **The interval is for a movement between two periods, without a finite population correction or chained variance.** There is also no Taylor linearisation to compare with. | 9a | Deferred. | It errs wide where much of a stratum is sampled, and it says nothing about uncertainty accumulated across many chain links. |
+| A25 | **The methodological sensitivity range is a lower bound.** One choice is varied at a time, and the alternatives are not weighted by how defensible each is. | 9a, 9b | Combinations multiply the recompilations. | The true methodological range is wider than the one shown (118.12 to 138.57 around 135.60 on the bundled collection). It is never a confidence interval and must not be added to one. |
+| A26 | **The golden-value checks against the CPI Manual are partial.** Chapter 8 Tables 8.1 to 8.3 and the Chapter 6 examples reproduce at published precision. Table 6.1's full tableau, Table 6.2's chain and Table 6.6's regression are not asserted, because the manual does not print their inputs. The superlative formulae are checked only on hand-calculated two-good examples. | 3, 4, 10 | The published sources do not carry the inputs. | Those formulae are verified by their axioms and by hand examples, not against a published worked example. |
+
+## B. Affects only an analyst view
+
+| # | Limitation | Arose in | Why it was left | What it means for you |
+|---|---|---|---|---|
+| B1 | **Decomposition and deflation results are not carried into the release outputs.** | 7a | A publication decision, not a methodological one. | Each page offers its own download; none of it reaches the bulletin, reports or deck. |
+| B2 | **Core measures are computed at the level supplied and on unadjusted data.** The sticky-price measure needs item-level prices, which published indices do not carry. | 7a | The level is the analyst's choice; seasonal adjustment before core measures was deferred. | A trimmed mean over 12 divisions and one over 90 classes are different measures. A period-on-period core measure carries the season. |
+| B3 | **Deflation is fixed-base only.** There are no chain-linked volume measures, no double deflation, and PPPs are applied to single aggregate series. | 7a | Deferred. | Constant-price series use one reference period throughout; they are not the chain-linked volumes national accounts publish. |
+| B4 | **Spatial comparison is at one level of products.** There is no GEKS/EKS aggregation, no time linking, no representativity adjustment and no basic-heading structure; standard errors are for CPD only. | 7b | Deferred. | On Eurostat's published data, parities from the categories with published expenditure sit a median 5.5% from Eurostat's own. That gap is systematic, because those categories cover about half of consumption. |
+| B5 | **Trade indices** are direct (not chained). There is no survey-price collection and no quality adjustment of traded products; no seasonal or outlier treatment of customs records; unit value homogeneity is the user's. | 7b | Deferred. | Unit value indices always carry their bias statement. They are not price indices. |
+| B6 | **Construction output price index** has no hedonic, model-pricing or repeat-tender method and no seasonal treatment. The bill of quantities is the user's. | 7b | Deferred. | The output index is as representative as the bill of quantities supplied. |
+| B7 | **Contract escalation** handles one index per clause, with no provisional-then-final payment when a lagged index is revised, no currency conversion and no interest. | 7b | Deferred; a revision after payment is a contractual matter. | The summary names the index vintage used, so a later revision is visible but not settled. |
+| B8 | **Property price indices** lack the arithmetic (value-weighted) Case-Shiller form, renovation or depreciation adjustment, hedonic double imputation, spatial hedonic terms and a land and structure decomposition. | 8 | Deferred. | Repeat sales treat renovation as price change. |
+| B9 | **Property methods on real transactions used one year of HM Land Registry data.** Repeat sales from a single year are selected on quick resales, and the full-year run is not in the test suite (only a verbatim Oldham extract is). | 9a | The task specified one year; the 162 MB file is not in the repository. | A one-year repeat sales index is 23 points above the other methods on 2024 and should not be published. The reading that it reflects refurbished homes resold within months is plausible but unverified. Price bounds are fixed amounts, and leasehold is a characteristic, not a separate market. |
+| B10 | **Rents and owner-occupied housing** have no quality or age adjustment of rents, no imputed-rent weights, no opportunity-cost user cost, and no weighting of the four approaches into a CPI. | 8 | Deferred. | The four approaches answer four questions and are shown side by side, not combined. |
+| B11 | **Forecasts:** no forecast combination or pooling. A regression's interval leaves out the driver's own uncertainty. The specification is chosen once, before the backtest window. Series are monthly and log-transformed only. | 9b | Deferred. The backtest measures what the omission costs, and says so. | In the simulated pass-through test, the regression's 95% interval contained the outcome 69% of the time. Read any interval the label calls understated as too narrow. |
+| B12 | **Forecasts on the bundled collection are easy wins, and the regressions have never met real data.** The collection's headline is an unusually regular trend and season, and the collection has no driver series. | 9b | No real driver belongs to the collection. | That ARIMA, SARIMA and ETS beat the seasonal naive by 39% to 91% on it says little about real CPI series. Pass-through and Phillips-curve coefficients are correlational, not causal, everywhere they appear. |
+| B13 | **Scenarios:** no second-round effects, no interactions between shocks, no temporary shocks, and no coefficient uncertainty in the fan. The fan's calibration cannot be checked, because it is built from the errors it would be checked against. | 9b | Each needs a structural model the platform does not have. | A scenario is what follows if its stated assumptions hold. It is not a forecast, and its fan is not a probability of the scenario. |
+| B14 | **Classification schemes:** COICOP 2018 is built in. CPA, NACE and HS are not, because no authoritative machine-readable source was verified. An organisation's own tree can be loaded on Ingest. | 2, release | Source not found. | A collection coded to CPA, NACE or HS rolls up only if you load that tree yourself. |
+
+## C. Operational
+
+| # | Limitation | Arose in | Why it was left | What it means for you |
+|---|---|---|---|---|
+| C1 | **The Docker image has never been built, and `docker compose up` has never run.** There is no Docker, Podman or WSL on the development machine. | 10, release | Installing a container engine needs administrator rights and Windows feature changes, which were not made. | What was checked without an engine, and what remains, is in `docs/release_verification.md`. Build the image and run the compose stack on a machine with Docker before deploying from them. |
+| C2 | **CI has not run on any release commit.** The workflow (Python 3.12, SQLite and PostgreSQL) runs on push, and nothing has been pushed since it was added. The suite has run locally on Python 3.14 only. | release | No push by instruction. | The first push is the first run on Python 3.12 and on Linux. |
+| C3 | **Authentication is username and password only**, with accounts made by `scripts/create_user.py`; there is no in-app user management and no OIDC/SSO. | 1 | OIDC needs hosting beyond Streamlit Community Cloud. The `AuthProvider` interface is where it would go. | An administrator provisions every account from a shell. |
+| C4 | **File-level backup is SQLite-only.** A PostgreSQL deployment uses `pg_dump` for the database and copies the store separately. | 10, 10.5 | The script refuses PostgreSQL rather than copy only the store. | Plan PostgreSQL backups with your database tooling. |
+| C5 | **The upload rate limit and the analysis cache are held in each server process's memory.** | 10 | Sufficient for a single-process deployment. | Behind several processes or replicas each has its own limit and cache. |
+| C6 | **pyarrow is pinned below 25.** On the development machine, Windows Smart App Control refuses pyarrow 25.0.1's `_fs.pyd`. | 3 | The pin keeps Parquet working there; Linux is unaffected. | Lift the pin once a 25.x wheel passes on that machine. |
+| C7 | **Connectors are tested on recorded responses, not live endpoints.** On failure a connector serves the last good response, marked stale and audited. | 2, 10 | Tests must not depend on the network. | An agency changing its API is found in production. The stale marker tells a reader which figures came from an older response. |
+| C8 | **The deployment was never exercised end to end in this release.** Nothing is pushed or deployed, and the Streamlit Community Cloud demo runs whatever was last pushed before these phases. | release | By instruction. | The live demo does not show this release. |
+| C9 | **The full-year Land Registry run cannot be reproduced from the repository.** The file is not committed; only the Oldham extract is. | 9a | Size (162 MB) and licence attribution. | Re-download the 2024 price paid file from HM Land Registry (Open Government Licence) to repeat it. |

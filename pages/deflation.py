@@ -209,3 +209,17 @@ def _ppp() -> None:
     st.dataframe(pd.DataFrame({"local currency": result.values, "PPP": result.ppp,
                                result.currency: result.converted}).tail(24),
                  use_container_width=True)
+    rate_upload = st.file_uploader(
+        "Market exchange rate, local currency per unit of the PPPs' reference currency "
+        "(CSV: period, value), for the price level index", type=["csv"], key="df_ppp_rate")
+    if rate_upload is None:
+        return
+    try:
+        pli = df_.price_level_index(result.ppp, read_series(rate_upload))
+    except (ValueError, df_.DeflationError) as exc:
+        st.error(str(exc))
+        return
+    st.session_state["df_pli"] = pli
+    st.caption("Price level index: the PPP over the exchange rate, times 100. Above 100 the "
+               "country is dearer than the reference, below 100 cheaper.")
+    st.dataframe(pli.round(2).tail(24), use_container_width=True)

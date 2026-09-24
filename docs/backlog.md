@@ -1038,6 +1038,40 @@ digests.
 - A real driver series for the bundled collection. It has none, so the
   regressions were evaluated only on generated data with a known process.
 
+## Release 1.0.0 - audit, close out and package (done, 2026-09-24)
+
+**Wiring audit** repeated (docs/wiring_audit.md), now import-aware: 68
+modules, 735 public names. Seven wired gaps were closed with page-level
+tests:
+- outlier withdrawal;
+- the correction audit event;
+- projection reproduction on Audit;
+- characteristics replay on Audit;
+- Eurostat PPPs on Spatial;
+- price level indices on Spatial and Deflation;
+- a user-defined classification tree on Ingest.
+
+Dead code was removed.
+
+**Docker** is not installable here without administrator changes. Instead:
+- the build context was computed from `.dockerignore`, which led to fixing
+  its depth;
+- the image's /app was reproduced and the build's ruff, mypy and pytest
+  steps run there;
+- the editable install was moved after the source copy.
+- running the suite in that layout found two faults the repository's runs had
+  hidden, both fixed with tests: a test that relied on a git-ignored local
+  database, and `run_pipeline` creating an empty SQLite file whenever it ran
+  without a database.
+
+The X-13 position is set out for the owner's decision in
+docs/release_verification.md.
+
+**Documents**: docs/limitations_register.md, docs/methodology_statement.md.
+
+**Version**: 1.0.0, pyproject and `__version__` reconciled; tag `v1.0.0`,
+local.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
 OIDC (would require hosting beyond

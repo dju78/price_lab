@@ -5,7 +5,125 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
-## Unreleased — Phase 9b: forecasting and scenarios (2026-09-24)
+## 1.0.0 — 2026-09-24
+
+The first release of PriceLab as a governed price statistics platform. It
+covers the whole build plan: Phases 0 to 10, the quantity and expenditure
+ingestion work, the Phase 10.5 wiring audit, and this release's close-out.
+The phase entries below are its detailed history.
+
+### What the platform does
+- **Compiles a price index from a price collection, and shows every step.**
+  - Uploads are mapped by a person, validated on eight quality dimensions,
+    and blocked on a critical finding until someone decides it.
+  - Unit faults are repaired with a flag; missing codes are recoded.
+  - Elementary indices use Jevons by default, chained and matched model,
+    with Dutot, Carli, harmonic, CSWD and unit value available. With
+    quantities or expenditure: Laspeyres, Paasche, Fisher, Törnqvist, Walsh,
+    Marshall-Edgeworth, Lowe, Young and the geometric forms. Analyst-defined
+    formulae run in a restricted evaluator.
+  - The price, weight and index reference periods are kept apart.
+  - Aggregation is weighted through COICOP 2018 (all 871 codes) or the
+    organisation's own tree, with contributions that add up.
+  - Primary and secondary disclosure control apply to every published table.
+- **Quality change**: the matched model by default; a ledger of approved
+  explicit adjustments (overlap, direct comparison, quantity, option cost,
+  imputation, hedonic); an impact report per entry.
+- **Missing prices, seasonal items, outliers and revisions**:
+  - five imputation methods, with the imputed share reported;
+  - class confinement, weight update, Rothwell and counter-seasonal
+    treatments;
+  - seasonal adjustment by X-13ARIMA-SEATS or STL, named on every output;
+  - four outlier screens, with no automatic exclusion and a reason required
+    for every decision;
+  - revision triangles and bias tests on registered vintages.
+- **Scanner and transaction data**: GEKS-Fisher, GEKS-Törnqvist, time product
+  dummy (weighted and unweighted), time dummy hedonic and Geary-Khamis, with
+  six window-extension rules. The spread across methods is reported.
+- **Macro analysis**:
+  - rates, contributions (including Ribe across a chain link) and core
+    measures;
+  - base effects, diffusion and dispersion;
+  - deflation, real wages, constant prices, and PPP conversion with price
+    level indices.
+- **Other index families**:
+  - spatial parities (CPD and Geary-Khamis, including from Eurostat's
+    published PPPs);
+  - import and export price and unit value indices, and the terms of trade;
+  - construction input cost and output price indices;
+  - contract escalation;
+  - residential property price indices (stratified median, mix-adjusted
+    mean, repeat sales, SPAR, hedonic), including from HM Land Registry
+    price paid data;
+  - rents and owner-occupied housing.
+- **Uncertainty**:
+  - design-based bootstrap intervals when a sampling design is declared, and
+    a refusal when none is;
+  - a methodological sensitivity range, labelled a lower bound, never
+    combined with an interval;
+  - on every headline, its interval or a statement that it has none.
+- **Forecasts and scenarios**:
+  - ARIMA, SARIMAX, ETS, and pass-through and Phillips-curve regressions,
+    each backtested against a naive benchmark and its interval checked
+    against its measured error;
+  - scenarios with sourced assumptions.
+  - Neither can be exported without its interval, backtest, benchmark
+    comparison and assumptions.
+- **Governance**:
+  - role-based access and password authentication;
+  - a hash-chained audit log;
+  - a run registry that reproduces any registered run, with approval and
+    corrections as vintages;
+  - one provenance stamp on every export, readable back from any of them;
+  - immutable raw layers with replayable transformation logs;
+  - eight connectors to agency data (ONS, Eurostat, IMF, World Bank, OECD,
+    BLS, FAO, generic SDMX) with caching and stale-if-error.
+- **Outputs**: slide deck, Word and Markdown reports, the Excel evidence
+  pack, the PDF statistical bulletin, CSV and SDMX-ML 2.1 (validated against
+  the standard's schemas).
+
+### Release close-out
+- **Wiring audit** repeated after Phases 5–9b (`docs/wiring_audit.md`): 68
+  modules. Seven wired gaps were closed, each with a page-level test:
+  - withdrawing an outlier decision;
+  - the correction audit event;
+  - reproducing a registered forecast or scenario;
+  - replaying the characteristics layers;
+  - Eurostat's published PPPs on the Spatial page;
+  - price level indices;
+  - a user-defined classification tree.
+
+  Dead code was removed.
+- **Docker**: `.dockerignore` rules now apply at every depth (194 stale
+  bytecode files would have entered the image). The package source is
+  copied before the editable install. The image's `/app` was reproduced from
+  the build context, and the build's lint, type-check and test steps were run
+  there. That caught a test that passed only because of a git-ignored local
+  database. It also caught `run_pipeline` creating an empty SQLite file
+  whenever it ran without a database; both are fixed. The image itself has
+  never been built: there is no container engine on the development machine
+  (`docs/release_verification.md`).
+- **Version**: 1.0.0 in both `pyproject.toml` and `pricelab.__version__`,
+  which had disagreed (0.2.0 against 0.1.0) and which every provenance stamp
+  records.
+- **Documents**:
+  - `docs/methodology_statement.md`: how the platform compiles an index, for
+    a statistician who will not read the code;
+  - `docs/limitations_register.md`: every known limitation, by what it
+    affects;
+  - `docs/release_verification.md`: what was and was not verified, and the
+    X-13 decision.
+
+### Known limitations
+See `docs/limitations_register.md`. The main ones for anyone relying on a
+published number:
+- X-13ARIMA-SEATS has never run against the real program; every seasonally
+  adjusted series so far is STL's, and says so.
+- No sampling interval exists without a declared design.
+- The Docker image and compose stack are unbuilt.
+- CI has not yet run on any of these commits.
+
+## Phase 9b: forecasting and scenarios (2026-09-24)
 
 ### Added
 - **`engine/forecasting.py`**: ARIMA (order by KPSS and AICc), SARIMAX, ETS,
@@ -40,7 +158,7 @@ its committed baseline, ruff and mypy strict at zero).
 - `docs/methodology/sensitivity.md` said the fixture's spread was across 13
   alternatives; 12 are computed.
 
-## Unreleased — Phase 9a: uncertainty, variance and sensitivity (2026-09-23)
+## Phase 9a: uncertainty, variance and sensitivity (2026-09-23)
 
 ### Added
 - **Property methods on real transactions**: `data/price_paid.py` reads HM
@@ -92,7 +210,7 @@ its committed baseline, ruff and mypy strict at zero).
   mix-adjusted mean 99.21, repeat sales 125.75 -- a single year's re-sales
   are selected on quick resales.
 
-## Unreleased — Phase 8: asset and property price indices (2026-09-23)
+## Phase 8: asset and property price indices (2026-09-23)
 
 ### Added
 - **`engine/asset.py`**: residential property price indices by stratified
@@ -144,7 +262,7 @@ its committed baseline, ruff and mypy strict at zero).
 - Repeat sales revision magnitude on the demonstration market: mean absolute
   revision 0.42 index points.
 
-## Unreleased — Phase 7b: spatial, trade, construction and contract escalation (2026-09-23)
+## Phase 7b: spatial, trade, construction and contract escalation (2026-09-23)
 
 ### Added
 - **Contributions across a chain link**: `decomposition.ribe_contributions`,
@@ -192,7 +310,7 @@ its committed baseline, ruff and mypy strict at zero).
   index gives 100; the unit value index gives 91/19 × 100 = 478.95, a gap of
   378.95 index points.
 
-## Unreleased — Phase 7a: decomposition, core measures and deflation (2026-09-23)
+## Phase 7a: decomposition, core measures and deflation (2026-09-23)
 
 ### Added
 - **`engine/decomposition.py`**: period-on-period, year-on-year, annualised,
@@ -261,7 +379,7 @@ its committed baseline, ruff and mypy strict at zero).
   ten years the measured change was 0.62 sigma (median) and 0.77 sigma
   (worst); on four years the worst case reached 1.13 sigma.
 
-## Unreleased — Phase 6: seasonality, outliers and revision control (2026-09-22)
+## Phase 6: seasonality, outliers and revision control (2026-09-22)
 
 ### Added
 - **`engine/seasonal.py`**: strictly seasonal item detection (a season is a
@@ -358,7 +476,7 @@ its committed baseline, ruff and mypy strict at zero).
   aggregation structure; revision analysis by horizon or by source; selective
   editing that ranks flags by their effect on the aggregate.
 
-## Unreleased — Phase 5: multilateral methods (2026-09-22)
+## Phase 5: multilateral methods (2026-09-22)
 
 ### Added
 - **`engine/multilateral.py`**: GEKS with Fisher or Törnqvist as the
@@ -417,7 +535,7 @@ its committed baseline, ruff and mypy strict at zero).
   through the classification tree, seasonal multilateral variants, and
   standard errors on a multilateral level.
 
-## Unreleased — Quantity and expenditure ingestion (2026-09-21)
+## Quantity and expenditure ingestion (2026-09-21)
 
 ### Added
 - **Canonical schema** carries optional `quantity`, `expenditure` and `unit`

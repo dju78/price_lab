@@ -81,8 +81,6 @@ def laspeyres(a: pd.Series, b: pd.Series, w: pd.Series | None = None) -> float:
     return float((w * (b / a)).sum() / w.sum())
 
 
-FORMULAE = {"jevons": jevons, "dutot": dutot, "carli": carli, "laspeyres": laspeyres}
-
 #: The quantity-weighted formulae (`engine.bilateral`, plus the unit value
 #: index from `engine.elementary`) a run may name, with what each needs
 #: beyond prices: quantities at the reference period, the current period,

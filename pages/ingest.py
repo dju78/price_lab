@@ -94,6 +94,46 @@ def classification_codes_for(categories: list[str]) -> list[str] | None:
     return codes if any(c in known for c in categories) else None
 
 
+TREE_COLUMNS = ("code", "label", "level", "parent_code")
+
+
+def _classification_tree() -> None:
+    """Load the organisation's own classification tree (a company's product
+    hierarchy, a national variant of COICOP). Once loaded, a collection
+    whose categories are codes in it is checked for conformity against it
+    and rolled up through it, exactly as a COICOP-coded collection is."""
+    with st.expander("Your own classification tree", expanded=False):
+        st.caption("A CSV with columns code, label, level and parent_code (empty for a "
+                   "top-level node). Codes already in the database are left as they are; a "
+                   "collection whose categories are codes in the tree is rolled up through it.")
+        scheme = st.text_input("Name of the scheme", key="ing_tree_scheme")
+        tree = st.file_uploader("Classification tree (CSV)", type=["csv"], key="ing_tree_file")
+        if tree is None or not st.button("Load the tree", key="ing_tree_go"):
+            return
+        if not scheme.strip():
+            st.error("Name the scheme: the tree is stored under it.")
+            return
+        try:
+            frame = common.read_upload_table(tree, TREE_COLUMNS)
+            nodes = [(str(r.code).strip(), str(r.label), int(r.level),
+                      None if pd.isna(r.parent_code) or not str(r.parent_code).strip()
+                      else str(r.parent_code).strip())
+                     for r in frame.itertuples(index=False)]
+            codes = {code for code, _, _, _ in nodes}
+            orphans = sorted({p for _, _, _, p in nodes if p is not None} - codes)
+            if orphans:
+                raise ValueError(f"parent code(s) not in the tree: {', '.join(orphans[:5])}")
+        except (ValueError, TypeError) as exc:
+            st.error(str(exc))
+            return
+        with db.session_scope() as s:
+            inserted = classification.load_user_defined_tree(s, scheme.strip(), nodes)
+        common.record(audit.CONFIGURATION_CHANGE, f"classification tree {scheme.strip()}", {
+            "nodes": len(nodes), "inserted": inserted, "file": tree.name})
+        st.success(f"Loaded {inserted} of {len(nodes)} node(s) into scheme {scheme.strip()!r} "
+                   f"({len(nodes) - inserted} were already there).")
+
+
 def _landing() -> None:
     st.markdown('<div class="pl-eyebrow">PriceLab</div>', unsafe_allow_html=True)
     st.markdown('<div class="pl-headline">Upload a price collection. '
@@ -156,6 +196,8 @@ def render() -> None:
         for key in ("file_bytes", "file_name", "analysis", "loaded_run_id"):
             st.session_state.pop(key, None)
         st.rerun()
+
+    _classification_tree()
 
     if upload is None:
         if not common.has_active_analysis():

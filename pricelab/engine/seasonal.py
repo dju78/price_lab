@@ -75,16 +75,12 @@ import pandas as pd
 from ..core.config import IndexConfig, SeasonalConfig
 
 #: The strictly seasonal item treatments, in the order the comparison lists.
-TREATMENTS: tuple[str, ...] = ("class_confinement", "weight_update")
-
 TREATMENT_LABELS: dict[str, str] = {
     "class_confinement": "Class confinement",
     "weight_update": "Weight update",
 }
 
 #: Seasonal adjustment engines, best first.
-ENGINES: tuple[str, ...] = ("x13", "stl")
-
 ENGINE_LABELS: dict[str, str] = {
     "x13": "X-13ARIMA-SEATS",
     "stl": "STL (seasonal-trend decomposition by loess)",
@@ -1224,14 +1220,6 @@ def run_seasonal(df: pd.DataFrame, indices: pd.DataFrame, cfg: SeasonalConfig | 
                           notes=tuple(notes))
 
 
-def treatment_table(comparison: TreatmentComparison | None) -> pd.DataFrame:
-    """The comparison as a table an export can print, empty when there is
-    nothing to compare rather than absent."""
-    if comparison is None:
-        return pd.DataFrame(columns=["class_confinement", "weight_update", "gap_pp"])
-    return comparison.table
-
-
 def adjustment_note(result: SeasonalResult | None) -> str:
     """One paragraph for the method note, naming the engine that ran.
 
@@ -1290,7 +1278,3 @@ def adjustment_note(result: SeasonalResult | None) -> str:
             "counter-seasonally -- moved with their category's in-season items rather than held "
             "flat -- and each is marked as a construction, not an observation.")
     return " ".join(parts)
-
-
-def available_treatments() -> Sequence[str]:
-    return TREATMENTS

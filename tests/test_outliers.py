@@ -567,3 +567,30 @@ def test_a_viewer_is_refused_the_outliers_page(deployment):
             page.render()
     finally:
         set_current_role(Role.COMPILER)
+
+
+def test_the_page_withdraws_a_decision_with_a_reason_and_logs_it(deployment, monkeypatch):
+    """Release wiring audit: `ledger.withdraw_outlier_decision` had no caller
+    in the product. A decision is withdrawn, never deleted, with a reason,
+    and the withdrawal reaches the audit log."""
+    state = _ingest(monkeypatch)
+    at = _page(state)
+    at.session_state["ol_decision"] = "reject"
+    at.session_state["ol_reason"] = "keyed in pence"
+    next(f for f in at.button if f.label == "Record decision").click().run()
+    assert not at.exception, at.exception
+
+    next(b for b in at.button if b.label == "Withdraw decision").click().run()
+    assert any("needs a reason" in e.value for e in at.error)
+    at.text_input(key="ol_withdraw_reason").input("the shop's second receipt shows pounds").run()
+    next(b for b in at.button if b.label == "Withdraw decision").click().run()
+    assert not at.exception, at.exception
+    with db.session_scope() as session:
+        assert ledger.load_outlier_decisions(session, state["content_hash"]) == []
+        kept = ledger.load_outlier_decisions(session, state["content_hash"],
+                                             include_withdrawn=True)
+        assert len(kept) == 1 and kept[0].withdrawal_reason.startswith("the shop's second")
+        assert kept[0].withdrawn_by == "tester1"
+        events = session.query(audit.AuditEventORM).filter_by(
+            action=audit.OUTLIER_DECISION_WITHDRAWN).all()
+        assert len(events) == 1 and "second receipt" in events[0].params_json

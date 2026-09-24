@@ -207,3 +207,34 @@ def test_full_coicop_weight_hierarchy_validates_against_a_synthetic_but_consiste
             weight_of(code)
 
     assert validate_weight_hierarchy(weights, pm) == []
+
+
+def test_a_library_run_without_a_database_creates_no_database_file(tmp_path, monkeypatch):
+    """`run_pipeline` looks for a classification tree to roll up through.
+    With no database configured it must find none, not create an empty
+    SQLite file where the URL points (found by the release's Docker-layout
+    check: the image's /app gained an empty pricelab.db during the build)."""
+    import pandas as pd
+
+    from pricelab import infer_schema, run_pipeline, standardise
+    from pricelab.core import db
+    from pricelab.core.config import get_settings
+
+    target = tmp_path / "nowhere.db"
+    monkeypatch.setenv("PRICELAB_DATABASE_URL", f"sqlite:///{target.as_posix()}")
+    get_settings.cache_clear()
+    db.reset_db_state()
+    try:
+        raw = pd.DataFrame({
+            "Date": pd.date_range("2020-01-01", periods=4, freq="MS").repeat(2),
+            "Category": ["01", "02"] * 4, "Item_ID": ["a", "b"] * 4,
+            "Item_Name": ["a", "b"] * 4, "Reported_Price": [1.0, 2.0, 1.1, 2.1, 1.2, 2.2, 1.3, 2.3],
+            "Weight": [0.6, 0.4] * 4})
+        # Weighted, because only a weighted collection looks for a tree.
+        res = run_pipeline(standardise(raw, infer_schema(raw)))
+        assert "weight" in res["imputed"].columns
+        assert "indices" in res
+        assert not target.exists()
+    finally:
+        db.reset_db_state()
+        get_settings.cache_clear()
