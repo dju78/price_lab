@@ -35,7 +35,7 @@ from .engine.index import (
 from .engine.quality import run_quality
 from .engine.quality_adjustment import apply_adjustments, impact_report
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 log = get_logger("pricelab.pipeline")
 
 

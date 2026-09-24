@@ -2,7 +2,7 @@
 
 ## Test suite
 
-The full suite (1013 tests) was run on the final tree on this machine
+The full suite (1014 tests) was run on the final tree on this machine
 (Windows 11, Python 3.14): on SQLite with engine coverage, then in the
 reproduced image layout (item 4 below), then on a local PostgreSQL 15
 cluster, last. The tree was fingerprinted before, between and after the
@@ -95,15 +95,19 @@ but `pyproject.toml` does not declare. 1.0.0 had one: `pypdf`. The first CI
 run on 1.0.0 (Python 3.12, Linux, a clean install of the declared
 dependencies) found it. Installation, ruff and mypy passed, then test
 collection failed on both backends. 1.0.1 declares it, and a test now fails
-on any undeclared third-party import.
+on any undeclared third-party import. 1.0.1's CI run then failed collection
+on a second difference no local run could show: CI runs a bare `pytest`,
+which does not put the repository root on `sys.path` as `python -m pytest`
+does, so `pages` could not be imported. 1.0.2 puts the root on pytest's own
+path, and the gate now runs the bare form too.
 
 **Still unverified, precisely:**
 - that `python:3.12-slim` builds the image: the `apt-get` step, the `pip`
   resolution on Linux for Python 3.12, and the editable install in item 3;
 - the suite on Python 3.12 and on Linux. CI's first run, on 1.0.0,
   installed, linted and type-checked cleanly there, then failed at test
-  collection on the undeclared `pypdf`. Whether 1.0.1's suite passes there
-  is known only once CI runs on it;
+  collection on the undeclared `pypdf`, and 1.0.1's on the import path. Whether
+  the suite passes there is known only once CI runs on 1.0.2;
 - that the container starts, serves Streamlit on 8501 and passes its
   healthcheck;
 - `docker compose up`: PostgreSQL health-gating the app, migration to head

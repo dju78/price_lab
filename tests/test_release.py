@@ -24,7 +24,7 @@ def test_the_package_and_the_project_state_one_version():
     """`pricelab.__version__` is what every provenance stamp records; it and
     pyproject.toml disagreed (0.1.0 against 0.2.0) until the release."""
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))["project"]
-    assert pricelab.__version__ == project["version"] == "1.0.1"
+    assert pricelab.__version__ == project["version"] == "1.0.2"
 
 
 @needs_docs
@@ -100,3 +100,12 @@ def test_every_third_party_import_is_a_declared_dependency():
                 if dist not in declared:
                     undeclared.setdefault(dist, set()).add(path.relative_to(REPO_ROOT).as_posix())
     assert not undeclared, f"imported but not declared in pyproject.toml: {undeclared}"
+
+
+def test_a_bare_pytest_can_import_the_pages_and_the_app():
+    """CI runs `pytest`, not `python -m pytest`. Only the latter puts the
+    repository root on sys.path, and `pages/` and `app.py` are not in the
+    installed package, so 1.0.1's CI could not import `pages` at collection.
+    The root is on pytest's own path; this keeps it there."""
+    options = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
+    assert "." in options["tool"]["pytest"]["ini_options"]["pythonpath"]

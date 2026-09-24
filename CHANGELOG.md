@@ -5,6 +5,20 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## 1.0.2 — 2026-09-24
+
+### Fixed
+- **CI could not import `pages` at test collection.** CI runs `pytest`;
+  every local run, the gate and the Dockerfile used `python -m pytest`. Only
+  the latter puts the repository root on `sys.path`, and `pages/` and
+  `app.py` are not part of the installed package. So
+  `tests/test_upload_validation.py` failed collection in CI (1.0.1's run),
+  and nowhere else.
+  - pytest's `pythonpath` now includes the repository root, and a test keeps
+    it there.
+  - The release gate now runs bare `pytest` on both backends, as CI does,
+    and `python -m pytest` in the image layout, as the Dockerfile does.
+
 ## 1.0.1 — 2026-09-24
 
 ### Fixed

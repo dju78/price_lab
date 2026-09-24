@@ -1096,6 +1096,11 @@ collection: `pypdf` was imported but undeclared. It is now declared (with
 `pillow`), and a test fails on any undeclared third-party import. v1.0.0
 was published, so it stays where it is; the fix is v1.0.1.
 
+**1.0.2**: 1.0.1's CI failed collection because CI runs a bare `pytest`,
+which does not put the repository root on `sys.path`, so `pages` was not
+importable; every local run had used `python -m pytest`. The root is now on
+pytest's `pythonpath` (tested), and the gate runs the bare form.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
 OIDC (would require hosting beyond
