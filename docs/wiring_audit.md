@@ -2,8 +2,8 @@
 
 The Phase 10.5 audit repeated after Phases 5, 6, 7a, 7b, 8, 9a and 9b. Every
 module in `core/`, `engine/`, `data/` (with `data/connectors/`) and
-`reporting/`: 69 modules, 756 public names, of which
-722 are reachable from a page, `app.py` or the package's own
+`reporting/`: 69 modules, 760 public names, of which
+726 are reachable from a page, `app.py` or the package's own
 `analyse`/`run_pipeline`.
 
 **Method.** A static, import-aware reachability pass (`ast`). The roots are
@@ -73,7 +73,7 @@ The inventories did not replace the pass; they shortened the part after it.
 | `core/models` | 9/9 | reachable | core/models.Role ← pages/construction.py | every public name |
 | `core/provenance` | 4/4 | reachable | core/provenance.build_stamp ← pages/forecasting.py | every public name |
 | `core/ratelimit` | 3/4 | reachable in part | core/ratelimit.RateLimited ← pages/ingest.py | `reset_upload_limiter` — test hook |
-| `core/registry` | 15/15 | reachable | core/registry.DIRTY_SUFFIX ← pages/audit_log.py | every public name |
+| `core/registry` | 17/17 | reachable | core/registry.DIRTY_SUFFIX ← pages/audit_log.py | every public name |
 | `core/security` | 23/24 | reachable in part | core/security.AccessDenied ← app.py | `AuthProvider` — the interface `PasswordAuthProvider` implements |
 | `engine/aggregation` | 7/7 | reachable | engine/aggregation.AggregationResult ← pages/index_build.py | every public name |
 | `engine/asset` | 19/21 | reachable in part | engine/asset.PropertyError ← pages/property.py | `METHODS` — library metadata (the property methods' names), read by the tests; `true_index` — library: the known-population generator the property tests measure the methods against |
@@ -124,7 +124,7 @@ The inventories did not replace the pass; they shortened the part after it.
 | `data/validation` | 8/8 | reachable | data/validation.Severity ← pages/ingest.py | every public name |
 | `reporting/bulletin` | 6/6 | reachable | reporting/bulletin.BulletinError ← pages/reports.py | every public name |
 | `reporting/charts` | 35/35 | reachable | reporting/charts.to_png ← pricelab/__init__.py | every public name |
-| `reporting/deck` | 21/21 | reachable | reporting/deck.build_deck ← pricelab/__init__.py | every public name |
+| `reporting/deck` | 23/23 | reachable | reporting/deck.build_deck ← pricelab/__init__.py | every public name |
 | `reporting/excel` | 2/2 | reachable | reporting/excel.build_evidence_pack ← pages/reports.py | every public name |
 | `reporting/exports` | 16/18 | reachable in part | reporting/exports.stamped_csv ← pages/reports.py | `SEASONAL_SURFACES` — surface inventory, read by its scan test; `validate_sdmx_ml` — library: validation against the SDMX XSDs vendored under tests/fixtures (used by the export tests) |
 | `reporting/projections` | 7/10 | reachable in part | reporting/projections.path_table ← pages/scenarios.py | `PROJECTION_EXPORTS` — surface inventory, read by its scan test; `EXPORTS_WITHOUT_PROJECTIONS` — surface inventory, read by its scan test; `PROJECTION_MODULES` — surface inventory, read by its scan test |
