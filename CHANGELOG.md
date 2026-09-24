@@ -5,6 +5,25 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## 1.0.1 — 2026-09-24
+
+### Fixed
+- **A clean install could not run the tests.** `pypdf` was imported by
+  `reporting/readback.py`, which reads the provenance stamp back out of a
+  PDF bulletin, and by three tests, but it was declared nowhere. It was
+  present only in the development environment. 1.0.0's first CI run (Python
+  3.12, Linux, both backends) therefore failed at test collection, after
+  installation, lint and type-checking had passed.
+  - `pypdf` is now a dependency.
+  - `pillow`, which the deck imports directly, is declared too, instead of
+    relying on python-pptx to bring it.
+  - `tests/test_release.py` fails on any third-party import, in the package,
+    the pages, the app or the tests, that `pyproject.toml` does not declare.
+
+The reproduced-image check in 1.0.0 could not catch this: it ran the
+image's layout in the development environment, not a clean install of the
+declared dependencies. `docs/release_verification.md` now says so.
+
 ## 1.0.0 — 2026-09-24
 
 The first release of PriceLab as a governed price statistics platform. It

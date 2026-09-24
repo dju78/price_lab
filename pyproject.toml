@@ -1,6 +1,6 @@
 [project]
 name = "pricelab"
-version = "1.0.0"
+version = "1.0.1"
 description = "Price collection to defensible index, findings and deck."
 requires-python = ">=3.11"
 dependencies = [
@@ -28,6 +28,12 @@ dependencies = [
     "statsmodels>=0.14",
     "scipy>=1.11",
     "reportlab>=4.0",
+    # Reads the provenance stamp back out of a PDF bulletin
+    # (reporting/readback.py) and checks bulletins in the tests. Undeclared
+    # until 1.0.1, so a clean install failed test collection.
+    "pypdf>=4.0",
+    # Imported directly by reporting/deck.py (python-pptx also requires it).
+    "pillow>=10.0",
     "lxml>=5.0",
     # PostgreSQL driver; the SQLite default needs nothing beyond the stdlib.
     "psycopg[binary]>=3.1",

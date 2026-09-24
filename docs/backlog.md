@@ -1091,6 +1091,11 @@ local.
 - **X-13 gate.** X-13 runs only with the administrator setting
   `PRICELAB_X13_ENABLED`, and is labelled unvalidated when it does.
 
+**1.0.1**: pushed at the owner's request. CI's first run failed at test
+collection: `pypdf` was imported but undeclared. It is now declared (with
+`pillow`), and a test fails on any undeclared third-party import. v1.0.0
+was published, so it stays where it is; the fix is v1.0.1.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
 OIDC (would require hosting beyond
