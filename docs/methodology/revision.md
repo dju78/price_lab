@@ -26,7 +26,9 @@ is to the process rather than to any one figure.
 
 There is no store of past publications here. A vintage **is** a registered
 run: its input parquet, its configuration, its code version, its approval,
-reproducible byte for byte by `core.registry.reproduce`. A separate table of
+re-run by `core.registry.reproduce` from exactly that input and configuration
+with the code running now; replaying it with the original code means checking
+out its recorded commit. A separate table of
 "what we published last time" would be a second version of the truth,
 unreproducible, and the first thing to drift.
 

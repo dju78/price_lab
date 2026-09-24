@@ -44,7 +44,7 @@ import pages.spatial
 import pages.trade
 import pages.uncertainty
 from pages import common
-from pricelab.core import audit, db
+from pricelab.core import audit, db, demo
 from pricelab.core.logging import configure_logging
 from pricelab.core.models import Role
 from pricelab.core.security import (
@@ -85,9 +85,23 @@ configure_logging()
 db.init_db()
 
 
+@st.cache_resource(show_spinner=False)
+def _seed_demonstration() -> str:
+    """Once per server process: seed the demonstration viewer when the
+    environment asks for one and the database holds no user
+    (`core.demo`). A no-op on any real deployment."""
+    with db.session_scope() as s:
+        return demo.seed_demo_viewer(s).reason
+
+
+_seed_demonstration()
+
+
 def _login_form() -> None:
     st.markdown('<div class="pl-eyebrow">PriceLab</div>', unsafe_allow_html=True)
     st.markdown('<div class="pl-headline">Sign in</div>', unsafe_allow_html=True)
+    if demo.demo_username():
+        st.info(demo.DEMO_BANNER)
     with st.form("login"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
@@ -159,6 +173,9 @@ if st.sidebar.button("Sign out", use_container_width=True):
         st.session_state.pop(key, None)
     set_current_role(None)
     st.rerun()
+
+if demo.is_demo_session(username):
+    st.warning(demo.DEMO_BANNER)
 
 common.workflow_progress()
 st.sidebar.divider()

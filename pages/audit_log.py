@@ -22,7 +22,7 @@ import streamlit as st
 
 from pricelab.core import audit, db
 from pricelab.core.config import get_settings
-from pricelab.core.registry import IndexRunORM, reproduce
+from pricelab.core.registry import IndexRunORM, _code_version, reproduce
 from pricelab.core.security import safe_csv
 from pricelab.data import store
 from pricelab.reporting import readback
@@ -59,6 +59,26 @@ def identify_export(data: bytes, name: str) -> Any:
     raise readback.StampNotFound(f"{name}: not an export format this tool writes")
 
 
+def code_version_check(registered: str, running: str) -> dict[str, Any]:
+    """Whether the code reproducing a run is the code that registered it.
+
+    `reproduce` re-runs the stored input and configuration with the code
+    running now. A matching headline with different code shows the change
+    did not move that number, not that nothing changed; so the check passes
+    only when both are the same clean commit."""
+    from pricelab.core.registry import DIRTY_SUFFIX, describe_code_version
+
+    same_clean = (registered == running and registered != "unknown"
+                  and not registered.endswith(DIRTY_SUFFIX))
+    if same_clean:
+        return {"ok": True, "detail": f"reproduced with the registering commit {registered}"}
+    return {"ok": False,
+            "detail": (f"registered with {describe_code_version(registered)}; reproduced with "
+                       f"{describe_code_version(running)}. The reproduction used the code "
+                       "running now, so it is evidence about that code, not a replay of the "
+                       "original")}
+
+
 def verify_run(run_id: str, actor: str) -> dict[str, Any]:
     """Reproduce a registered run and check it against what the registry
     recorded; then, if the raw layer and its transformation log are in
@@ -68,6 +88,7 @@ def verify_run(run_id: str, actor: str) -> dict[str, Any]:
     with db.session_scope() as s:
         row = s.query(IndexRunORM).filter_by(run_id=run_id).one()
         input_hash, headline_value, headline_series = row.input_hash, row.headline_value, row.headline_series
+        registered_code = str(row.code_version)
         result = reproduce(s, run_id, actor=actor)
     series = headline_series or "All items"
     if headline_value is None:
@@ -76,6 +97,7 @@ def verify_run(run_id: str, actor: str) -> dict[str, Any]:
         live = float(result["indices"][series].iloc[-1])
         checks["headline"] = {"ok": abs(live - headline_value) < 1e-6,
                               "detail": f"registered {headline_value:.6f}, reproduced {live:.6f}"}
+    checks["code_version"] = code_version_check(registered_code, _code_version())
     store_dir = Path(get_settings().store_dir)
     raw_path = store_dir / "raw" / f"{input_hash}.parquet"
     log_path = store_dir / "cleaned" / f"{input_hash}.log.json"

@@ -81,6 +81,18 @@ TREATMENT_LABELS: dict[str, str] = {
 }
 
 #: Seasonal adjustment engines, best first.
+#: Set True only in the commit that adds an integration test adjusting a
+#: series with a published official X-13 adjustment and matching it. Until
+#: then every X-13 output says the path is unvalidated.
+X13_VALIDATED = False
+
+X13_UNVALIDATED_NOTE = ("an unvalidated path: PriceLab's call to X-13ARIMA-SEATS has not "
+                        "yet been checked against a published official adjustment")
+
+X13_DISABLED = ("X-13ARIMA-SEATS is disabled on this deployment: an administrator has not set "
+                "PRICELAB_X13_ENABLED, because PriceLab's X-13 path has not been validated "
+                "against a published official adjustment")
+
 ENGINE_LABELS: dict[str, str] = {
     "x13": "X-13ARIMA-SEATS",
     "stl": "STL (seasonal-trend decomposition by loess)",
@@ -742,6 +754,14 @@ def counter_seasonal_estimate(df: pd.DataFrame, cfg: SeasonalConfig | None = Non
 # ---------------------------------------------------------------------
 # Seasonal adjustment
 # ---------------------------------------------------------------------
+def x13_permitted() -> bool:
+    """Whether this deployment allows X-13ARIMA-SEATS to run at all
+    (`Settings.x13_enabled`), independent of whether it is installed."""
+    from ..core.config import get_settings
+
+    return bool(get_settings().x13_enabled)
+
+
 def x13_available() -> tuple[bool, str | None, str]:
     """Whether X-13ARIMA-SEATS can actually be run here, and where from.
 
@@ -830,7 +850,10 @@ class SeasonalAdjustment:
 
     @property
     def engine_label(self) -> str:
-        return ENGINE_LABELS.get(self.engine, self.engine)
+        label = ENGINE_LABELS.get(self.engine, self.engine)
+        if self.engine == "x13" and not X13_VALIDATED:
+            label += f" ({X13_UNVALIDATED_NOTE})"
+        return label
 
     @property
     def additivity_note(self) -> str:
@@ -1067,14 +1090,23 @@ def adjust(series: pd.Series, cfg: SeasonalConfig | None = None, *,
 
     warnings_: list[str] = []
     requested = cfg.adjustment_engine
-    available, path, explanation = x13_available()
+    permitted = x13_permitted()
+    if permitted:
+        available, path, explanation = x13_available()
+    else:
+        # The binary being installed is not enough: without the
+        # administrator's setting X-13 never runs, and "auto" falls back to
+        # STL with the reason in the label.
+        available, path, explanation = False, None, X13_DISABLED
     fallback_reason: str | None = None
 
     if requested == "x13" and not available:
+        remedy = ("Install X-13ARIMA-SEATS and point X13PATH at it" if permitted
+                  else "An administrator must set PRICELAB_X13_ENABLED to allow it")
         raise SeasonalError(
-            f"adjustment_engine is 'x13' and {explanation}. Install X-13ARIMA-SEATS and point "
-            "X13PATH at it, or choose 'auto' to fall back to STL -- which will be labelled as "
-            "STL in every output, because it is not the same method.")
+            f"adjustment_engine is 'x13' and {explanation}. {remedy}, or choose 'auto' to fall "
+            "back to STL -- which will be labelled as STL in every output, because it is not "
+            "the same method.")
 
     engine = "stl"
     adjusted: pd.Series

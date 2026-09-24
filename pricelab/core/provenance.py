@@ -92,7 +92,7 @@ class ProvenanceStamp:
             ("Data vintage (content hash)", self.data_vintage),
             ("Data source", self.data_source or "not recorded"),
             ("Data received", self.data_received_at or "not recorded"),
-            ("Code version (git commit)", self.code_version),
+            ("Code version (git commit)", self._code_description()),
             ("PriceLab version", self.pricelab_version),
             ("Environment", self.environment_fingerprint),
             ("Headline", (f"{head.get('series')} {head.get('value'):.4f} at {head.get('period')}, "
@@ -109,6 +109,11 @@ class ProvenanceStamp:
         if self.correction_reason:
             rows.insert(3, ("Correction reason", self.correction_reason))
         return rows
+
+    def _code_description(self) -> str:
+        from .registry import describe_code_version
+
+        return describe_code_version(self.code_version)
 
     def as_text(self) -> str:
         return "\n".join(f"{k}: {v}" for k, v in self.rows())

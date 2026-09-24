@@ -34,6 +34,13 @@ RUN ruff check .
 RUN mypy
 RUN python -m pytest tests/ -q
 
+# The image has no .git (see .dockerignore), so the commit it was built from
+# is passed in and recorded with every run registered from it:
+#   docker build --build-arg PRICELAB_CODE_VERSION="$(git rev-parse HEAD)$(git diff --quiet HEAD || echo -dirty)" .
+# Without it, runs from the image record their code version as "unknown".
+ARG PRICELAB_CODE_VERSION=unknown
+ENV PRICELAB_CODE_VERSION=$PRICELAB_CODE_VERSION
+
 ENV PYTHONUNBUFFERED=1 \
     MPLBACKEND=Agg \
     STREAMLIT_SERVER_HEADLESS=true \

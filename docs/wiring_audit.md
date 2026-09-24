@@ -2,8 +2,8 @@
 
 The Phase 10.5 audit repeated after Phases 5, 6, 7a, 7b, 8, 9a and 9b. Every
 module in `core/`, `engine/`, `data/` (with `data/connectors/`) and
-`reporting/`: 68 modules, 735 public names, of which
-699 are reachable from a page, `app.py` or the package's own
+`reporting/`: 69 modules, 756 public names, of which
+722 are reachable from a page, `app.py` or the package's own
 `analyse`/`run_pipeline`.
 
 **Method.** A static, import-aware reachability pass (`ast`). The roots are
@@ -61,19 +61,20 @@ The inventories did not replace the pass; they shortened the part after it.
 
 | Module | Reached / public | Status | Call path (first found) | Not reached from a page, and why |
 |---|---|---|---|---|
-| `core/audit` | 40/40 | reachable | core/audit.GENESIS_HASH ← pages/audit_log.py | every public name |
+| `core/audit` | 42/42 | reachable | core/audit.GENESIS_HASH ← pages/audit_log.py | every public name |
 | `core/backup` | 0/4 | not from a page | — | `BackupError` — operational: raised by the backup scripts; `backup` — operational entry point: `scripts/backup.py`; `verify` — operational: `restore` (scripts/restore.py) verifies the backup manifest before restoring; `restore` — operational entry point: `scripts/restore.py` |
 | `core/cache` | 4/5 | reachable in part | core/cache.content_key ← pages/common.py | `reset_analysis_cache` — test hook |
 | `core/config` | 15/15 | reachable | core/config.Schema ← pages/ingest.py | every public name |
 | `core/db` | 5/6 | reachable in part | core/db.init_db ← app.py | `reset_db_state` — test hook |
+| `core/demo` | 10/10 | reachable | core/demo.DEMO_BANNER ← app.py | every public name |
 | `core/health` | 0/4 | not from a page | — | `liveness` — operational entry point: `python -m pricelab.core.health`, the Dockerfile HEALTHCHECK and the compose healthchecks; `readiness` — as `liveness`; `serve` — as `liveness` (`--serve PORT`); `main` — as `liveness` |
 | `core/ledger` | 10/10 | reachable | core/ledger.record_adjustment ← pages/quality_adjustment.py | every public name |
 | `core/logging` | 5/5 | reachable | core/logging.configure_logging ← app.py | every public name |
 | `core/models` | 9/9 | reachable | core/models.Role ← pages/construction.py | every public name |
 | `core/provenance` | 4/4 | reachable | core/provenance.build_stamp ← pages/forecasting.py | every public name |
 | `core/ratelimit` | 3/4 | reachable in part | core/ratelimit.RateLimited ← pages/ingest.py | `reset_upload_limiter` — test hook |
-| `core/registry` | 10/10 | reachable | core/registry.IndexRunORM ← pages/audit_log.py | every public name |
-| `core/security` | 21/24 | reachable in part | core/security.AccessDenied ← app.py | `hash_password` — operational: `scripts/create_user.py` (no self-registration by design); `AuthProvider` — the interface `PasswordAuthProvider` implements; `create_user` — operational entry point: `scripts/create_user.py` |
+| `core/registry` | 15/15 | reachable | core/registry.DIRTY_SUFFIX ← pages/audit_log.py | every public name |
+| `core/security` | 23/24 | reachable in part | core/security.AccessDenied ← app.py | `AuthProvider` — the interface `PasswordAuthProvider` implements |
 | `engine/aggregation` | 7/7 | reachable | engine/aggregation.AggregationResult ← pages/index_build.py | every public name |
 | `engine/asset` | 19/21 | reachable in part | engine/asset.PropertyError ← pages/property.py | `METHODS` — library metadata (the property methods' names), read by the tests; `true_index` — library: the known-population generator the property tests measure the methods against |
 | `engine/auto` | 3/3 | reachable | engine/auto.infer_schema ← pricelab/__init__.py | every public name |
@@ -98,7 +99,7 @@ The inventories did not replace the pass; they shortened the part after it.
 | `engine/quality_adjustment` | 21/21 | reachable | engine/quality_adjustment.QualityAdjustmentError ← pages/quality_adjustment.py | every public name |
 | `engine/revision` | 11/11 | reachable | engine/revision.RevisionError ← pages/revisions.py | every public name |
 | `engine/scenarios` | 10/10 | reachable | engine/scenarios.DRIVERS ← pages/scenarios.py | every public name |
-| `engine/seasonal` | 22/22 | reachable | engine/seasonal.SeasonalError ← pages/seasonal.py | every public name |
+| `engine/seasonal` | 26/26 | reachable | engine/seasonal.X13_VALIDATED ← pages/seasonal.py | every public name |
 | `engine/sensitivity` | 6/6 | reachable | engine/sensitivity.LOWER_BOUND ← pages/uncertainty.py | every public name |
 | `engine/spatial` | 9/9 | reachable | engine/spatial.METHODS ← pages/spatial.py | every public name |
 | `engine/splicing` | 7/10 | reachable in part | engine/splicing.ChainDriftReport ← engine/multilateral.drift_against_chained ← pages/multilateral.py | `rebase_to_config` — library, tested; the pipeline rebases inside `engine/index`; `chain` — library, tested; the pipeline chains inside `engine/index`; `price_update` — library, tested; the per-item form `bilateral.price_update_shares` is wired (Index build, price-updating report) |

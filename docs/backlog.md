@@ -1040,8 +1040,8 @@ digests.
 
 ## Release 1.0.0 - audit, close out and package (done, 2026-09-24)
 
-**Wiring audit** repeated (docs/wiring_audit.md), now import-aware: 68
-modules, 735 public names. Seven wired gaps were closed with page-level
+**Wiring audit** repeated (docs/wiring_audit.md), now import-aware: 69
+modules, 756 public names (with the follow-up's `core/demo.py`). Seven wired gaps were closed with page-level
 tests:
 - outlier withdrawal;
 - the correction audit event;
@@ -1071,6 +1071,25 @@ docs/release_verification.md.
 
 **Version**: 1.0.0, pyproject and `__version__` reconciled; tag `v1.0.0`,
 local.
+
+**Release follow-up** (same version; the unpushed tag was moved to it):
+- **Provenance carries the commit.** Runs now record the full commit of
+  their own checkout (not wherever the process started), marked `-dirty`
+  when the working tree differed from it. Where there is no checkout they
+  record the image's build value, or a stated `unknown`.
+- **Audit page.** Verification says whether the code reproducing a run is
+  the registering commit.
+- **Corrected claims.** The methodology statement, the user guide and the
+  revision note said reproduction was "byte for byte" / "from exactly that
+  record" and that deleting any audit record breaks the chain. Both
+  overstated: reproduction uses the code running now, and truncating or
+  emptying the log is not detected.
+- **Demonstration.** `core/demo.py` seeds one viewer into an empty
+  database only, and a banner says what ephemeral storage does to the audit
+  log and registry. The administrator guide now says Community Cloud is a
+  demonstration host only.
+- **X-13 gate.** X-13 runs only with the administrator setting
+  `PRICELAB_X13_ENABLED`, and is labelled unvalidated when it does.
 
 ## Deferred (not in the agreed scope; revisit if asked)
 

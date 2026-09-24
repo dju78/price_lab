@@ -76,8 +76,10 @@ items — off the shelf for part of every year — get both treatments, class
 confinement and weight update, with the gap between them reported, because
 that gap is a judgement about what the basket means while part of it does
 not exist. Separately, seasonal adjustment: read the engine name before you
-read the line. Where X-13ARIMA-SEATS is not installed the page says so and
-STL runs instead, and every output says which one produced the series. The
+read the line. STL is the working method; X-13ARIMA-SEATS runs only where
+an administrator has enabled it and it is installed, and is then labelled
+an unvalidated path. The page says which applies, and every output says
+which one produced the series. The
 unadjusted series is drawn on the same axes and written into the same file,
 and every output says the adjustment was direct: seasonally adjusted
 components need not add up to an adjusted total, so do not sum them and
@@ -315,7 +317,10 @@ stamp: run identifier, data vintage (the content hash of the input, which
 is also its raw-layer file name), code commit, complete parameters,
 suppression rules, whether a non-standard formula was used, and the time.
 Cite the run identifier; anyone with access to the registry can reproduce
-the figure from it. The methodology notes under `docs/methodology/` state
+the figure from it. The code commit is the full hash, marked "with
+uncommitted changes" when the run was made from a working tree that differed
+from it -- register publication runs from a clean checkout, so they trace to
+exactly one commit. The methodology notes under `docs/methodology/` state
 each formula, its citation, assumptions and known biases.
 
 ---
@@ -329,14 +334,21 @@ changed silently.
    (`pricelab.reporting.readback` reads it from a CSV, Markdown, Word, deck,
    Excel, PDF or SDMX file) for the run identifier and data vintage.
 2. On **Reports → Load an approved run**, load that run identifier. The
-   registry reproduces it; the headline shown is the headline the registry
-   recorded at registration, which is the number the bulletin printed.
+   registry reproduces it from its stored input and configuration with the
+   code running now; the headline shown is the headline the registry
+   recorded at registration, which is the number the bulletin printed. On
+   **Audit → Verify a registered run**, the verification also says whether
+   the code running now is the commit that registered the run; only then is
+   the reproduction a replay of the original rather than evidence about the
+   current code.
 3. The data vintage is the raw layer's file name in the Parquet store; its
    receipt names the file, the person and the time of upload; its
    transformation log replays the cleaned layer.
 4. The audit log is append-only and hash-chained; the evidence pack's audit
    extract lists every event for the run, and `verify_chain` confirms no
-   entry was altered. Every quality-adjustment approval, validation
+   entry was altered and none deleted from the middle. It cannot tell a log
+   whose most recent entries were deleted, or an emptied log, from an
+   intact one. Every quality-adjustment approval, validation
    override, configuration change, calculation and export is in it, with
    who and when.
 5. Every disclosure-control decision is visible: a suppressed cell says so

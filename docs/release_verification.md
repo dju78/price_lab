@@ -2,7 +2,7 @@
 
 ## Test suite
 
-The full suite (999 tests) was run on the final tree on this machine
+The full suite (1012 tests) was run on the final tree on this machine
 (Windows 11, Python 3.14): on SQLite with engine coverage, then in the
 reproduced image layout (item 4 below), then on a local PostgreSQL 15
 cluster, last. The tree was fingerprinted before, between and after the
@@ -155,15 +155,18 @@ STL offers robustness, no external binary, and adjusted series that are
 already labelled as STL everywhere. It gives no calendar adjustment and has
 larger end-point revisions.
 
-**The choice.**
-1. Install and validate X-13 as above; adjusted series then use it by
-   default, under the `auto` setting.
-2. Keep STL, and remove the X-13 option from the interface until it can be
-   validated, so the product does not offer a path that has never run.
-3. Keep both as now: STL runs, X-13 is offered where installed, and
-   limitation A13 stays in the register.
+**The owner's decision, implemented.** STL remains the working method. The
+X-13 branch is gated behind an administrator setting
+(`PRICELAB_X13_ENABLED`, off by default):
+- With the setting off, X-13 does not run, even where the binary is
+  installed. The automatic choice uses STL, and the existing fallback label
+  names the setting as the reason; a demand for X-13 alone is refused with
+  the reason.
+- With the setting on, every output names the engine as "an unvalidated
+  path" until `seasonal.X13_VALIDATED` is set, in the commit that adds the
+  integration test against a published official adjustment.
 
-This release takes option 3 by default, pending the owner's decision.
+Limitation A13 records what validating it involves.
 
 ## Other verification in this release
 

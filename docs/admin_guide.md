@@ -83,6 +83,64 @@ docker compose run --rm tests
 To use SQLite in the container instead, set `PRICELAB_DATABASE_URL` to
 `sqlite:////data/pricelab.db` for the `pricelab` service.
 
+The image has no `.git` directory, so pass the commit it is built from.
+Every run registered from the image records it as its code version;
+without it they record `unknown`, and their stamps say the code cannot be
+identified:
+
+```bash
+PRICELAB_CODE_VERSION="$(git rev-parse HEAD)$(git diff --quiet HEAD || echo -dirty)" \
+    docker compose build
+```
+
+### Streamlit Community Cloud: a demonstration only
+
+Community Cloud is suitable for a **public demonstration and nothing
+else**:
+- its filesystem does not persist across restarts, so a SQLite database and
+  the Parquet store on it are lost every time the instance sleeps, restarts
+  or is redeployed;
+- with them go the audit log, the run registry, every user account, every
+  raw layer and every transformation log.
+
+The platform presents those as governance guarantees, and on ephemeral
+storage they silently reset. So an empty audit log there cannot tell a
+visitor whether nothing happened or everything was lost. **Any real use
+needs PostgreSQL** (`PRICELAB_DATABASE_URL`) **and persistent storage for
+the Parquet layers** (`PRICELAB_STORE_DIR` on a volume that survives
+restarts), as the container setup above provides.
+
+For the demonstration, set two secrets in the app's settings (Community
+Cloud exposes top-level secrets as environment variables):
+
+```toml
+PRICELAB_DEMO_USERNAME = "demo"
+PRICELAB_DEMO_PASSWORD = "a password you publish with the link"
+```
+
+On start, `core/demo.py` then does the following:
+- it creates **one viewer account** with those credentials, and registers
+  and approves one run of the bundled collection, so the viewer has
+  something to open on Reports and Audit;
+- it creates only a viewer: no setting can make it create a compiler or an
+  administrator;
+- it **refuses to create anything when the database already holds any
+  user**, so on a real deployment it is inert whatever the environment says.
+
+While that account is signed in, every page shows a banner: this is a
+demonstration, uploaded data is not retained, and the audit log and run
+registry reset whenever the instance restarts. The sign-in screen shows it
+too.
+
+A viewer sees Reports and Audit only (the role model in section 3). A
+demonstration of the analytical pages would need an analyst account, which
+the seeding path deliberately cannot create. Publish the demonstration
+credentials with the link; they open nothing but a read-only view of a
+disposable instance.
+
+Never set these two variables on a real deployment. The refusal protects
+you if you do, but the variables have no purpose there.
+
 ## 2. Environment variables
 
 All prefixed `PRICELAB_`; also read from a `.env` file in the working
@@ -102,6 +160,9 @@ directory. Defaults are development-safe.
 | `DB_STATEMENT_TIMEOUT_MS` | `30000` | PostgreSQL `statement_timeout`; for SQLite the busy timeout and a per-statement abort |
 | `LOG_JSON` / `LOG_LEVEL` | `true` / `INFO` | One JSON object per log line, with the run's correlation id on every line |
 | `RELEASE_ORGANISATION`, `RELEASE_CONTACT_NAME`, `RELEASE_CONTACT_EMAIL`, `RELEASE_CONTACT_PHONE` | `PriceLab`, `Statistical enquiries`, `not configured`, empty | The bulletin's title and contact block |
+| `X13_ENABLED` | `false` | Allows X-13ARIMA-SEATS to run at all (section 8). Off: STL, labelled as such, even where the binary is installed |
+| `CODE_VERSION` | unset | The commit an image was built from (`<hash>` or `<hash>-dirty`); read only where there is no git checkout. Recorded with every registered run |
+| `DEMO_USERNAME` / `DEMO_PASSWORD` | unset | Public demonstration only: seed one viewer into an empty database (section 1, Community Cloud) |
 | `PRICELAB_TEST_DATABASE_URL` (tests only) | unset | Point the test suite at a PostgreSQL database; each test drops and recreates its `public` schema, so never a database with anything in it |
 
 ## 3. User management
@@ -208,13 +269,26 @@ they touch existing tables. `alembic upgrade head` after every deployment;
 
 ## 8. X-13ARIMA-SEATS
 
-Seasonal adjustment prefers X-13ARIMA-SEATS and falls back to STL where the
-binary is absent. The fallback is never silent -- every output naming an
-adjusted series names the engine that produced it, and says when it is not
-X-13 -- but a deployment that publishes seasonally adjusted figures should
-install the real thing.
+STL is the working method. X-13ARIMA-SEATS runs **only when an administrator
+sets `PRICELAB_X13_ENABLED=true`**. The binary merely being installed
+changes nothing: with the setting off, the automatic choice uses STL and
+every output says why, while a request for X-13 alone is refused with the
+reason.
 
-Download the X-13ARIMA-SEATS binary from the US Census Bureau, put the
+PriceLab's X-13 path has never run against the real program. Its tests
+substitute the runner. Until an integration test adjusts a series that has
+a published official X-13 adjustment and matches it, every output from the
+X-13 path is labelled "an unvalidated path". Validating it means:
+- installing the binary where the suite runs;
+- adding that test, with the official series and its published factors
+  recorded as a fixture;
+- setting `engine.seasonal.X13_VALIDATED` in the same commit.
+
+See `docs/release_verification.md` for what X-13 would add and what it
+would not. It adds no trading-day or Easter adjustment unless the call to
+it is extended.
+
+To install and enable it, download the X-13ARIMA-SEATS binary from the US Census Bureau, put the
 executable (`x13as`, or `x13as.exe` on Windows) somewhere stable, and either
 put its directory on `PATH` or set `X13PATH` to it. `PRICELAB_` is not a
 prefix here: statsmodels reads `X13PATH` and `X12PATH` directly, and the
@@ -227,8 +301,9 @@ python -c "from pricelab.engine.seasonal import x13_available; print(x13_availab
 ```
 
 It prints `(True, "<directory>", "...found...")` when the binary is usable.
-Until it does, the Seasonality page shows the same explanation at the top of
-its adjustment section, and every adjusted series is labelled as STL.
+Then set `PRICELAB_X13_ENABLED=true` and restart. Until both hold, the
+Seasonality page says which is missing at the top of its adjustment
+section, and every adjusted series is labelled as STL.
 
 ## 9. Upgrading pyarrow on the development machine
 

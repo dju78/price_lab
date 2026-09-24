@@ -131,7 +131,12 @@ def _adjustment(indices: pd.DataFrame, cfg: SeasonalConfig) -> None:
     st.divider()
     st.markdown("#### Seasonal adjustment")
     available, _, explanation = sn.x13_available()
-    (st.success if available else st.warning)(explanation)
+    if not sn.x13_permitted():
+        st.info(sn.X13_DISABLED + ". STL is used, and every output says so.")
+    else:
+        (st.success if available else st.warning)(
+            explanation + ("" if sn.X13_VALIDATED or not available
+                           else f"; enabled by the administrator as {sn.X13_UNVALIDATED_NOTE}"))
 
     a1, a2 = st.columns([2, 2])
     series_name = a1.selectbox("Series to adjust", list(indices.columns),

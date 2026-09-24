@@ -160,9 +160,12 @@ first two is reported:
 All of them are off by default. An out-of-season category then holds its
 level (section 5).
 
-**Seasonal adjustment** uses X-13ARIMA-SEATS when the program is installed,
-or STL otherwise. The engine used is named on every output, and a run that
-demands X-13 fails rather than substitute. The unadjusted series always
+**Seasonal adjustment** uses STL. X-13ARIMA-SEATS runs only where an
+administrator has enabled it and the program is installed. Because
+PriceLab's X-13 path has never been checked against a published official
+adjustment, its outputs are labelled as an unvalidated path. The engine used
+is named on every output, and a run that demands X-13 where it is not
+enabled fails rather than substitute. The unadjusted series always
 travels with the adjusted one. Adjustment is direct, and the outputs warn
 that adjusted components need not add up to the adjusted total. See
 [seasonal](methodology/seasonal.md).
@@ -217,11 +220,30 @@ than run an incomplete pass over overlapping totals. See
 
 ## 9. Provenance and audit
 
-- **Run registry.** A run can be registered with its input data (stored, and
-  hashed row-order-independently), its complete configuration, the code
-  version, a fingerprint of the Python and library versions, and its headline
-  figure. `reproduce` re-runs a registered run from exactly that record. Its
-  number is checked against the one registered.
+- **Run registry.** A run can be registered with:
+  - its input data, stored and hashed independently of row order;
+  - its complete configuration;
+  - its headline figure;
+  - a fingerprint of the Python and main library versions;
+  - the code version: the full git commit of the checkout it ran from,
+    suffixed `-dirty` when the working tree differed from that commit.
+
+  A run registered from a clean tree therefore traces to exactly one
+  commit. A `-dirty` run names the nearest commit but not the code, which
+  cannot be recovered. Where there is no checkout (the Docker image excludes
+  `.git`), the commit is whatever was passed in when the image was built.
+  Without that, the code version is recorded as `unknown`, and the stamp
+  says the code cannot be identified.
+- **Reproduction.** `reproduce` re-runs a registered run's stored input and
+  configuration with **the code running now**. It does not check out the
+  recorded commit. The Audit page's verification compares the reproduced
+  headline with the registered one, and separately reports whether the code
+  running now is the registering commit. The check passes only for the same
+  clean commit. When the code differs, a matching headline shows that the
+  change did not move that number, not that nothing changed. To replay a run
+  exactly, check out its recorded commit and reproduce it there; the
+  environment fingerprint says which library versions to install. Neither
+  step is automated.
 - **Approval and correction.** An approved run is immutable. A change after
   approval is a correction: a new vintage with a required reason, linked to
   the one it supersedes, and the superseded vintage still reproduces.
@@ -229,7 +251,7 @@ than run an incomplete pass over overlapping totals. See
   [revision](methodology/revision.md).
 - **Provenance stamp.** Every export (CSV, SDMX-ML, Excel, Word, Markdown,
   slide deck, PDF bulletin) carries one stamp. It holds the run id, the data
-  vintage, the code version, the configuration, the suppression rules, the
+  vintage, the code version as above, the configuration, the suppression rules, the
   non-standard flag, the ledger count and the headline. The stamp can be read
   back out of any of those files, to say which run a file came from.
 - **Data layers.** Each upload is kept as an immutable raw layer with a
@@ -238,8 +260,14 @@ than run an incomplete pass over overlapping totals. See
   characteristics files.
 - **Audit log.** Loads, configuration changes, calculations, overrides,
   decisions, exports and external fetches are recorded in an append-only,
-  hash-chained log. Altering or deleting a record breaks the chain, and the
-  Audit page verifies it.
+  hash-chained log. Altering a record, or deleting one that has records
+  after it, breaks the chain, and the Audit page verifies it. The chain
+  cannot detect records deleted from the *end* of the log, or the whole log
+  being emptied: an empty or truncated log verifies as intact. Protecting
+  against that needs the latest hash kept somewhere the database cannot
+  change, which is not done. On storage that does not persist (the public
+  demonstration), the log is emptied at every restart, and the demonstration
+  says so on every page.
 - **Every page states its uncertainty.** Every headline in the analyst view
   carries a sampling interval, when a design has been declared, or says it
   has none. A methodological sensitivity range, labelled a lower bound, is
@@ -279,7 +307,9 @@ calculation, with no published figure reproduced:**
 - the bootstrap interval (95.5% coverage on a simulated population);
 - the forecasting models.
 
-**Never run against the real program:** X-13ARIMA-SEATS (limitation A13).
+**Never run against the real program:** X-13ARIMA-SEATS. It is off unless an
+administrator enables it, and labelled unvalidated when on (limitation
+A13).
 
 **Tests.** The suite covers the index axioms (identity, proportionality,
 commensurability, time and factor reversal) as properties over generated

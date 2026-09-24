@@ -323,6 +323,7 @@ def test_stl_runs_when_x13_is_absent_and_every_output_says_so(monkeypatch):
     seasonal adjustment" without qualification is a misrepresentation, so
     the label names STL *and* says it is not X-13."""
     monkeypatch.setattr(sn, "x13_available", lambda: (False, None, "no X-13 on this machine"))
+    monkeypatch.setattr(sn, "x13_permitted", lambda: True)     # allowed, but absent
     series = _index_series()
     adjustment = sn.adjust(series, SeasonalConfig(adjustment_engine="auto"))
 
@@ -350,13 +351,14 @@ def test_x13_is_used_and_named_when_the_binary_is_there(monkeypatch):
 
     monkeypatch.setattr(sn, "x13_available", lambda: (True, "/opt/x13", "found"))
     monkeypatch.setattr(sn, "_run_x13", fake_x13)
+    monkeypatch.setattr(sn, "x13_permitted", lambda: True)
     adjustment = sn.adjust(series, SeasonalConfig(adjustment_engine="auto"))
 
     assert calls == ["/opt/x13"]
     assert adjustment.engine == "x13"
     assert not adjustment.fell_back
-    assert adjustment.label == ("seasonally adjusted with X-13ARIMA-SEATS; "
-                                + adjustment.additivity_note)
+    assert adjustment.label == ("seasonally adjusted with X-13ARIMA-SEATS ("
+                                + sn.X13_UNVALIDATED_NOTE + "); " + adjustment.additivity_note)
     assert "STL" not in adjustment.label
 
 
@@ -372,6 +374,7 @@ def test_x13_failing_mid_run_falls_back_under_auto_and_records_why(monkeypatch):
 
     monkeypatch.setattr(sn, "x13_available", lambda: (True, "/opt/x13", "found"))
     monkeypatch.setattr(sn, "_run_x13", exploding)
+    monkeypatch.setattr(sn, "x13_permitted", lambda: True)
     adjustment = sn.adjust(_index_series(), SeasonalConfig(adjustment_engine="auto"))
     assert adjustment.engine == "stl"
     assert "spec file rejected" in (adjustment.fallback_reason or "")
@@ -762,3 +765,53 @@ def test_a_viewer_is_refused_the_seasonality_page(deployment):
             page.render()
     finally:
         set_current_role(Role.COMPILER)
+
+
+# ---------------------------------------------------------------------
+# The X-13 path is gated: installed is not enough
+# ---------------------------------------------------------------------
+def test_an_installed_x13_does_not_run_without_the_administrator_setting(monkeypatch):
+    """The binary being present must not change the method. With
+    PRICELAB_X13_ENABLED off (the default), "auto" uses STL with the existing
+    fallback label, naming the setting as the reason, and X-13 is never
+    called; "x13" is refused, naming the setting."""
+    from pricelab.core.config import get_settings
+
+    calls: list[str | None] = []
+
+    def recording_x13(endog, path, periods_per_year):
+        calls.append(path)
+        return sn._stl_decompose(endog, periods_per_year, 7)
+
+    monkeypatch.delenv("PRICELAB_X13_ENABLED", raising=False)
+    get_settings.cache_clear()
+    monkeypatch.setattr(sn, "x13_available", lambda: (True, "/opt/x13", "found"))
+    monkeypatch.setattr(sn, "_run_x13", recording_x13)
+    try:
+        assert not sn.x13_permitted()
+        adjustment = sn.adjust(_index_series(), SeasonalConfig(adjustment_engine="auto"))
+        assert calls == []
+        assert adjustment.engine == "stl" and adjustment.fell_back
+        assert adjustment.label.startswith(
+            "seasonally adjusted with STL (seasonal-trend decomposition by loess), not "
+            "X-13ARIMA-SEATS (X-13ARIMA-SEATS is disabled on this deployment")
+        with pytest.raises(sn.SeasonalError, match="must set PRICELAB_X13_ENABLED"):
+            sn.adjust(_index_series(), SeasonalConfig(adjustment_engine="x13"))
+
+        monkeypatch.setenv("PRICELAB_X13_ENABLED", "true")
+        get_settings.cache_clear()
+        assert sn.x13_permitted()
+        adjustment = sn.adjust(_index_series(), SeasonalConfig(adjustment_engine="auto"))
+        assert calls == ["/opt/x13"]
+        assert adjustment.engine == "x13"
+        assert sn.X13_UNVALIDATED_NOTE in adjustment.label
+    finally:
+        get_settings.cache_clear()
+
+
+def test_x13_is_labelled_unvalidated_until_validated():
+    """Every output reads the engine through `engine_label`, so the note
+    reaches all of them; it goes only when X13_VALIDATED is set, in the
+    commit that adds the integration test against a published adjustment."""
+    assert sn.X13_VALIDATED is False
+    assert "published official adjustment" in sn.X13_UNVALIDATED_NOTE

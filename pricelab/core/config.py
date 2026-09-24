@@ -803,6 +803,12 @@ class Settings(BaseSettings):
     release_contact_phone: str = ""
 
     upload_rate_limit_per_minute: int = 10
+    x13_enabled: bool = False
+    """Whether X-13ARIMA-SEATS may run at all (`PRICELAB_X13_ENABLED`). Off by
+    default: PriceLab's call to X-13 has never been validated against a
+    published official adjustment, so the binary merely being installed is
+    not enough -- an administrator turns this on deliberately, and every
+    output then says the path is unvalidated."""
     """Uploads one signed-in user may start per minute; the next is
     refused with the wait time stated, before any bytes are read."""
 

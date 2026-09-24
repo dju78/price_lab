@@ -2,10 +2,11 @@
 
 Every run is registered with a hash of its input data, its complete
 parameter set, the code version it ran under and a fingerprint of the
-Python and library versions in play, so a published figure can be
-reproduced byte for byte rather than merely re-derived by eyeballing a
-downloaded config file. `reproduce` re-executes a registered run from
-exactly that stored record.
+Python and library versions in play. `reproduce` re-executes a
+registered run from exactly its stored input and configuration, with the
+code running now; the recorded commit (`code_state`, flagged `-dirty` when
+the working tree differed from it) is what says whether that is the code
+that produced it.
 
 This supersedes the config-JSON-only reproducibility `RunConfig.to_json()`
 gave before Phase 1; that path keeps working (a config JSON still loads via
@@ -23,11 +24,14 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -38,7 +42,19 @@ from . import audit
 from .config import RunConfig
 from .db import Base
 
-_FINGERPRINT_LIBRARIES = ("pandas", "numpy", "pydantic", "streamlit", "sqlalchemy")
+_FINGERPRINT_LIBRARIES = ("pandas", "numpy", "scipy", "statsmodels", "pyarrow", "pydantic",
+                          "streamlit", "sqlalchemy")
+
+#: The checkout this package was imported from: the git commands run here,
+#: not in whatever directory the process happened to start in.
+_PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+
+#: Set at image build time (`docker build --build-arg PRICELAB_CODE_VERSION=...`)
+#: for a deployment with no .git directory. Consulted only when there is no
+#: checkout to ask.
+CODE_VERSION_ENV = "PRICELAB_CODE_VERSION"
+
+DIRTY_SUFFIX = "-dirty"
 
 
 class IndexRunORM(Base):
@@ -75,18 +91,75 @@ class IndexRunORM(Base):
     data_received_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
-def _code_version() -> str:
-    """The short git commit this process is running, or "unknown" outside a
-    git checkout (a source distribution, a container built without the
-    .git directory). Reproducibility degrades gracefully rather than
-    failing the whole registration when this can't be determined."""
+@dataclass(frozen=True)
+class CodeState:
+    """Which code a run was made with.
+
+    `commit` is the full 40-character hash, so a run from a clean tree
+    traces to exactly one commit (a short hash is unique only today).
+    `dirty` is True when the working tree differed from that commit --
+    modified, staged or untracked files -- so a run made from uncommitted
+    work says so; None when it cannot be known. `source` says where the
+    answer came from: "git", "build" (the image's build argument) or
+    "unavailable"."""
+
+    commit: str
+    dirty: bool | None
+    source: str
+
+    @property
+    def version(self) -> str:
+        """The string recorded with a run: the hash, suffixed "-dirty" when
+        the tree differed from it."""
+        return self.commit + (DIRTY_SUFFIX if self.dirty else "")
+
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True,
+                          timeout=10, check=True).stdout
+
+
+def code_state(root: Path | None = None) -> CodeState:
+    """The commit this code is, from its own checkout.
+
+    Asks git in the package's own directory, and only if that directory is
+    the top of a checkout (so a package installed inside some other
+    repository does not report that repository's commit). Without a
+    checkout -- the Docker image excludes .git -- it reads the
+    `PRICELAB_CODE_VERSION` build value ("<hash>" or "<hash>-dirty"); failing
+    that, "unknown". Never raises: reproducibility degrades to a stated
+    "unknown" rather than failing a registration."""
+    root = (root or _PACKAGE_ROOT).resolve()
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5, check=True)
-        return result.stdout.strip() or "unknown"
+        top = Path(_git(root, "rev-parse", "--show-toplevel").strip()).resolve()
+        if top != root:
+            raise ValueError(f"{root} is inside the checkout at {top}, not its top")
+        commit = _git(root, "rev-parse", "HEAD").strip()
+        dirty = bool(_git(root, "status", "--porcelain").strip())
+        return CodeState(commit=commit, dirty=dirty, source="git")
     except Exception:
-        return "unknown"
+        built = os.environ.get(CODE_VERSION_ENV, "").strip()
+        if built and built != "unknown":
+            dirty = built.endswith(DIRTY_SUFFIX)
+            return CodeState(commit=built.removesuffix(DIRTY_SUFFIX), dirty=dirty,
+                             source="build")
+        return CodeState(commit="unknown", dirty=None, source="unavailable")
+
+
+def _code_version() -> str:
+    """The code version recorded with a run: `code_state().version`."""
+    return code_state().version
+
+
+def describe_code_version(version: str) -> str:
+    """A code version as a reader should read it."""
+    if not version or version == "unknown":
+        return ("unknown: no git checkout and no build value, so the exact code cannot be "
+                "identified")
+    if version.endswith(DIRTY_SUFFIX):
+        return (f"{version.removesuffix(DIRTY_SUFFIX)}, with uncommitted changes: the working "
+                "tree differed from this commit, so the code cannot be recovered from it")
+    return version
 
 
 def _environment_fingerprint() -> str:

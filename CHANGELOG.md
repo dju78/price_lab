@@ -83,7 +83,7 @@ The phase entries below are its detailed history.
   the standard's schemas).
 
 ### Release close-out
-- **Wiring audit** repeated after Phases 5–9b (`docs/wiring_audit.md`): 68
+- **Wiring audit** repeated after Phases 5–9b (`docs/wiring_audit.md`): 69
   modules. Seven wired gaps were closed, each with a page-level test:
   - withdrawing an outlier decision;
   - the correction audit event;
@@ -114,11 +114,46 @@ The phase entries below are its detailed history.
   - `docs/release_verification.md`: what was and was not verified, and the
     X-13 decision.
 
+### Release follow-up
+- **Provenance carries the commit.** Every registered run and every
+  provenance stamp records:
+  - the full git commit of the package's own checkout;
+  - a `-dirty` suffix when the working tree differed from it, so a run from
+    uncommitted work says so;
+  - where there is no checkout, the image's `PRICELAB_CODE_VERSION` build
+    value, or a stated `unknown`.
+
+  A run from a clean tree traces to exactly one commit. The Audit page's
+  verification reports whether the code reproducing a run is the
+  registering commit. Before this, the record was the short hash of
+  whatever directory the process started in, with no dirty flag.
+- **Claims corrected.** The methodology statement, the user guide and the
+  revision note no longer say that reproduction replays a run "byte for
+  byte" or "from exactly that record". It re-runs the stored input and
+  configuration with the code running now. They also no longer say that
+  deleting any audit record breaks the chain; deleting the most recent
+  records, or emptying the log, does not.
+- **Demonstration seeding and banner** (`core/demo.py`):
+  - one viewer account from `PRICELAB_DEMO_USERNAME`/`_PASSWORD`, created
+    only in a database with no users, and never any other role;
+  - a demonstration run of the bundled collection;
+  - a banner on every page, and on sign-in: uploads are not retained, and
+    the audit log and run registry reset on restart.
+
+  The administrator guide now says Community Cloud is for demonstration
+  only.
+- **X-13ARIMA-SEATS gated.** It runs only when an administrator sets
+  `PRICELAB_X13_ENABLED`, not merely because the binary is installed. With
+  the setting on, every output labels it an unvalidated path until an
+  integration test against a published official adjustment exists.
+- The environment fingerprint now includes scipy, statsmodels and pyarrow.
+
 ### Known limitations
 See `docs/limitations_register.md`. The main ones for anyone relying on a
 published number:
-- X-13ARIMA-SEATS has never run against the real program; every seasonally
-  adjusted series so far is STL's, and says so.
+- X-13ARIMA-SEATS has never run against the real program; it is off unless
+  an administrator enables it, and every seasonally adjusted series so far is
+  STL's, and says so.
 - No sampling interval exists without a declared design.
 - The Docker image and compose stack are unbuilt.
 - CI has not yet run on any of these commits.

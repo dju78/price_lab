@@ -14,7 +14,12 @@ services:
       retries: 10
 
   pricelab:
-    build: .
+    build:
+      context: .
+      # The commit the image is built from, recorded with every run; set it
+      # with PRICELAB_CODE_VERSION=$(git rev-parse HEAD) docker compose build
+      args:
+        PRICELAB_CODE_VERSION: ${PRICELAB_CODE_VERSION:-unknown}
     ports:
       - "8501:8501"
     environment:

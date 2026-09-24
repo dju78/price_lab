@@ -70,6 +70,8 @@ SCENARIO = "scenario"
 PROJECTION_EXPORT = "projection_export"
 PROJECTION_REGISTERED = "projection_registered"
 PROJECTION_REPRODUCED = "projection_reproduced"
+DEMO_ACCOUNT_SEEDED = "demo_account_seeded"
+DEMO_RUN_SEEDED = "demo_run_seeded"
 
 
 class AuditEventORM(Base):

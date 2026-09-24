@@ -12,8 +12,9 @@ biased, and the correction is to the process rather than to any one figure.
 Everything here is computed from the registry's own vintages. There is no
 parallel store of past publications, and there deliberately is not one: a
 vintage *is* a registered run, with its input parquet, its configuration,
-its code version and its approval, and it reproduces byte for byte
-(`core.registry.reproduce`). A separate table of "what we published last
+its code version and its approval, and `core.registry.reproduce` re-runs
+it from exactly that input and configuration (with the code running now;
+the recorded commit says whether that is the code that produced it). A separate table of "what we published last
 time" would be a second version of the truth, unreproducible, and the first
 thing to drift.
 

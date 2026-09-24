@@ -100,8 +100,12 @@ as an observation.
 
 ## Seasonal adjustment
 
-X-13ARIMA-SEATS where the binary is available, STL otherwise. Two rules are
-enforced rather than recommended.
+STL is the working method. X-13ARIMA-SEATS runs only where an administrator
+has enabled it (`PRICELAB_X13_ENABLED`) *and* the binary is installed.
+PriceLab's X-13 path has never run against the real program, so until an
+integration test against a published official adjustment exists, every
+X-13 output names the engine as "an unvalidated path"
+(`seasonal.X13_VALIDATED`). Two rules are enforced rather than recommended.
 
 **1. The engine that ran is named, in every output.** X-13ARIMA-SEATS is what
 statistical offices use and what a reader assumes on seeing "seasonally
@@ -135,10 +139,11 @@ the check. Writing that test found one gap — the SDMX message carried the
 adjusted series under its key with no statement of what adjusted it — which
 the `BASIS` attribute closes.
 
-`adjustment_engine` is a request, not a guarantee. `"x13"` raises where the
-binary is absent rather than substituting; `"auto"` falls back and records
-why in `fallback_reason`, which then appears inside `label`; `"stl"` asks for
-STL and has nothing to qualify.
+`adjustment_engine` is a request, not a guarantee. `"x13"` raises where X-13
+is not enabled or the binary is absent, rather than substituting; `"auto"`
+falls back and records why in `fallback_reason` (the setting, or the missing
+binary), which then appears inside `label`; `"stl"` asks for STL and has
+nothing to qualify.
 
 Availability is decided by **looking for the executable**, not by importing
 statsmodels' wrapper — the wrapper imports perfectly well on a machine with

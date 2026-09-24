@@ -398,7 +398,17 @@ def test_audit_page_verifies_the_chain_identifies_an_export_and_verifies_a_run(d
     assert "headline: registered" in verdicts and "raw_layer" in verdicts
     assert "replay: transformation log replays the cleaned layer identically" in verdicts
     assert "audit_chain: intact" in verdicts
-    assert not page.error, [e.value for e in page.error]
+    # The code check passes only for a clean, identifiable commit; a working
+    # tree with uncommitted changes (or an image built without its commit)
+    # must say so rather than pass.
+    from pricelab.core.registry import code_state
+    state = code_state()
+    errors = [e.value for e in page.error]
+    if state.dirty is False:
+        assert not errors, errors
+        assert "code_version: reproduced with the registering commit" in verdicts
+    else:
+        assert len(errors) == 1 and errors[0].startswith("code_version: registered with"), errors
 
 
 def test_audit_page_reports_a_broken_chain(deployment):

@@ -111,7 +111,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 999 tests
+make test        # 1012 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/, data/ and reporting/
 ```
@@ -329,7 +329,7 @@ migrations/       Alembic; eight revisions covering users, sessions, audit event
                   the classification tree, validation overrides, column
                   mappings, the quality adjustment ledger, the outlier
                   review queue's decisions and registered projections
-tests/            999 tests
+tests/            1012 tests
 scripts/
   generate_synthetic_data.py   the price-quote fixture, not the product
   generate_scanner_data.py     the scanner transaction fixture, with churn,
