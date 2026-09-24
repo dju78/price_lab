@@ -1101,6 +1101,16 @@ which does not put the repository root on `sys.path`, so `pages` was not
 importable; every local run had used `python -m pytest`. The root is now on
 pytest's `pythonpath` (tested), and the gate runs the bare form.
 
+**1.0.3**: 1.0.2's CI ran the suite: 25 failures, both environmental and
+identical on both backends. 24 page tests read Streamlit's private
+`filtered_state`, which 1.64 removed; one helper now reads the state on any
+version. The hard gate compared floats bit for bit against a Windows-made
+baseline that Linux matches to about 1e-16; it now compares to 1e-12. At the
+owner's instruction the v1.0.1 and v1.0.2 tags were deleted, locally and on
+GitHub, because they tagged a release that never passed its own tests. The
+next tag is cut only once CI is green, and it is v1.0.3: withdrawn public
+names are not reused.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
 OIDC (would require hosting beyond

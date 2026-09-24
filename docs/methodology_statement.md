@@ -314,5 +314,7 @@ A13).
 **Tests.** The suite covers the index axioms (identity, proportionality,
 commensurability, time and factor reversal) as properties over generated
 data, not fixed numbers. It includes a hard-gate test: the bundled
-collection must reproduce its committed baseline series exactly after every
-change.
+collection must reproduce its committed baseline series after every change,
+to a relative 1e-12. That is exact up to the last-digit rounding in which
+Windows and Linux maths libraries differ, and far tighter than any change of
+method.

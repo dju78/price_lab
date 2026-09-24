@@ -1,6 +1,6 @@
 [project]
 name = "pricelab"
-version = "1.0.2"
+version = "1.0.3"
 description = "Price collection to defensible index, findings and deck."
 requires-python = ">=3.11"
 dependencies = [

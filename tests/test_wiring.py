@@ -27,6 +27,7 @@ import pytest
 import requests
 import responses
 import streamlit
+from apptest_state import user_state
 from dbtarget import database_url
 from streamlit.testing.v1 import AppTest
 
@@ -89,7 +90,7 @@ def _run(page: str, state: dict | None = None, role: str = "COMPILER") -> AppTes
 
 def _state(at: AppTest) -> dict:
     """The user-level session state, to seed the next page's run."""
-    return {k: v for k, v in at.session_state.filtered_state.items() if not str(k).startswith("$$")}
+    return user_state(at)
 
 
 def _text(at: AppTest) -> str:

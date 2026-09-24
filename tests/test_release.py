@@ -24,7 +24,7 @@ def test_the_package_and_the_project_state_one_version():
     """`pricelab.__version__` is what every provenance stamp records; it and
     pyproject.toml disagreed (0.1.0 against 0.2.0) until the release."""
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))["project"]
-    assert pricelab.__version__ == project["version"] == "1.0.2"
+    assert pricelab.__version__ == project["version"] == "1.0.3"
 
 
 @needs_docs

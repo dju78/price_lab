@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import streamlit
+from apptest_state import user_state
 from dbtarget import database_url
 from streamlit.testing.v1 import AppTest
 
@@ -666,8 +667,7 @@ page.render()
     next(b for b in at.button if b.label == "Confirm column mapping").click().run()
     assert not at.exception, at.exception
     monkeypatch.setattr(streamlit, "file_uploader", lambda *a, **k: None)
-    return {k: v for k, v in at.session_state.filtered_state.items()
-            if not str(k).startswith("$$")}
+    return user_state(at)
 
 
 def _page(state: dict, role: str = "COMPILER") -> AppTest:

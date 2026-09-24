@@ -13,3 +13,5 @@ __pycache__/
 .hypothesis/
 store/
 backups/
+# CI logs saved locally for reading, never committed
+ci-*.log

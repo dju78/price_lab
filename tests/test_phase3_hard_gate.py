@@ -19,6 +19,16 @@ on whatever later run someone happens to compare by eye.
 A deliberate change to the default method would legitimately fail this
 test. The response is to say so and regenerate the baseline in the same
 commit, not to loosen the comparison.
+
+The comparison is to a relative 1e-12, not bit for bit, and that is not a
+loosening of the kind ruled out above. The baseline was computed on
+Windows; on Linux (CI, the Docker image) the platform's maths library rounds
+the logs and exponentials of a chained geometric index differently in the
+last binary digit, and 1.0.2's CI measured exactly that: the same series,
+differing from the fourth period on by about one part in 1e16 (e.g.
+123.68870998606245 against ...248). A tolerance of 1e-12 is four orders of
+magnitude above that and many orders below any real change of method, which
+moves a level in its first few significant digits.
 """
 
 from pathlib import Path
@@ -49,7 +59,9 @@ def test_the_committed_fixture_reproduces_its_phase3_baseline_series_exactly():
 
     expected = pd.read_parquet(BASELINE)
 
-    pd.testing.assert_frame_equal(I, expected, check_exact=True)
+    # Same shape, labels and dtypes exactly; values to within cross-platform
+    # floating-point rounding (see the module docstring).
+    pd.testing.assert_frame_equal(I, expected, check_exact=False, rtol=1e-12, atol=0.0)
 
 
 def test_the_fixtures_settings_are_still_the_ones_the_baseline_was_built_under():

@@ -8,7 +8,7 @@ reproduced image layout (item 4 below), then on a local PostgreSQL 15
 cluster, last. The tree was fingerprinted before, between and after the
 runs, and committed unchanged as the release commit.
 
-The results are in the message of the annotated tag (`git show v1.0.0`),
+The results are in the message of the annotated tag (`git show v1.0.3`),
 not in this file: writing them here would change the tree they were
 measured on.
 
@@ -98,16 +98,23 @@ collection failed on both backends. 1.0.1 declares it, and a test now fails
 on any undeclared third-party import. 1.0.1's CI run then failed collection
 on a second difference no local run could show: CI runs a bare `pytest`,
 which does not put the repository root on `sys.path` as `python -m pytest`
-does, so `pages` could not be imported. 1.0.2 puts the root on pytest's own
-path, and the gate now runs the bare form too.
+does, so `pages` could not be imported. 1.0.2 put the root on pytest's own
+path, and the gate now runs the bare form too. 1.0.2's run then collected
+and ran the suite: 25 failures, the same on both backends. 24 page tests
+read a private Streamlit attribute that 1.64 (installed by CI) removed, and
+the Phase 3 hard gate compared floats bit for bit against a Windows-made
+baseline that Linux reproduces only to about 1e-16. Both were environmental
+and are fixed in 1.0.3. The v1.0.1 and v1.0.2 tags were withdrawn, because
+their CI never passed.
 
 **Still unverified, precisely:**
 - that `python:3.12-slim` builds the image: the `apt-get` step, the `pip`
   resolution on Linux for Python 3.12, and the editable install in item 3;
 - the suite on Python 3.12 and on Linux. CI's first run, on 1.0.0,
   installed, linted and type-checked cleanly there, then failed at test
-  collection on the undeclared `pypdf`, and 1.0.1's on the import path. Whether
-  the suite passes there is known only once CI runs on 1.0.2;
+  collection on the undeclared `pypdf`, 1.0.1's on the import path, and
+  1.0.2's ran with 25 environmental failures. Whether the suite passes there
+  is known only once CI runs on 1.0.3;
 - that the container starts, serves Streamlit on 8501 and passes its
   healthcheck;
 - `docker compose up`: PostgreSQL health-gating the app, migration to head

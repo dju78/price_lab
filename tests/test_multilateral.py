@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import streamlit
+from apptest_state import user_state
 from dbtarget import database_url
 from streamlit.testing.v1 import AppTest
 
@@ -826,8 +827,7 @@ page.render()
     next(b for b in at.button if b.label == "Confirm column mapping").click().run()
     assert not at.exception, at.exception
     monkeypatch.setattr(streamlit, "file_uploader", lambda *a, **k: None)
-    return {k: v for k, v in at.session_state.filtered_state.items()
-            if not str(k).startswith("$$")}
+    return user_state(at)
 
 
 def _text(at: AppTest) -> str:
@@ -938,8 +938,7 @@ page.render()
     at.run()
     next(b for b in at.button if b.label == "Confirm column mapping").click().run()
     monkeypatch.setattr(streamlit, "file_uploader", lambda *a, **k: None)
-    state = {k: v for k, v in at.session_state.filtered_state.items()
-             if not str(k).startswith("$$")}
+    state = user_state(at)
 
     page = _page(state)
     text = _text(page)

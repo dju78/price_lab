@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import streamlit
+from apptest_state import user_state
 from dbtarget import database_url
 from streamlit.testing.v1 import AppTest
 
@@ -345,9 +346,8 @@ set_current_role(Role.COMPILER)
 page.render()
 """
     page = AppTest.from_string(script, default_timeout=60)
-    for k, v in at.session_state.filtered_state.items():
-        if not str(k).startswith("$$"):
-            page.session_state[k] = v
+    for k, v in user_state(at).items():
+        page.session_state[k] = v
     page.run()
     assert not page.exception, page.exception
     assert "Expenditure inconsistent with price x quantity" in "\n".join(m.value for m in page.markdown)

@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import streamlit
+from apptest_state import user_state
 from dbtarget import database_url
 from streamlit.testing.v1 import AppTest
 
@@ -329,8 +330,7 @@ page.render()
     next(b for b in at.button if b.label == "Confirm column mapping").click().run()
     assert not at.exception, at.exception
     monkeypatch.setattr(streamlit, "file_uploader", lambda *a, **k: None)
-    return {k: v for k, v in at.session_state.filtered_state.items()
-            if not str(k).startswith("$$")}
+    return user_state(at)
 
 
 def _text(at: AppTest) -> str:
@@ -368,8 +368,7 @@ def test_a_correction_registered_on_reports_shows_up_in_the_triangle(
     with db.session_scope() as session:
         original = session.query(IndexRunORM).order_by(IndexRunORM.id).first()
         original_id = original.run_id
-    at = _page("reports", {**state, **{k: v for k, v in at.session_state.filtered_state.items()
-                                       if not str(k).startswith("$$")}})
+    at = _page("reports", {**state, **user_state(at)})
     approve = next((b for b in at.button if b.label.startswith("Approve")), None)
     assert approve is not None
     approve.click().run()

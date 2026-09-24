@@ -5,21 +5,15 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
-## 1.0.2 — 2026-09-24
+## 1.0.3 — 2026-09-24
 
-### Fixed
-- **CI could not import `pages` at test collection.** CI runs `pytest`;
-  every local run, the gate and the Dockerfile used `python -m pytest`. Only
-  the latter puts the repository root on `sys.path`, and `pages/` and
-  `app.py` are not part of the installed package. So
-  `tests/test_upload_validation.py` failed collection in CI (1.0.1's run),
-  and nowhere else.
-  - pytest's `pythonpath` now includes the repository root, and a test keeps
-    it there.
-  - The release gate now runs bare `pytest` on both backends, as CI does,
-    and `python -m pytest` in the image layout, as the Dockerfile does.
-
-## 1.0.1 — 2026-09-24
+Tagged only once its own CI passes: Python 3.12 on Linux, a clean install of
+the declared dependencies, SQLite and PostgreSQL. 1.0.0's CI failed.
+The fixes below were tagged as v1.0.1 and v1.0.2 as they were made, and each
+of those runs failed too. A tag names a release that has passed its tests,
+so both tags were **withdrawn** (deleted locally and on GitHub). Their names
+are not reused, because a deleted public tag may already have been fetched
+pointing at a different commit.
 
 ### Fixed
 - **A clean install could not run the tests.** `pypdf` was imported by
@@ -33,10 +27,35 @@ its committed baseline, ruff and mypy strict at zero).
     relying on python-pptx to bring it.
   - `tests/test_release.py` fails on any third-party import, in the package,
     the pages, the app or the tests, that `pyproject.toml` does not declare.
+- **CI could not import `pages` at test collection.** CI runs `pytest`;
+  every local run, the gate and the Dockerfile used `python -m pytest`. Only
+  the latter puts the repository root on `sys.path`, and `pages/` and
+  `app.py` are not part of the installed package. So
+  `tests/test_upload_validation.py` failed collection in CI (1.0.1's run),
+  and nowhere else.
+  - pytest's `pythonpath` now includes the repository root, and a test keeps
+    it there.
+  - The release gate now runs bare `pytest` on both backends, as CI does,
+    and `python -m pytest` in the image layout, as the Dockerfile does.
+- **24 page tests used a private Streamlit attribute.** They read the test
+  harness's session state through `AppTest.session_state.filtered_state`.
+  Streamlit 1.64, which CI installed, removed it (and added `items()` and
+  friends); 1.63, installed locally, had no dict methods. The tests now read
+  it through one helper (`tests/apptest_state.py`) that works on both. This
+  was environmental: the product was unaffected, and the tests leaned on an
+  unstable internal.
+- **The Phase 3 hard gate compared floats bit for bit across platforms.** On
+  Linux the fixture's series matched its Windows-made baseline to about 1e-16
+  relative (e.g. 123.68870998606245 against ...248), not to the last bit:
+  the platform's maths library rounds the logs and exponentials of a chained
+  geometric index differently. Environmental, not a change of method. The
+  gate now compares to a relative 1e-12, four orders above that and many
+  below any real change of method; shape, labels and dtypes are still exact.
 
-The reproduced-image check in 1.0.0 could not catch this: it ran the
-image's layout in the development environment, not a clean install of the
-declared dependencies. `docs/release_verification.md` now says so.
+The reproduced-image check could not catch any of these. It ran the image's
+layout in the development environment: Windows, Python 3.14, the locally
+installed library versions, and `python -m pytest`. `docs/release_verification.md`
+says what only CI checks.
 
 ## 1.0.0 — 2026-09-24
 
