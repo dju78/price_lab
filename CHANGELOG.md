@@ -5,7 +5,15 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
-## Unreleased
+## 1.0.3 — 2026-09-24
+
+Tagged only once its own CI passes: Python 3.12 on Linux, a clean install of
+the declared dependencies, SQLite and PostgreSQL. 1.0.0's CI failed.
+The fixes below were tagged as v1.0.1 and v1.0.2 as they were made, and each
+of those runs failed too. A tag names a release that has passed its tests,
+so both tags were **withdrawn** (deleted locally and on GitHub). Their names
+are not reused, because a deleted public tag may already have been fetched
+pointing at a different commit.
 
 ### Changed
 - **Dependencies are locked.** `requirements.lock`, compiled by uv from
@@ -27,8 +35,18 @@ its committed baseline, ruff and mypy strict at zero).
   names the release that needs work. The administrator guide (section 10)
   says how to regenerate the lock.
 - `packaging` declared as a development dependency (read by the lock tests).
+- **GitHub Actions workflows** updated to current major versions (`actions/checkout@v4`, `actions/setup-python@v5`, `actions/upload-artifact@v4`).
 
 ### Fixed
+- **Chain-drift finding threshold aligned with configuration.** In `engine/insights.py`,
+  the finding evaluating chain drift now reads the configured
+  `IndexConfig.chain_drift_threshold_pp` (default 1.0 index point) instead of a
+  hardcoded 3.0 point threshold, making the distinction between configured
+  threshold and measured drift clear in generated narratives.
+- **Limitations register A19 reconciled.** Clarified that fixed-weight tree
+  contributions across a single weight set are exact rather than an approximation,
+  while annual chain-link contributions use the published exact Ribe method for one
+  level at a time.
 - **The slide deck.**
   - The "Contributions to the change" slide, for a run without expenditure
     weights, held nothing but a lowercase sentence fragment whose last
@@ -75,18 +93,6 @@ its committed baseline, ruff and mypy strict at zero).
   test fails if the file drifts from the lock or gains a development tool.
   The administrator guide says Community Cloud is memory-limited and
   ephemeral, and suits the demonstration account only.
-
-## 1.0.3 — 2026-09-24
-
-Tagged only once its own CI passes: Python 3.12 on Linux, a clean install of
-the declared dependencies, SQLite and PostgreSQL. 1.0.0's CI failed.
-The fixes below were tagged as v1.0.1 and v1.0.2 as they were made, and each
-of those runs failed too. A tag names a release that has passed its tests,
-so both tags were **withdrawn** (deleted locally and on GitHub). Their names
-are not reused, because a deleted public tag may already have been fetched
-pointing at a different commit.
-
-### Fixed
 - **A clean install could not run the tests.** `pypdf` was imported by
   `reporting/readback.py`, which reads the provenance stamp back out of a
   PDF bulletin, and by three tests, but it was declared nowhere. It was
