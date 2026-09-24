@@ -97,6 +97,26 @@ def _seed_demonstration() -> str:
 _seed_demonstration()
 
 
+@st.cache_resource(show_spinner=False)
+def _log_code_state() -> str:
+    """Once per server process: the code this instance runs, and -- if the
+    working tree differs from the commit -- exactly which files, in the log
+    a hosting platform shows its operator."""
+    import logging
+
+    from pricelab.core.registry import code_state
+
+    state = code_state()
+    logging.getLogger("pricelab.provenance").info(
+        "code state", extra={"commit": state.commit, "dirty": state.dirty,
+                             "source": state.source,
+                             "dirty_paths": list(state.dirty_paths[:20])})
+    return state.version
+
+
+_log_code_state()
+
+
 def _login_form() -> None:
     st.markdown('<div class="pl-eyebrow">PriceLab</div>', unsafe_allow_html=True)
     st.markdown('<div class="pl-headline">Sign in</div>', unsafe_allow_html=True)

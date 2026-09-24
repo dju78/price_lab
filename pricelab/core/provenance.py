@@ -101,7 +101,7 @@ class ProvenanceStamp:
             ("Non-standard formula", "YES: " + str(self.non_standard_expression)
              if self.non_standard_formula else "no"),
             ("Quality adjustments applied", str(self.quality_adjustments)),
-            ("Suppression", f"cells built from fewer than {self.suppression_rules.get('min_count')} "
+            ("Suppression", f"Cells built from fewer than {self.suppression_rules.get('min_count')} "
                             f"quotes are suppressed ({self.suppression_rules.get('method')})"),
             ("Generated", self.generated_at),
             ("Parameters (JSON)", json.dumps(self.parameters, sort_keys=True)),

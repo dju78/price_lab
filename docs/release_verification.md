@@ -2,7 +2,7 @@
 
 ## Test suite
 
-The full suite (1019 tests) was run on the final tree on this machine
+The full suite (1032 tests) was run on the final tree on this machine
 (Windows 11, Python 3.14): on SQLite with engine coverage, then in the
 reproduced image layout (item 4 below), then on a local PostgreSQL 15
 cluster, last. The tree was fingerprinted before, between and after the

@@ -29,6 +29,43 @@ its committed baseline, ruff and mypy strict at zero).
 - `packaging` declared as a development dependency (read by the lock tests).
 
 ### Fixed
+- **The slide deck.**
+  - The "Contributions to the change" slide, for a run without expenditure
+    weights, held nothing but a lowercase sentence fragment whose last
+    clause did not parse. The reason is now complete sentences (in the
+    decomposition engine, so every format that quotes it is corrected). The
+    deck no longer emits a slide whose only content is why it is empty: the
+    reason moves to the Limitations block of the method slide.
+  - The headline-numbers caption and the method slide's Limitations both
+    said "no expenditure weights" for every run, weighted or not. Both now
+    say what is true of the run.
+  - The provenance slide cut every field at 160 characters, and the
+    suppression rule ended mid-word ("whe"). Every field is now shown in
+    full: rows are as tall as their wrapped text, and the type steps down
+    until the stamp fits. The library list wraps at its semicolons.
+  - Findings without a chart used a full-width block of text, and read
+    differently from those with one. Every finding now has two columns:
+    where there is no chart, a panel shows its evidence and what to do.
+  - A finding's evidence line starts with a capital when it stands alone on
+    a slide.
+  - `tests/test_deck_quality.py` fails on any prose on a slide that starts
+    lowercase, any titled slide with only a single reason string, a
+    provenance field not shown in full, or a finding outside the
+    two-column layout.
+- **Every export from the deployed demonstration said its code had
+  uncommitted changes.** The code-state check called any file git did not
+  track a change. That included whatever a running deployment writes into
+  its checkout (a hosting platform's secrets file, a database, logs, the
+  store), and it honoured permission bits, which hosted runtimes commonly
+  mount differently (a permission-only difference reads as a modification to
+  every tracked file under git's defaults; a test demonstrates it).
+  - Untracked files now count only among the code (the package, pages,
+    migrations, scripts and dependency files), and permission-only
+    differences never count.
+  - The state records the paths responsible (`CodeState.dirty_paths`), the
+    app logs them once at startup, and the Audit page shows them, so a dirty
+    flag on a deployment can be explained from its own log.
+  - `.streamlit/secrets.toml` is git-ignored.
 - **The Streamlit Community Cloud deployment failed with "Error installing
   requirements".** Cloud installs from `requirements.txt` at the repository
   root. It does not read a setuptools `pyproject.toml` as it does a Poetry

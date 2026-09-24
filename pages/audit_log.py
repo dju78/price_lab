@@ -98,6 +98,12 @@ def verify_run(run_id: str, actor: str) -> dict[str, Any]:
         checks["headline"] = {"ok": abs(live - headline_value) < 1e-6,
                               "detail": f"registered {headline_value:.6f}, reproduced {live:.6f}"}
     checks["code_version"] = code_version_check(registered_code, _code_version())
+    from pricelab.core.registry import code_state
+    changed = code_state().dirty_paths
+    if changed:
+        checks["code_version"]["detail"] += (
+            ". The running checkout differs from its commit in: "
+            + ", ".join(changed[:10]) + ("…" if len(changed) > 10 else ""))
     store_dir = Path(get_settings().store_dir)
     raw_path = store_dir / "raw" / f"{input_hash}.parquet"
     log_path = store_dir / "cleaned" / f"{input_hash}.log.json"

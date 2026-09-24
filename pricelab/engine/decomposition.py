@@ -1040,10 +1040,10 @@ def components_from_run(res: Mapping[str, Any]) -> Components:
     notes: list[str] = []
     if weights is None:
         notes.append(
-            "this run has no expenditure weights, so its headline is an equally weighted "
+            "This run has no expenditure weights, so its headline is an equally weighted "
             "geometric mean of the categories. A geometric mean has no exact additive "
-            "decomposition, and contributions and the weighted core measures are not "
-            "computed rather than computed for a different aggregate than the one published")
+            "decomposition, so contributions and the weighted core measures are not computed: "
+            "computing them would decompose a different aggregate from the one published.")
     parent_of: dict[str, str | None] = {c: "All items" for c in leaves}
     parent_of["All items"] = None
     return Components(indices=indices[leaves], weights=weights, parent_of=parent_of,

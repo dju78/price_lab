@@ -96,6 +96,13 @@ def _text(slide: Any, x: float, y: float, w: float, h: float,
     return box
 
 
+def _sentence(text: str) -> str:
+    """Text shown as a line of its own on a slide starts with a capital: a
+    finding's evidence ("index 135.6 at Dec 2025") is written to follow a
+    label in other formats, and on a slide it stands alone."""
+    return text[:1].upper() + text[1:] if text[:1].islower() else text
+
+
 def _card(slide: Any, x: float, y: float, w: float, h: float,
           fill: RGBColor = LIGHT) -> Any:
     shp = slide.shapes.add_shape(5, Inches(x), Inches(y), Inches(w), Inches(h))  # rounded rect
@@ -177,7 +184,7 @@ def slide_contents(prs: PresentationType, nar: Narrative, n: int = 4) -> Any:
         _text(s, M + 1.0, y + 0.24, W - 2 * M - 1.6, 0.5,
               [{"text": f.headline, "size": 16, "bold": True, "colour": INK}])
         _text(s, M + 1.0, y + 0.72, W - 2 * M - 1.6, 0.4,
-              [{"text": f.evidence, "size": 11, "colour": PRIMARY, "italic": True}])
+              [{"text": _sentence(f.evidence), "size": 11, "colour": PRIMARY, "italic": True}])
         y += card_h + gap
     s.notes_slide.notes_text_frame.text = (
         "Four findings, ranked by materiality. Say each headline once and move on; the "
@@ -193,16 +200,22 @@ def slide_finding(prs: PresentationType, f: Finding, chart_png: bytes | None = N
         _dot(s, M, 0.63, 0.16, ACCENT)
         _text(s, M + 0.3, 0.55, 6, 0.35,
               [{"text": eyebrow.upper(), "size": 11, "bold": True, "colour": ACCENT}])
-    text_w = 4.9 if chart_png else W - 2 * M
+    # Every finding uses the same two columns: the argument on the left, and
+    # on the right the chart where the finding has one, or else a panel
+    # with its evidence and what to do about it -- so a chartless finding
+    # reads as part of the same deck rather than as a wall of text.
+    text_w = 4.9
     _text(s, M, 1.05, text_w, 1.5,
           [{"text": f.headline, "size": 27, "bold": True, "font": HEAD_FONT,
             "line_spacing": 1.08}])
     _text(s, M, 2.75, text_w, 3.0,
           [{"text": f.detail, "size": 13, "colour": INK, "line_spacing": 1.28}])
-    if f.evidence:
+    if f.evidence and chart_png:
         _card(s, M, 5.75, text_w, 0.82, LIGHT)
         _text(s, M + 0.28, 5.95, text_w - 0.56, 0.5,
-              [{"text": f.evidence, "size": 12, "bold": True, "colour": PRIMARY}])
+              [{"text": _sentence(f.evidence), "size": 12, "bold": True, "colour": PRIMARY}])
+    if not chart_png:
+        _finding_panel(s, f, M + text_w + 0.5)
     if chart_png:
         cx = M + text_w + 0.5
         cw = W - M - cx
@@ -220,6 +233,26 @@ def slide_finding(prs: PresentationType, f: Finding, chart_png: bytes | None = N
         notes += "\n\nRecommended action: " + f.action
     s.notes_slide.notes_text_frame.text = notes
     return s
+
+
+def _finding_panel(s: Any, f: Finding, x: float) -> None:
+    """The right-hand column of a finding with no chart: its evidence as the
+    figure a chart would have shown, and the recommended action."""
+    w = W - M - x
+    _card(s, x, 1.1, w, 5.45, LIGHT)
+    y = 1.45
+    if f.evidence:
+        _text(s, x + 0.35, y, w - 0.7, 0.3,
+              [{"text": "THE EVIDENCE", "size": 10, "bold": True, "colour": ACCENT}])
+        _text(s, x + 0.35, y + 0.4, w - 0.7, 1.9,
+              [{"text": _sentence(f.evidence), "size": 20, "bold": True, "colour": PRIMARY,
+                "font": HEAD_FONT, "line_spacing": 1.12}])
+        y += 2.55
+    if f.action:
+        _text(s, x + 0.35, y, w - 0.7, 0.3,
+              [{"text": "WHAT TO DO", "size": 10, "bold": True, "colour": ACCENT}])
+        _text(s, x + 0.35, y + 0.4, w - 0.7, 6.3 - y,
+              [{"text": f.action, "size": 13, "colour": INK, "line_spacing": 1.25}])
 
 
 def slide_stat_row(prs: PresentationType, title: str, stats: Sequence[Mapping[str, Any]],
@@ -306,15 +339,22 @@ def slide_method(prs: PresentationType, res: dict[str, Any], nar: Narrative) -> 
           if cfg.quality_adjustment.entries else
           "No quality adjustment between a departing item and its replacement, so their "
           "price gap is implicitly treated as quality. ")
-         + "No expenditure weights, so the aggregate is equally weighted and indicative."),
+         + (contributions_gap(res) or (
+             "Expenditure weights supplied: the aggregate is their weighted arithmetic mean, "
+             "and its change is decomposed into contributions." if _has_weights(res) else
+             "No expenditure weights, so the aggregate is equally weighted and "
+             "indicative."))),
     ]
     for col, items in ((M, left), (W / 2 + 0.2, right)):
         y = 1.7
         for head, body in items:
             _text(s, col, y, W / 2 - M - 0.3, 0.35,
                   [{"text": head, "size": 15, "bold": True, "colour": ACCENT}])
+            # A long limitations block steps down a size rather than running
+            # into the footer.
+            size = 12 if len(body) <= 360 else 10.5
             _text(s, col, y + 0.42, W / 2 - M - 0.3, 2.0,
-                  [{"text": body, "size": 12, "colour": ON_DARK, "line_spacing": 1.3}])
+                  [{"text": body, "size": size, "colour": ON_DARK, "line_spacing": 1.25}])
             y += 2.5
     _text(s, M, 6.7, 11, 0.4,
           [{"text": "Configuration exported alongside this deck reproduces every figure.",
@@ -377,14 +417,21 @@ def slide_supplementary(prs: PresentationType, res: dict[str, Any]) -> Any | Non
 # ----------------------------------------------------------------------
 def slide_contributions(prs: PresentationType, res: dict[str, Any]) -> Any | None:
     """What drove the headline: the contributions table, its level and its
-    residual, or the reason there is none. The residual is a row of the
-    table, not a footnote, because a decomposition whose parts do not quite
-    add up has to say so where the parts are."""
+    residual. The residual is a row of the table, not a footnote, because a
+    decomposition whose parts do not quite add up has to say so where the
+    parts are.
+
+    Returns None, and adds no slide, when there are no contributions to
+    show (no expenditure weights, or a single period): a deck never carries
+    a slide whose only content is why it is empty. The reason goes into the
+    Limitations block of the method slide instead (`contributions_gap`)."""
     from .report import CONTRIBUTIONS_TITLE, contributions_summary
 
     if "All items" not in res["indices"].columns:
         return None
     note, table = contributions_summary(res)
+    if table.empty:
+        return None
     s = _blank(prs)
     _text(s, M, 0.5, 11, 0.8,
           [{"text": CONTRIBUTIONS_TITLE, "size": 30, "bold": True, "font": HEAD_FONT}])
@@ -413,6 +460,24 @@ def slide_contributions(prs: PresentationType, res: dict[str, Any]) -> Any | Non
     return s
 
 
+def contributions_gap(res: dict[str, Any]) -> str:
+    """Why the deck has no contributions slide, as a complete sentence, or
+    the empty string when it has one."""
+    from .report import contributions_summary
+
+    if "All items" not in res["indices"].columns:
+        return ""
+    note, table = contributions_summary(res)
+    return note if table.empty else ""
+
+
+def _has_weights(res: dict[str, Any]) -> bool:
+    from ..engine.index import category_weights
+
+    imputed = res.get("imputed")
+    return imputed is not None and category_weights(imputed) is not None
+
+
 def slide_provenance(prs: PresentationType, stamp: ProvenanceStamp) -> Any:
     """The stamp, rendered where a reader of the deck would look for it:
     the last slide, in full, with the JSON copy in the notes and in the
@@ -420,16 +485,51 @@ def slide_provenance(prs: PresentationType, stamp: ProvenanceStamp) -> Any:
     s = _blank(prs)
     _text(s, M, 0.55, 11, 0.8,
           [{"text": "Provenance", "size": 32, "bold": True, "font": HEAD_FONT}])
-    y = 1.5
-    for k, v in stamp.rows():
-        if k == "Parameters (JSON)":
-            continue
-        _text(s, M, y, 3.4, 0.32, [{"text": k, "size": 10, "bold": True, "colour": PRIMARY}])
-        _text(s, M + 3.5, y, W - 2 * M - 3.5, 0.32,
-              [{"text": str(sanitize_cell(v))[:160], "size": 10, "colour": INK}])
-        y += 0.33
+    rows = [(k, provenance_display_value(k, v)) for k, v in stamp.rows()
+            if k != "Parameters (JSON)"]
+    value_w = W - 2 * M - 3.5
+    top, bottom = 1.45, H - 0.35
+    # Every value in full: each row is as tall as its wrapped text, and the
+    # type steps down until the whole stamp fits the slide. Nothing is cut.
+    for size in (10.0, 9.0, 8.0, 7.0):
+        heights = [_wrapped_lines(v, value_w, size) * size * 1.22 / 72 + 0.05 for _, v in rows]
+        if top + sum(heights) <= bottom:
+            break
+    y = top
+    for (k, v), h in zip(rows, heights, strict=True):
+        _text(s, M, y, 3.4, h, [{"text": k, "size": size, "bold": True, "colour": PRIMARY}])
+        _text(s, M + 3.5, y, value_w, h,
+              [{"text": str(sanitize_cell(v)), "size": size, "colour": INK}])
+        y += h
     s.notes_slide.notes_text_frame.text = f"{STAMP_KEY} {stamp.to_json()}"
     return s
+
+
+def provenance_display_value(field: str, value: str) -> str:
+    """A stamp value as the slide shows it: in full, with the environment's
+    `;`-joined library list given spaces to wrap at. The notes and the file
+    properties keep the exact JSON."""
+    return value.replace(";", "; ") if field == "Environment" else value
+
+
+def _wrapped_lines(text: str, width_in: float, size_pt: float) -> int:
+    """Lines `text` takes in a box `width_in` wide at `size_pt`, wrapping at
+    spaces, with a word longer than a line broken across lines. A
+    conservative estimate: Calibri averages about half an em per character."""
+    per_line = max(1, int(width_in * 72 / (size_pt * 0.52)))
+    lines, used = 1, 0
+    for word in str(text).split(" "):
+        n = len(word)
+        need = n if used == 0 else used + 1 + n
+        if need <= per_line:
+            used = need
+            continue
+        lines += 1 if used else 0
+        while n > per_line:           # a word longer than a line
+            lines += 1
+            n -= per_line
+        used = n
+    return lines
 
 
 def _neutralise_leading_formulas(prs: PresentationType) -> None:
@@ -494,8 +594,11 @@ def build_deck(res: dict[str, Any], nar: Narrative, charts: dict[str, Any], labe
     if stats:
         slide_stat_row(prs, "The headline numbers", stats[:4],
                        "Figures are produced from the cleaned collection using a matched "
-                       "model index. The aggregate is equally weighted, as no expenditure "
-                       "weights were supplied.")
+                       "model index. " + (
+                           "The aggregate is weighted by the expenditure weights supplied."
+                           if _has_weights(res) else
+                           "The aggregate is equally weighted, as no expenditure weights "
+                           "were supplied."))
 
     slide_contributions(prs, res)
 

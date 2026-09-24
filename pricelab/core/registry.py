@@ -5,7 +5,7 @@ parameter set, the code version it ran under and a fingerprint of the
 Python and library versions in play. `reproduce` re-executes a
 registered run from exactly its stored input and configuration, with the
 code running now; the recorded commit (`code_state`, flagged `-dirty` when
-the working tree differed from it) is what says whether that is the code
+the code differed from it) is what says whether that is the code
 that produced it.
 
 This supersedes the config-JSON-only reproducibility `RunConfig.to_json()`
@@ -97,15 +97,18 @@ class CodeState:
 
     `commit` is the full 40-character hash, so a run from a clean tree
     traces to exactly one commit (a short hash is unique only today).
-    `dirty` is True when the working tree differed from that commit --
-    modified, staged or untracked files -- so a run made from uncommitted
-    work says so; None when it cannot be known. `source` says where the
-    answer came from: "git", "build" (the image's build argument) or
+    `dirty` is True when the code differs from that commit -- a tracked
+    file modified, staged or deleted, or an untracked file among the code
+    (`CODE_PATHS`) -- so a run made from uncommitted work says so; None when
+    it cannot be known. `dirty_paths` names the files responsible, so a
+    dirty flag can be explained rather than argued with. `source` says where
+    the answer came from: "git", "build" (the image's build argument) or
     "unavailable"."""
 
     commit: str
     dirty: bool | None
     source: str
+    dirty_paths: tuple[str, ...] = ()
 
     @property
     def version(self) -> str:
@@ -117,6 +120,37 @@ class CodeState:
 def _git(root: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True,
                           timeout=10, check=True).stdout
+
+
+#: Where an *untracked* file is code. A new module under the package, the
+#: pages or the migrations changes what runs, so it makes the tree dirty.
+#: Anything untracked elsewhere is a runtime artefact -- a hosting platform's
+#: secrets file, a database, a log, the Parquet store -- which says nothing
+#: about the code and must not mark every export from a deployment as made
+#: from uncommitted work. Tracked files count wherever they are.
+CODE_PATHS: tuple[str, ...] = ("pricelab/", "pages/", "migrations/", "scripts/", "app.py",
+                               "alembic.ini", "pyproject.toml", "requirements.lock",
+                               "requirements.txt", ".streamlit/config.toml")
+
+
+def dirty_paths(root: Path) -> tuple[str, ...]:
+    """The files that make the checkout at `root` differ from its commit.
+
+    `core.fileMode` is off for the check: a platform that mounts the
+    checkout with different permission bits (hosted runtimes commonly do)
+    changes no code, and would otherwise mark every tracked file modified.
+    """
+    status = _git(root, "-c", "core.fileMode=false", "status", "--porcelain=v1",
+                  "--untracked-files=all")
+    paths: list[str] = []
+    for line in status.splitlines():
+        if len(line) < 4:
+            continue
+        code, path = line[:2], line[3:].split(" -> ")[-1].strip().strip('"')
+        if code == "??" and not path.startswith(CODE_PATHS):
+            continue
+        paths.append(path)
+    return tuple(paths)
 
 
 def code_state(root: Path | None = None) -> CodeState:
@@ -135,8 +169,9 @@ def code_state(root: Path | None = None) -> CodeState:
         if top != root:
             raise ValueError(f"{root} is inside the checkout at {top}, not its top")
         commit = _git(root, "rev-parse", "HEAD").strip()
-        dirty = bool(_git(root, "status", "--porcelain").strip())
-        return CodeState(commit=commit, dirty=dirty, source="git")
+        changed = dirty_paths(root)
+        return CodeState(commit=commit, dirty=bool(changed), source="git",
+                         dirty_paths=changed)
     except Exception:
         built = os.environ.get(CODE_VERSION_ENV, "").strip()
         if built and built != "unknown":
@@ -154,7 +189,7 @@ def _code_version() -> str:
 def describe_code_version(version: str) -> str:
     """A code version as a reader should read it."""
     if not version or version == "unknown":
-        return ("unknown: no git checkout and no build value, so the exact code cannot be "
+        return ("Unknown: no git checkout and no build value, so the exact code cannot be "
                 "identified")
     if version.endswith(DIRTY_SUFFIX):
         return (f"{version.removesuffix(DIRTY_SUFFIX)}, with uncommitted changes: the working "

@@ -55,9 +55,47 @@ def test_uncommitted_work_is_flagged_dirty(checkout):
     assert state.version == _git(checkout, "rev-parse", "HEAD") + "-dirty"
     assert "uncommitted changes" in registry.describe_code_version(state.version)
 
+    assert state.dirty_paths == ("module.py",)
+
     _git(checkout, "checkout", "--", "module.py")
-    (checkout / "new_module.py").write_text("y = 1\n", encoding="utf-8")
-    assert registry.code_state(checkout).dirty is True, "an untracked file is uncommitted work"
+    (checkout / "pricelab").mkdir()
+    (checkout / "pricelab" / "new_module.py").write_text("y = 1\n", encoding="utf-8")
+    state = registry.code_state(checkout)
+    assert state.dirty is True, "an untracked module is uncommitted work"
+    assert state.dirty_paths == ("pricelab/new_module.py",)
+
+
+@needs_git
+def test_runtime_artefacts_outside_the_code_do_not_make_a_deployment_dirty(checkout):
+    """A deployed demonstration reported uncommitted changes minutes after
+    cloning. What a running deployment writes into its checkout -- a hosting
+    platform's secrets file, a database, a log, a virtual environment, the
+    Parquet store -- is not code and must not mark every export as made from
+    uncommitted work. Untracked files count only among the code."""
+    (checkout / ".streamlit").mkdir()
+    (checkout / ".streamlit" / "secrets.toml").write_text("X = 1\n", encoding="utf-8")
+    (checkout / "pricelab.db").write_bytes(b"")
+    (checkout / "app.log").write_text("started\n", encoding="utf-8")
+    (checkout / "store" / "raw").mkdir(parents=True)
+    (checkout / "store" / "raw" / "abc.parquet").write_bytes(b"x")
+    (checkout / ".venv" / "lib").mkdir(parents=True)
+    (checkout / ".venv" / "lib" / "site.py").write_text("", encoding="utf-8")
+    state = registry.code_state(checkout)
+    assert state.dirty is False and state.dirty_paths == (), state.dirty_paths
+    assert state.version == _git(checkout, "rev-parse", "HEAD")
+
+
+@needs_git
+def test_a_permission_only_change_is_not_a_code_change(checkout):
+    """Hosted runtimes often mount the checkout with other permission bits;
+    with core.fileMode honoured, every tracked file would read as modified."""
+    _git(checkout, "config", "core.fileMode", "true")
+    _git(checkout, "update-index", "--chmod=+x", "module.py")
+    _git(checkout, "commit", "-q", "-m", "executable in the index")
+    # The working file keeps whatever mode the filesystem gives it, which now
+    # differs from the index's; with fileMode honoured git would call it modified.
+    assert _git(checkout, "status", "--porcelain").strip(), "the scenario is real"
+    assert registry.code_state(checkout).dirty is False
 
 
 @needs_git

@@ -226,7 +226,12 @@ than run an incomplete pass over overlapping totals. See
   - its headline figure;
   - a fingerprint of the Python and main library versions;
   - the code version: the full git commit of the checkout it ran from,
-    suffixed `-dirty` when the working tree differed from that commit.
+    suffixed `-dirty` when the code differs from that commit: a tracked
+    file changed, or an untracked file among the code (the package, the
+    pages, the migrations, the scripts). Runtime files a deployment writes
+    elsewhere in its checkout (a database, a log, a hosting platform's
+    secrets file, the Parquet store) are not code and do not count, and
+    neither does a permission-only difference.
 
   A run registered from a clean tree therefore traces to exactly one
   commit. A `-dirty` run names the nearest commit but not the code, which
