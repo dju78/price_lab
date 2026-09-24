@@ -6,14 +6,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libexpat1 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-# The package source goes in before the install: an editable install of a
-# pyproject whose package directory does not exist yet maps no package, and
-# the image would then import `pricelab` only because /app happens to be the
-# working directory. Dependencies are re-resolved when the source changes;
-# correctness over layer caching.
+# The locked dependencies first, in their own layer: exactly the versions CI
+# tests (requirements.lock), and cached until the lock changes. Then the
+# package itself, editable and without dependencies -- its source goes in
+# before that install, because an editable install of a pyproject whose
+# package directory does not exist yet maps no package.
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock
 COPY pyproject.toml .
 COPY pricelab/ ./pricelab/
-RUN pip install --no-cache-dir -e ".[dev]"
+RUN pip install --no-cache-dir -e . --no-deps
 
 COPY pages/ ./pages/
 COPY migrations/ ./migrations/

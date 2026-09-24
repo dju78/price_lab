@@ -1,0 +1,86 @@
+name: Lock refresh
+
+# Tries current upstream on purpose, so a breaking release is found here, on
+# a schedule, rather than in the middle of a release. The Tests workflow
+# installs only the committed requirements.lock and is never affected by an
+# upstream release; this one recompiles the lock and runs the suite on it.
+#
+# Neither job changes the repository. A green `refresh` job's lock is
+# uploaded as an artifact, and its version changes are written to the run
+# summary: committing it is a deliberate step (docs/admin_guide.md, section
+# 10). A red job names the release that broke something.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"          # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything pyproject.toml allows, at its newest.
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv
+
+      - name: Recompile the lock against current upstream
+        run: >
+          uv pip compile pyproject.toml --all-extras --universal
+          --python-version 3.11 --upgrade --no-emit-package pricelab
+          --output-file requirements.lock
+
+      - name: Regenerate the runtime requirements.txt from it
+        run: make requirements
+
+      - name: Record what moved
+        run: |
+          {
+            echo "## Lock refresh: versions that changed"
+            echo '```diff'
+            git diff -U0 requirements.lock | grep -E '^[-+][A-Za-z0-9]' || echo "(no change)"
+            echo '```'
+            echo "requirements.txt (runtime, the demonstration deployment):"
+            echo '```diff'
+            git diff -U0 requirements.txt | grep -E '^[-+][A-Za-z0-9]' || echo "(no change)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: requirements-lock-refreshed
+          path: |
+            requirements.lock
+            requirements.txt
+
+      - name: Install the refreshed lock
+        run: |
+          pip install -r requirements.lock
+          pip install -e . --no-deps
+      - run: ruff check .
+      - run: mypy
+      - run: pytest -q
+
+  # Streamlit is pinned to one minor series in pyproject.toml, so the job
+  # above never sees its next minor release. This one does: the committed
+  # lock, with only Streamlit moved to the newest release upstream.
+  streamlit-latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the committed lock, then the newest Streamlit
+        run: |
+          pip install -r requirements.lock
+          pip install -e . --no-deps
+          pip install --upgrade streamlit
+          echo "## Streamlit probe: $(python -c 'import streamlit; print(streamlit.__version__)')" >> "$GITHUB_STEP_SUMMARY"
+      - run: pytest -q

@@ -111,7 +111,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 1014 tests
+make test        # 1019 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/, data/ and reporting/
 ```
@@ -329,7 +329,7 @@ migrations/       Alembic; eight revisions covering users, sessions, audit event
                   the classification tree, validation overrides, column
                   mappings, the quality adjustment ledger, the outlier
                   review queue's decisions and registered projections
-tests/            1014 tests
+tests/            1019 tests
 scripts/
   generate_synthetic_data.py   the price-quote fixture, not the product
   generate_scanner_data.py     the scanner transaction fixture, with churn,
@@ -338,6 +338,10 @@ scripts/
   backup.py, restore.py        the database and the Parquet store, with a manifest
 app.py            auth gate, shared chrome, page registry; no analytical logic
 Dockerfile        lint, type-check and tests all run during the build
+requirements.lock every dependency pinned, compiled by uv from pyproject.toml;
+                  local installs, CI and the image all install from it
+requirements.txt  generated from the lock, runtime only: what Streamlit
+                  Community Cloud installs (never edit by hand; make requirements)
 docker-compose.yml the container, PostgreSQL, a named volume for the store,
                   and a `tests` profile that runs the suite against PostgreSQL
 docs/backlog.md   the phased plan for growing this into a governed,

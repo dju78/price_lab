@@ -5,6 +5,40 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## Unreleased
+
+### Changed
+- **Dependencies are locked.** `requirements.lock`, compiled by uv from
+  `pyproject.toml` (all extras, universal), pins every package at one version.
+  Local development, CI and the Docker image all install from it, and CI no
+  longer resolves afresh, so an upstream release cannot change the result of
+  a commit that already passed. Windows/Python 3.14 and Linux/Python 3.12
+  resolve to identical versions, and a test checks it. The Docker image
+  installs the locked dependencies in their own cached layer, before the
+  package source.
+- **Streamlit is pinned to 1.64.x** in `pyproject.toml` (`>=1.64,<1.65`).
+  1.0.2's 25 failures came from the test harness's session state (`AppTest`),
+  one of the Streamlit APIs that change between minor releases, so moving to
+  1.65 is now a deliberate step.
+- **`Lock refresh` workflow**, weekly and on demand. It recompiles the lock
+  against current upstream and runs the suite on it; separately, it runs the
+  suite with Streamlit moved past its pin. It never changes the repository:
+  a green refresh's lock is an artifact to commit on purpose, and a red one
+  names the release that needs work. The administrator guide (section 10)
+  says how to regenerate the lock.
+- `packaging` declared as a development dependency (read by the lock tests).
+
+### Fixed
+- **The Streamlit Community Cloud deployment failed with "Error installing
+  requirements".** Cloud installs from `requirements.txt` at the repository
+  root. It does not read a setuptools `pyproject.toml` as it does a Poetry
+  one, and there was no `requirements.txt`. One is now generated from the
+  lock (`make requirements`), with the runtime dependencies only, at the
+  lock's exact versions. `pyproject.toml` stays the source of truth, and a
+  test fails if the file drifts from the lock or gains a development tool.
+  The administrator guide says Community Cloud is memory-limited and
+  ephemeral, and suits the demonstration account only.
+
 ## 1.0.3 — 2026-09-24
 
 Tagged only once its own CI passes: Python 3.12 on Linux, a clean install of

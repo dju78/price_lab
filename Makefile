@@ -1,7 +1,22 @@
-.PHONY: install lint typecheck test run docker compose clean migrate
+.PHONY: install lint typecheck test run docker compose clean migrate lock requirements
 
+# The locked versions (requirements.lock), exactly what CI and the image use.
 install:
-	python -m pip install -e ".[dev]"
+	python -m pip install -r requirements.lock
+	python -m pip install -e . --no-deps
+
+# Recompile the lock from pyproject.toml against current upstream (needs uv:
+# python -m pip install uv), then the runtime requirements.txt from it. Commit
+# both only after the suite passes.
+lock:
+	uv pip compile pyproject.toml --all-extras --universal --python-version 3.11 --upgrade --no-emit-package pricelab --output-file requirements.lock
+	$(MAKE) requirements
+
+# requirements.txt: the runtime dependencies only (no test, lint or type-check
+# tools), at exactly the lock's versions. Streamlit Community Cloud installs
+# from it. Generated; never edited by hand.
+requirements:
+	uv pip compile pyproject.toml --universal --python-version 3.11 --constraint requirements.lock --no-emit-package pricelab --custom-compile-command "make requirements (generated from pyproject.toml, pinned to requirements.lock; never edit by hand)" --output-file requirements.txt
 
 lint:
 	ruff check .

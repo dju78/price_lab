@@ -109,3 +109,118 @@ def test_a_bare_pytest_can_import_the_pages_and_the_app():
     The root is on pytest's own path; this keeps it there."""
     options = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
     assert "." in options["tool"]["pytest"]["ini_options"]["pythonpath"]
+
+
+# ---------------------------------------------------------------------
+# The lock: local, CI and the image resolve identically
+# ---------------------------------------------------------------------
+LOCK = REPO_ROOT / "requirements.lock"
+
+
+def _locked(python: str = "3.12.14", platform: str = "linux",
+            path: Path = LOCK) -> dict[str, str]:
+    """name -> version for the entries of a pinned requirements file (the
+    lock by default) that apply to the given interpreter and platform (CI's,
+    by default)."""
+    from packaging.markers import Marker
+    from packaging.utils import canonicalize_name
+
+    env = {"python_full_version": python, "python_version": python.rsplit(".", 1)[0],
+           "sys_platform": platform, "platform_system": platform.capitalize(),
+           "os_name": "posix" if platform == "linux" else "nt",
+           "implementation_name": "cpython", "platform_python_implementation": "CPython"}
+    pins: dict[str, str] = {}
+    for line in path.read_text("utf-8").splitlines():
+        if not line or line.startswith((" ", "#")):
+            continue
+        requirement, _, marker = line.partition(";")
+        name, _, version = requirement.strip().partition("==")
+        if marker.strip() and not Marker(marker.strip()).evaluate(env):
+            continue
+        pins[canonicalize_name(name)] = version.strip()
+    return pins
+
+
+def test_every_declared_dependency_is_locked_at_a_version_it_allows():
+    """Compiled by uv from pyproject.toml, all extras, universal; every
+    direct dependency pinned, and at a version its specifier accepts, on
+    CI's interpreter (Python 3.12, Linux) and this machine's (3.14, Windows)
+    alike -- the two resolve to the same versions."""
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    header = LOCK.read_text("utf-8").splitlines()[1]
+    assert "uv pip compile pyproject.toml --all-extras --universal" in header
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))["project"]
+    ci, local = _locked(), _locked("3.14.0", "win32")
+    for spec in project["dependencies"] + project["optional-dependencies"]["dev"]:
+        requirement = Requirement(spec)
+        name = canonicalize_name(requirement.name)
+        assert name in ci, f"{name} is declared but not in requirements.lock"
+        assert requirement.specifier.contains(ci[name], prereleases=True), (name, ci[name])
+        assert ci[name] == local.get(name), f"{name}: CI {ci[name]}, local {local.get(name)}"
+
+
+def test_streamlit_is_pinned_to_one_minor_series():
+    """The pages and their tests depend on Streamlit APIs that change between
+    minor releases; 1.64 alone failed 25 tests. Pinned, with an upper bound."""
+    from packaging.requirements import Requirement
+
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))["project"]
+    streamlit = next(Requirement(d) for d in project["dependencies"]
+                     if Requirement(d).name == "streamlit")
+    assert any(s.operator == "<" for s in streamlit.specifier)
+    assert _locked()["streamlit"].startswith("1.64.")
+
+
+needs_ci_files = pytest.mark.skipif(not (REPO_ROOT / ".github").is_dir(),
+                                    reason="the CI workflows are not shipped in the image")
+
+
+@needs_ci_files
+def test_ci_and_the_image_install_the_lock_not_a_fresh_resolution():
+    tests_yml = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text("utf-8")
+    assert tests_yml.count("pip install -r requirements.lock") == 2      # both jobs
+    assert '".[dev]"' not in tests_yml
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text("utf-8")
+    assert "pip install --no-cache-dir -r requirements.lock" in dockerfile
+    assert '".[dev]"' not in dockerfile
+
+
+@needs_ci_files
+def test_a_scheduled_job_tries_current_upstream_on_purpose():
+    refresh = (REPO_ROOT / ".github" / "workflows" / "lock-refresh.yml").read_text("utf-8")
+    assert "schedule:" in refresh and "workflow_dispatch:" in refresh
+    assert "--upgrade" in refresh                         # recompiles against upstream
+    assert "pip install --upgrade streamlit" in refresh   # and probes past the pin
+
+
+RUNTIME = REPO_ROOT / "requirements.txt"
+DEVELOPMENT_ONLY = {"pytest", "pytest-cov", "hypothesis", "ruff", "mypy", "pre-commit",
+                    "pandas-stubs", "types-tabulate", "types-requests", "responses", "uv",
+                    "pip-tools"}
+
+
+@pytest.mark.skipif(not RUNTIME.exists(), reason="requirements.txt is not shipped in the image")
+def test_the_runtime_requirements_are_the_lock_s_runtime_subset():
+    """requirements.txt is what Streamlit Community Cloud installs. It is
+    generated from pyproject.toml's runtime dependencies at exactly the
+    lock's versions, so the demonstration runs what CI tested, and it holds
+    no test, lint or type-check tool."""
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    header = RUNTIME.read_text("utf-8").splitlines()[1]
+    assert "make requirements" in header and "never edit by hand" in header
+    locked = _locked()
+    for python, platform in (("3.12.14", "linux"), ("3.13.1", "linux"), ("3.14.0", "win32")):
+        runtime = _locked(python, platform, RUNTIME)
+        lock = _locked(python, platform)
+        drift = {n: (v, lock.get(n)) for n, v in runtime.items() if lock.get(n) != v}
+        assert not drift, f"requirements.txt differs from requirements.lock: {drift}"
+    runtime = _locked(path=RUNTIME)
+    assert not DEVELOPMENT_ONLY & set(runtime), DEVELOPMENT_ONLY & set(runtime)
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))["project"]
+    for spec in project["dependencies"]:
+        name = canonicalize_name(Requirement(spec).name)
+        assert runtime.get(name) == locked[name], name

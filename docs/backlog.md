@@ -1109,7 +1109,13 @@ baseline that Linux matches to about 1e-16; it now compares to 1e-12. At the
 owner's instruction the v1.0.1 and v1.0.2 tags were deleted, locally and on
 GitHub, because they tagged a release that never passed its own tests. The
 next tag is cut only once CI is green, and it is v1.0.3: withdrawn public
-names are not reused.
+names are not reused. v1.0.3's CI passed (run 35989274617).
+
+**After 1.0.3: the lock.** `requirements.lock` (uv, universal, all extras)
+is what local development, CI and the Docker image install; Streamlit is
+pinned to 1.64.x; `.github/workflows/lock-refresh.yml` recompiles against
+upstream weekly and probes the next Streamlit, without changing the
+repository. How to regenerate it: admin guide, section 10.
 
 ## Deferred (not in the agreed scope; revisit if asked)
 

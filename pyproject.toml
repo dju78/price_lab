@@ -10,7 +10,12 @@ dependencies = [
     "matplotlib>=3.7",
     "python-pptx>=1.0",
     "python-docx>=1.1",
-    "streamlit>=1.36",
+    # Pinned to one minor series. The pages and their tests lean on
+    # Streamlit's navigation and AppTest APIs, which change between minor
+    # releases: 1.64 removed AppTest.session_state.filtered_state, and that
+    # alone failed 25 tests in 1.0.2's CI. Move it deliberately (the
+    # lock-refresh workflow finds the next break), never by resolution.
+    "streamlit>=1.64,<1.65",
     "tabulate>=0.9",
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
@@ -55,6 +60,8 @@ dev = [
     "types-tabulate",
     "types-requests",
     "responses>=0.24",
+    # Reads the version specifiers and markers in tests/test_release.py.
+    "packaging>=24.0",
 ]
 
 [build-system]

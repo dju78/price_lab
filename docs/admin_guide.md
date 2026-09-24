@@ -14,7 +14,8 @@ repository root:
 ```bash
 python -m venv .venv
 source .venv/bin/activate                 # Windows (PowerShell): .venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
+python -m pip install -r requirements.lock  # the locked versions CI tests
+python -m pip install -e . --no-deps
 alembic upgrade head                      # creates the database at PRICELAB_DATABASE_URL
 python scripts/create_user.py --username admin --role administrator
 streamlit run app.py
@@ -95,13 +96,27 @@ PRICELAB_CODE_VERSION="$(git rev-parse HEAD)$(git diff --quiet HEAD || echo -dir
 
 ### Streamlit Community Cloud: a demonstration only
 
-Community Cloud is suitable for a **public demonstration and nothing
-else**:
-- its filesystem does not persist across restarts, so a SQLite database and
-  the Parquet store on it are lost every time the instance sleeps, restarts
-  or is redeployed;
+Community Cloud is suitable for the **demonstration account only**, and
+nothing else:
+- **it is memory-limited.** An app shares a small, fixed allowance of memory
+  and CPU (Streamlit publishes the current limits). Compiling a large
+  collection, fitting hedonic models on a year of transactions, or running
+  the forecasting and sensitivity engines can exceed it, and the app is then
+  restarted, which brings the next point into play. The demonstration's
+  bundled collection is small enough;
+- **its storage is ephemeral.** The filesystem does not persist across
+  restarts, so a SQLite database and the Parquet store on it are lost every
+  time the instance sleeps, restarts or is redeployed;
 - with them go the audit log, the run registry, every user account, every
   raw layer and every transformation log.
+
+Community Cloud installs the app's dependencies from `requirements.txt` at
+the repository root. It does not install from a setuptools `pyproject.toml`
+the way it does from a Poetry one; that is why the deployment failed with
+"Error installing requirements" until the file existed. `requirements.txt`
+is generated, never edited by hand (section 10). It holds the runtime
+dependencies only, at exactly the versions in `requirements.lock`, so the
+demonstration runs what CI tested.
 
 The platform presents those as governance guarantees, and on ephemeral
 storage they silently reset. So an empty audit log there cannot tell a
@@ -311,3 +326,79 @@ If a future pyarrow wheel loads under the Application Control policy
 (`python -c "import pyarrow.parquet"` succeeds), lift the `<25` ceiling in
 `pyproject.toml` and delete the comment above it. Linux CI and the container
 are unaffected either way.
+
+## 10. Dependencies: the lock
+
+`requirements.lock` pins every package the platform, its tests and its tools
+install, at one version each. It is compiled by uv from `pyproject.toml`,
+covering all extras, and resolved *universally*: one file that gives the
+same versions on Windows and Linux and on Python 3.12 and later (3.11 differs
+only for numpy and scipy). Local installs, CI (`.github/workflows/tests.yml`)
+and the Docker image all install from it and never resolve afresh, so a new
+upstream release cannot change a result between two runs of the same
+commit. `tests/test_release.py` fails if a declared dependency is missing
+from the lock or locked at a version its specifier rejects, if CI or the
+Dockerfile installs anything but the lock, or if Streamlit loses its upper
+bound.
+
+Streamlit is also pinned to one minor series in `pyproject.toml`
+(`>=1.64,<1.65`). The pages and their tests use Streamlit APIs that change
+between minor releases (1.64 alone failed 25 tests), so moving it is a
+decision, not a resolution. A deployment that installs from `pyproject.toml`
+rather than the lock, such as Streamlit Community Cloud, gets the right
+series too.
+
+**Regenerating it.** From the repository root, with uv installed
+(`python -m pip install uv`):
+
+```bash
+uv pip compile pyproject.toml --all-extras --universal --python-version 3.11 \
+    --upgrade --no-emit-package pricelab --output-file requirements.lock
+python -m pip install -r requirements.lock
+python -m pip install -e . --no-deps
+```
+
+**The runtime `requirements.txt`** is generated from the lock, never
+edited: `pyproject.toml` stays the source of truth, `requirements.lock` pins
+it, and `requirements.txt` is the lock's runtime subset (no pytest, mypy,
+ruff, hypothesis or other development tool), which Streamlit Community Cloud
+installs. Regenerate it whenever the lock changes:
+
+```bash
+uv pip compile pyproject.toml --universal --python-version 3.11 \
+    --constraint requirements.lock --no-emit-package pricelab \
+    --custom-compile-command "make requirements (generated from pyproject.toml, pinned to requirements.lock; never edit by hand)" \
+    --output-file requirements.txt
+```
+
+`make requirements` runs it, and `make lock` runs it after recompiling the
+lock, so the two move together. `tests/test_release.py` fails if any pin in
+`requirements.txt` differs from the lock, if a runtime dependency is missing
+from it, or if a development tool is in it. The two cannot drift unnoticed.
+
+`make lock` runs the first command. Without `--upgrade`, uv keeps every
+existing pin and resolves only what changed in `pyproject.toml`; use that
+after adding or tightening a dependency. With `--upgrade`, everything moves
+to the newest version allowed. Commit the new lock only after the full suite
+passes on it, on both backends. To move Streamlit to its next minor series,
+change its range in `pyproject.toml`, recompile, fix what breaks, and commit
+all three together.
+
+**Finding a breaking release on purpose.** `.github/workflows/lock-refresh.yml`
+runs every Monday at 06:00 UTC, and on demand (Actions, *Lock refresh*,
+*Run workflow*). It has two jobs, and neither changes the repository:
+
+- `refresh` recompiles the lock with `--upgrade`, regenerates
+  `requirements.txt` from it, and runs ruff, mypy and the suite (SQLite). The
+  run summary lists every version that moved in each file, and both files
+  are attached as an artifact. When it is green and you want the upgrade,
+  download `requirements-lock-refreshed`, replace `requirements.lock` and
+  `requirements.txt` with its two files, and commit them together. The Tests workflow then checks it
+  like any other change.
+- `streamlit-latest` installs the committed lock with only Streamlit moved to
+  its newest release, past the pin, and runs the suite. It turns red when a
+  new Streamlit minor would break the pages. That is the signal to plan the
+  move, before anyone installs it by accident.
+
+A red refresh job does not affect the committed lock or the Tests workflow.
+It says which upstream release will need work.
