@@ -467,16 +467,19 @@ def method_findings(imputed: pd.DataFrame, I: pd.DataFrame, cfg: RunConfig) -> l
         # category names chain_drift built it from, i.e. always str.
         worst = cast(str, drift["drift_pp"].abs().idxmax())
         worst_drift_pp = cast(float, drift.loc[worst, "drift_pp"])
-        if abs(worst_drift_pp) > 3:
+        threshold = cfg.index.chain_drift_threshold_pp
+        if abs(worst_drift_pp) > threshold:
             out.append(Finding(
                 headline=f"Chaining introduces {worst_drift_pp:+.1f} points of "
                          f"drift in {worst}",
-                detail="The chained level differs from a direct fixed base comparison by more "
-                       "than three points, which in a seasonal series usually means the chain is "
-                       "accumulating drift rather than measuring price change.",
+                detail=(f"The chained level differs from a direct fixed base comparison by more "
+                        f"than {threshold:g} index points (the configured drift threshold), which in a "
+                        "seasonal series usually means the chain is accumulating drift rather than "
+                        "measuring price change."),
                 evidence=f"chained {drift.loc[worst, 'chained']:.1f} against fixed base "
                          f"{drift.loc[worst, 'fixed_base']:.1f}",
-                kind="method", importance=68, table=drift.reset_index(names="Category")))
+                kind="method", importance=68, table=drift.reset_index(names="Category"),
+                action="Review the choice of formula or consider multilateral estimation."))
     return out
 
 
