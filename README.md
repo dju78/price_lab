@@ -110,7 +110,7 @@ long-running server.
 ## Tests
 
 ```bash
-make test        # 960 tests
+make test        # 988 tests
 make lint        # ruff
 make typecheck   # mypy strict, scoped to core/, engine/, data/ and reporting/
 ```
@@ -277,7 +277,16 @@ pricelab/
                         (whole clusters within strata), refused when no design
                         is declared
     sensitivity.py      the headline under every defensible alternative choice;
-                        a range, labelled and drawn apart from any interval
+                        a range, labelled and drawn apart from any interval, a
+                        lower bound, with the imputed share of the aggregate
+    projection.py       what every forecast and scenario carries: interval,
+                        backtest, benchmark comparison, stated assumptions
+    forecasting.py      ARIMA, SARIMAX, ETS, pass-through and Phillips-curve
+                        regressions, backtested from rolling origins against a
+                        random walk or the seasonal naive
+    scenarios.py        shocks to energy, the exchange rate, wages and
+                        administered prices on a stated baseline, with a fan
+                        and the assumption list as part of the output
     custom.py           analyst-defined formulae via the restricted evaluator
     quality_adjustment.py
                         overlap, direct comparison, quantity, option cost,
@@ -301,22 +310,25 @@ pricelab/
     bulletin.py         the PDF statistical bulletin, headline from the registry
     exports.py          the publication table with disclosure control; stamped
                         CSV; SDMX-ML 2.1 validated against the standard's XSDs
+    projections.py      the only way a forecast or scenario leaves: refused
+                        without its interval, backtest, benchmark and
+                        assumptions; the export inventory
     readback.py         reads the provenance stamp back out of every format
 pages/            one module per lifecycle stage; app.py wires them into
                   role-filtered st.navigation
   ingest.py, quality.py, outliers.py, imputation.py, quality_adjustment.py,
   index_build.py, multilateral.py, seasonal.py, decomposition.py,
   deflation.py, spatial.py, trade.py, construction.py, escalation.py,
-  property.py, housing.py, uncertainty.py,
+  property.py, housing.py, uncertainty.py, forecasting.py, scenarios.py,
   findings.py, diagnostics.py,
   reports.py, sources.py, revisions.py, audit_log.py,
   common.py (shared session-state helpers)
-migrations/       Alembic; seven revisions covering users, sessions, audit events,
+migrations/       Alembic; eight revisions covering users, sessions, audit events,
                   index runs (with the registered headline and data vintage),
                   the classification tree, validation overrides, column
-                  mappings, the quality adjustment ledger and the outlier
-                  review queue's decisions
-tests/            960 tests
+                  mappings, the quality adjustment ledger, the outlier
+                  review queue's decisions and registered projections
+tests/            988 tests
 scripts/
   generate_synthetic_data.py   the price-quote fixture, not the product
   generate_scanner_data.py     the scanner transaction fixture, with churn,

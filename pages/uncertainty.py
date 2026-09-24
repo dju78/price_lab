@@ -108,7 +108,8 @@ def _sensitivity(res: dict, label: str) -> None:
 
     st.markdown("#### Methodological sensitivity (not a confidence interval)")
     st.caption("The headline recomputed under each defensible alternative choice, one choice "
-               "at a time. Choices the data cannot support are listed with the reason.")
+               "at a time. Choices the data cannot support are listed with the reason. "
+               + se.LOWER_BOUND)
     df = st.session_state.get("input_df")
     cfg = st.session_state.get("run_config") or res.get("config")
     if df is None or cfg is None:
@@ -133,4 +134,13 @@ def _sensitivity(res: dict, label: str) -> None:
             "alternatives": int(len(result.computed))})
     st.success(result.label)
     st.pyplot(sensitivity_chart(result), use_container_width=True)
-    st.dataframe(result.table.round(3), use_container_width=True, hide_index=True)
+    if result.imputed is not None:
+        s1, s2 = st.columns(2)
+        s1.metric(f"Imputed share of the aggregate, {result.imputed.period:%b %Y}",
+                  f"{result.imputed.final:.1%}")
+        s2.metric("Imputed share of the aggregate, whole run", f"{result.imputed.run:.1%}")
+        st.info(result.imputation_statement)
+    table = result.table.rename(columns={
+        "imputed_share_final": "imputed share of the aggregate (final period)",
+        "imputed_share_run": "imputed share of the aggregate (whole run)"})
+    st.dataframe(table.round(3), use_container_width=True, hide_index=True)

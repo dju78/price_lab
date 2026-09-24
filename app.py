@@ -25,6 +25,7 @@ import pages.deflation
 import pages.diagnostics
 import pages.escalation
 import pages.findings
+import pages.forecasting
 import pages.housing
 import pages.imputation
 import pages.index_build
@@ -36,6 +37,7 @@ import pages.quality
 import pages.quality_adjustment
 import pages.reports
 import pages.revisions
+import pages.scenarios
 import pages.seasonal
 import pages.sources
 import pages.spatial
@@ -191,6 +193,8 @@ _PAGE_SPECS = [
     (pages.property.render, "Property prices", "🏠", "property"),
     (pages.housing.render, "Rents and owner-occupied housing", "🔑", "housing"),
     (pages.uncertainty.render, "Uncertainty", "🎯", "uncertainty"),
+    (pages.forecasting.render, "Forecasts", "🔭", "forecasts"),
+    (pages.scenarios.render, "Scenarios", "🧭", "scenarios"),
     (pages.findings.render, "Findings", "🗒️", "findings"),
     (pages.diagnostics.render, "Diagnostics", "🔎", "diagnostics"),
     (pages.reports.render, "Reports", "📤", "reports"),

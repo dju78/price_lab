@@ -296,3 +296,108 @@ def reproduce(session: Session, run_id: str, actor: str = "system") -> dict[str,
             {"upgraded_to_schema_version": config.schema_version})
     result: dict[str, Any] = run_pipeline(df, config)
     return result
+
+
+# ---------------------------------------------------------------------
+# Projections: forecasts and scenarios made from a registered run
+# ---------------------------------------------------------------------
+class ProjectionRunORM(Base):
+    """A forecast or scenario, registered against the run whose headline it
+    projects: its full specification, the driver series a regression used,
+    and digests of its backtest errors and its path. `reproduce_projection`
+    rebuilds it from the run's stored input and checks both digests, so a
+    backtest is reproducible from the registry to the last bit."""
+
+    __tablename__ = "projection_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    projection_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    series: Mapped[str] = mapped_column(String(255), nullable=False)
+    spec_json: Mapped[str] = mapped_column(String, nullable=False)
+    driver_json: Mapped[str | None] = mapped_column(String, nullable=True)
+    backtest_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    path_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    code_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
+def _driver_json(driver: pd.Series | None) -> str | None:
+    if driver is None:
+        return None
+    return json.dumps({"name": str(driver.name or ""),
+                       "values": {str(k.date()): float(v) for k, v in
+                                  zip(pd.DatetimeIndex(driver.index), driver, strict=True)}},
+                      sort_keys=True)
+
+
+def _driver_from_json(text: str | None) -> pd.Series | None:
+    if text is None:
+        return None
+    data = json.loads(text)
+    values = data["values"]
+    series: pd.Series = pd.Series(list(values.values()), index=pd.to_datetime(list(values)),
+                                  name=data["name"] or None)
+    return series
+
+
+def _projection_series(result: dict[str, Any], series: str) -> pd.Series:
+    indices = result["indices"]
+    if series not in indices.columns:
+        raise ValueError(f"the run has no series {series!r} to project")
+    column: pd.Series = indices[series]
+    return column
+
+
+def register_projection(session: Session, run_id: str, projection: Any, actor: str, *,
+                        driver: pd.Series | None = None) -> ProjectionRunORM:
+    """Register a forecast or scenario made from the registered run
+    `run_id`. Idempotent on the specification and the run."""
+    from ..engine.projection import digest
+
+    if session.query(IndexRunORM).filter_by(run_id=run_id).one_or_none() is None:
+        raise ValueError(f"run {run_id} is not registered; register the run first")
+    spec_json = (projection.spec.to_json() if projection.kind == "forecast"
+                 else projection.spec_json)
+    driver_json = _driver_json(driver)
+    key = hashlib.sha256("|".join((run_id, projection.kind, projection.series, spec_json,
+                                   driver_json or "")).encode("utf-8")).hexdigest()[:16]
+    existing = session.query(ProjectionRunORM).filter_by(projection_id=key).one_or_none()
+    if existing is not None:
+        return existing
+    row = ProjectionRunORM(
+        projection_id=key, kind=projection.kind, run_id=run_id, series=projection.series,
+        spec_json=spec_json, driver_json=driver_json,
+        backtest_digest=projection.backtest.digest, path_digest=digest(projection.path),
+        code_version=_code_version(), created_at=datetime.now(UTC).isoformat(),
+        created_by=actor)
+    session.add(row)
+    session.flush()
+    audit.record_event(session, actor, audit.PROJECTION_REGISTERED,
+                       f"{projection.kind} {key}", {"run_id": run_id})
+    return row
+
+
+def reproduce_projection(session: Session, projection_id: str, actor: str = "system"
+                         ) -> tuple[Any, bool]:
+    """Rebuild a registered projection from its run's stored input and its
+    stored specification. Returns the projection and whether its backtest
+    errors and its path match the registered digests exactly."""
+    from ..engine import forecasting, scenarios
+    from ..engine.projection import digest
+
+    row = session.query(ProjectionRunORM).filter_by(projection_id=projection_id).one()
+    series = _projection_series(reproduce(session, row.run_id, actor=actor), row.series)
+    if row.kind == "forecast":
+        projection: Any = forecasting.forecast(
+            series, forecasting.ForecastSpec.from_json(row.spec_json),
+            driver=_driver_from_json(row.driver_json))
+    else:
+        projection = scenarios.scenario_from_spec(series, row.spec_json)
+    matches = (projection.backtest.digest == row.backtest_digest
+               and digest(projection.path) == row.path_digest)
+    audit.record_event(session, actor, audit.PROJECTION_REPRODUCED,
+                       f"{row.kind} {projection_id}", {"matches": matches})
+    return projection, matches

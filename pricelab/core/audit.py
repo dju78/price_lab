@@ -65,6 +65,11 @@ PROPERTY_INDEX = "property_index"
 OWNER_OCCUPIED_HOUSING = "owner_occupied_housing"
 UNCERTAINTY = "uncertainty"
 SENSITIVITY = "sensitivity"
+FORECAST = "forecast"
+SCENARIO = "scenario"
+PROJECTION_EXPORT = "projection_export"
+PROJECTION_REGISTERED = "projection_registered"
+PROJECTION_REPRODUCED = "projection_reproduced"
 
 
 class AuditEventORM(Base):

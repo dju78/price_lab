@@ -241,6 +241,10 @@ HEADLINE_EXEMPT: dict[str, str] = {
     "audit_log": "reads the headline only to check it against the registered figure",
     "outliers": "counts of screened, flagged and excluded quotes",
     "revisions": "revision statistics about the headline, not the headline itself",
+    "forecasting": "projections of the headline, each carrying its own interval, backtest, "
+                   "benchmark comparison and assumptions (reporting/projections.py)",
+    "scenarios": "a scenario path built on the headline, carrying its fan, backtest, benchmark "
+                 "comparison and assumptions (reporting/projections.py)",
 }
 
 UNCERTAINTY_STATE = "un_interval"

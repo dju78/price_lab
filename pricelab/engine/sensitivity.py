@@ -18,6 +18,17 @@ both.
 Dimensions whose alternatives the data cannot support are listed with the
 reason rather than left out, so the range cannot look narrower than it is
 merely because some choices were not tried.
+
+The range is a lower bound. One choice is varied at a time, so what two
+choices do together -- a different formula *and* a different imputation --
+is never computed, and the true methodological range is wider. The label
+says so in those terms, wherever the range appears.
+
+Imputation is the one dimension whose effect depends on how much of the
+aggregate it touches, so every row carries the imputed share of the
+aggregate under that setting, and the result carries the published run's:
+a seventeen-point swing from filling a tenth of the aggregate reads very
+differently from the same swing from filling half of it.
 """
 
 from __future__ import annotations
@@ -32,9 +43,62 @@ import pandas as pd
 
 __all__ = [
     "DIMENSIONS",
+    "LOWER_BOUND",
+    "ImputedShare",
     "SensitivityResult",
+    "imputed_share",
     "sensitivity",
 ]
+
+#: The words every statement of the range carries.
+LOWER_BOUND = ("It is a lower bound on the methodological range: one choice is varied at a "
+               "time, so interactions between choices are excluded and the true "
+               "methodological range is wider.")
+
+
+@dataclass(frozen=True)
+class ImputedShare:
+    """How much of the aggregate is filled rather than observed.
+
+    Each category's share of its expected quotes that were imputed, weighted
+    by the category's weight in the aggregate (equal weights when the
+    collection has none): the share of the headline that is model output.
+    `final` is the headline period; `run` the mean over every period."""
+
+    final: float
+    run: float
+    period: pd.Timestamp
+    missing_final: float
+    """The share of the final period's aggregate neither observed nor imputed."""
+
+    @property
+    def statement(self) -> str:
+        return (f"{self.final:.1%} of the aggregate is imputed in {self.period:%b %Y} "
+                f"({self.run:.1%} averaged over the run); {self.missing_final:.1%} is neither "
+                "observed nor imputed there.")
+
+
+def imputed_share(imputed: pd.DataFrame) -> ImputedShare:
+    """The imputed share of the aggregate, final period and whole run."""
+    from .imputation import response_rates
+    from .index import category_weights
+
+    rates = response_rates(imputed)
+    weights = category_weights(imputed)
+    categories = rates.index.get_level_values("category").unique()
+    w = (pd.Series(weights).reindex(categories).fillna(0.0) if weights is not None
+         else pd.Series(1.0, index=categories))
+    w = w / w.sum()
+    missing = rates["still_missing"] / rates["expected"]
+
+    def weighted(column: pd.Series) -> pd.Series:
+        table = column.unstack("category").reindex(columns=categories).fillna(0.0)
+        return (table * w).sum(axis=1)
+
+    shares, gaps = weighted(rates["imputed_share"]), weighted(missing)
+    final = pd.Timestamp(shares.index.max())
+    return ImputedShare(final=float(shares[final]), run=float(shares.mean()), period=final,
+                        missing_final=float(gaps[final]))
 
 DIMENSIONS: tuple[str, ...] = ("elementary formula", "aggregation formula",
                                "multilateral method and window", "quality adjustment",
@@ -48,9 +112,12 @@ class SensitivityResult:
     period: pd.Timestamp
     reference: pd.Timestamp
     table: pd.DataFrame
-    """dimension, setting, headline, difference_points, status, reason."""
+    """dimension, setting, headline, difference_points, status, reason,
+    imputed_share_final, imputed_share_run."""
     low: tuple[str, str, float]
     high: tuple[str, str, float]
+    imputed: ImputedShare | None = None
+    """The published run's imputed share of the aggregate."""
     notes: tuple[str, ...] = field(default_factory=tuple)
 
     kind = "methodological sensitivity"
@@ -72,9 +139,28 @@ class SensitivityResult:
                 f"{self.period:%b %Y} ({self.reference:%b %Y} = 100) runs from "
                 f"{self.low[2]:.2f} ({self.low[0]}: {self.low[1]}) to {self.high[2]:.2f} "
                 f"({self.high[0]}: {self.high[1]}), a spread of {self.range_points:.2f} points "
-                f"around the published {self.baseline:.2f}. It measures how much the number "
-                "depends on choices of method, not on the sample drawn; sampling uncertainty is "
-                "reported separately and must not be added to it.")
+                f"around the published {self.baseline:.2f}. {LOWER_BOUND} It measures how "
+                "much the number depends on choices of method, not on the sample drawn; "
+                "sampling uncertainty is reported separately and must not be added to it.")
+
+    @property
+    def imputation_statement(self) -> str:
+        """The published run's imputed share beside the most any imputation
+        alternative fills -- what a reader needs to judge the imputation
+        rows."""
+        if self.imputed is None:
+            return ""
+        rows = self.table[(self.table["dimension"] == "imputation method")
+                          & (self.table["status"] == "computed")]
+        text = f"Imputed share of the aggregate in the published run: {self.imputed.statement}"
+        if len(rows) and rows["imputed_share_final"].notna().any():
+            top = rows.sort_values(["imputed_share_final", "imputed_share_run"]).iloc[-1]
+            swing = rows["difference_points"].abs().max()
+            text += (f" The imputation alternatives move the headline by up to {swing:.2f} "
+                     f"points; the most any of them fills is {top['imputed_share_final']:.1%} "
+                     f"of the aggregate in the final period ({top['imputed_share_run']:.1%} over "
+                     f"the run), under {top['setting']}.")
+        return text
 
 
 def _final(series: pd.Series) -> float:
@@ -108,32 +194,43 @@ def sensitivity(df: pd.DataFrame, cfg: Any, *, baseline: Mapping[str, Any] | Non
     period = pd.Timestamp(head.dropna().index[-1])
     reference = pd.Timestamp(head.dropna().index[0])
     rows: list[dict[str, Any]] = []
+    imputed = res["imputed"]
+    published_share = imputed_share(imputed)
+    # The imputed share under the setting being tried: a rerun records its
+    # own; every other alternative works on the published run's panel.
+    last_share: list[ImputedShare] = []
 
     def add(dimension: str, setting: str, compute: Callable[[], float]) -> None:
+        last_share.clear()
         try:
             value = compute()
         except Exception as exc:        # noqa: BLE001 - every failure is reported as a reason
             rows.append({"dimension": dimension, "setting": setting, "headline": np.nan,
                          "difference_points": np.nan, "status": "not applicable",
-                         "reason": str(exc).split("\n")[0][:240]})
+                         "reason": str(exc).split("\n")[0][:240],
+                         "imputed_share_final": np.nan, "imputed_share_run": np.nan})
             return
+        share = last_share[0] if last_share else published_share
         rows.append({"dimension": dimension, "setting": setting, "headline": value,
                      "difference_points": value - base_value,
                      "status": "computed" if np.isfinite(value) else "not applicable",
-                     "reason": "" if np.isfinite(value) else "produced no final-period value"})
+                     "reason": "" if np.isfinite(value) else "produced no final-period value",
+                     "imputed_share_final": share.final, "imputed_share_run": share.run})
 
     def not_applicable(dimension: str, setting: str, reason: str) -> None:
         rows.append({"dimension": dimension, "setting": setting, "headline": np.nan,
-                     "difference_points": np.nan, "status": "not applicable", "reason": reason})
+                     "difference_points": np.nan, "status": "not applicable", "reason": reason,
+                     "imputed_share_final": np.nan, "imputed_share_run": np.nan})
 
     def rerun(**changes: Any) -> float:
         updated = cfg.model_copy(deep=True)
         for path, value in changes.items():
             section, attribute = path.split("__")
             setattr(getattr(updated, section), attribute, value)
-        return _final(run_pipeline(df, updated)["indices"]["All items"])
+        result = run_pipeline(df, updated)
+        last_share.append(imputed_share(result["imputed"]))
+        return _final(result["indices"]["All items"])
 
-    imputed = res["imputed"]
     categories = [c for c in res["indices"].columns if c != "All items"]
     weights = category_weights(imputed)
 
@@ -239,7 +336,8 @@ def sensitivity(df: pd.DataFrame, cfg: Any, *, baseline: Mapping[str, Any] | Non
     return SensitivityResult(
         baseline=base_value, period=period, reference=reference, table=table,
         low=(str(lowest["dimension"]), str(lowest["setting"]), float(lowest["headline"])),
-        high=(str(highest["dimension"]), str(highest["setting"]), float(highest["headline"])))
+        high=(str(highest["dimension"]), str(highest["setting"]), float(highest["headline"])),
+        imputed=published_share)
 
 
 def _multilateral_final(imputed: pd.DataFrame, settings: Any, method: str, window: int

@@ -5,6 +5,41 @@ All notable changes to PriceLab. Phases refer to the platform build plan in
 (every existing test green, the bundled fixture's index series identical to
 its committed baseline, ruff and mypy strict at zero).
 
+## Unreleased — Phase 9b: forecasting and scenarios (2026-09-24)
+
+### Added
+- **`engine/forecasting.py`**: ARIMA (order by KPSS and AICc), SARIMAX, ETS,
+  and pass-through and Phillips-curve regressions. Every forecast is:
+  - backtested from rolling origins against the random walk, or the seasonal
+    naive for a seasonal series, on the same window, and says in its label
+    whether it beats it (lower RMSE and a Diebold-Mariano rejection);
+  - carrying both its model-implied interval and the interval its backtest
+    errors imply, and saying where the second is wider;
+  - correlational wherever a regression coefficient appears.
+- **`engine/scenarios.py`**: shocks to energy prices, the exchange rate,
+  wages and administered prices. Each has a stated size, timing, phase-in
+  and a coefficient with its source (stated, the run's weights, or a
+  pass-through regression). They are applied to a stated baseline rule, with
+  a 50/80/95% fan from the rule's past errors. A scenario is never labelled a
+  forecast.
+- **`engine/projection.py`** and **`reporting/projections.py`**: the four
+  parts every projection carries, and the only export path (CSV, Excel,
+  Markdown), which refuses a projection missing any. It holds the export
+  inventory and the scan tests.
+- **Registry**: `ProjectionRunORM` (migration 0008); forecasts and scenarios
+  are registered against a run and reproduced with their backtests checked
+  digest for digest.
+- **Charts**: `forecast_chart` and `scenario_chart`; `mark(...,
+  projection=...)` and the rule that a forecast and a scenario share an axis
+  or a table only when each is labelled as what it is.
+- **Pages**: Forecasts and Scenarios.
+- **Sensitivity**: labelled a lower bound everywhere it appears; the imputed
+  share of the aggregate beside the table.
+
+### Fixed
+- `docs/methodology/sensitivity.md` said the fixture's spread was across 13
+  alternatives; 12 are computed.
+
 ## Unreleased — Phase 9a: uncertainty, variance and sensitivity (2026-09-23)
 
 ### Added

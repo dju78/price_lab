@@ -24,14 +24,49 @@ The seasonal treatments are compiled on their own aggregator, so the
 alternative is expressed as the ratio of the two applied to the published
 headline.
 
+## A lower bound
+
+One choice is varied at a time. What two choices do together, such as a
+different formula *and* a different imputation, is never computed. The
+interactions between choices are therefore excluded, and the true
+methodological range is wider. The range is a **lower bound** on the
+methodological range, and it says so in those terms wherever it appears:
+- its label (and so every headline caption that carries it);
+- the chart title;
+- the Uncertainty page.
+
+## The imputed share of the aggregate
+
+Imputation is the one dimension whose effect depends on how much of the
+aggregate it touches. So every row of the table carries the imputed share of
+the aggregate under that setting: the share of each category's expected
+quotes that were filled rather than observed, weighted by the category's
+weight (equal weights when there are none). The share is given for the final
+period and averaged over the run. The result also carries the published
+run's share, and the share neither observed nor imputed. The Uncertainty page
+shows them beside the table.
+
 ## On the bundled collection
 
 All items in December 2025 (January 2015 = 100) is published at 135.60.
-Across 13 alternatives it runs from **118.12** (overall-mean imputation) to
-**138.57** (the Carli formula), a spread of **20.45 points**. Imputation
-dominates: carrying prices forward or filling from the overall mean moves the
-headline by about 17 points; the formula by about 3; the aggregation by about
-2; the multilateral window and the seasonal treatment by under one.
+Across 12 alternatives it runs from **118.12** (overall-mean imputation) to
+**138.57** (the Carli formula), a spread of **20.45 points**, at least.
+Imputation dominates: carrying prices forward or filling from the overall
+mean moves the headline by about 17 points; the formula by about 3; the
+aggregation by about 2; the multilateral window and the seasonal treatment by
+under one. (Phase 9a's note said 13 alternatives; the count of those computed
+is 12.)
+
+That seventeen points needs its share beside it. The published run imputes
+**nothing**, and 10% of the December 2025 aggregate is neither observed nor
+imputed: Strawberries, out of season, is one of ten equally weighted
+categories. Carrying prices forward, or filling from the overall mean, fills
+exactly that 10% in December 2025, and 6.1% of the aggregate over the run,
+5.3 points of it Strawberries (filled in 53% of its months). So the seventeen points
+are not a modest fill moving the headline a long way. They are a decision to
+price a strictly seasonal item through its months off the shelf, which the
+seasonal methodology (seasonal.md) treats as a different question. Read the
+imputation rows as that question, not as a choice among fills.
 
 ## Not a confidence interval
 

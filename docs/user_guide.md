@@ -172,8 +172,44 @@ the design unset: no interval is published, and every headline says so.
 *Methodological sensitivity*: the headline recompiled under each defensible
 alternative choice, with the highest and lowest settings named. It is not a
 confidence interval, is never drawn with one, and must not be added to one.
-Every headline in the analyst view carries its interval or a statement that
-none has been quantified.
+It is also a lower bound: one choice is varied at a time, so what choices do
+together is not in it. Beside it is the imputed share of the aggregate, in
+the published run and under each imputation setting. Read the imputation
+rows against that share: a large swing from filling a small share is a
+decision about a few items, not a general property of the index. Every
+headline in the analyst view carries its interval or a statement that none
+has been quantified.
+
+**Forecasts.** Choose a method: ARIMA, SARIMAX, exponential smoothing, or a
+pass-through or Phillips-curve regression on a driver series you upload with
+its source. Then choose a horizon and the number of backtest origins. Read
+the verdict first. It says whether the model beats the naive benchmark (the
+random walk, or the seasonal naive for a seasonal series) on the same
+backtest, and it appears above the number, not in a panel. A model that does
+not beat the benchmark is a finding. Then read the backtest line. Where the
+error the model actually made is wider than the interval it claims, the page
+says the model is understating its own uncertainty. Regression coefficients
+are correlational, and the page says so each time it shows one. Downloads
+(CSV, Excel, Markdown) carry the interval, the backtest, the benchmark
+comparison and every assumption, or are refused. *Register this forecast*
+records it against the run, so the registry can rebuild it and check its
+backtest to the last digit
+([methodology/forecasting.md](methodology/forecasting.md)).
+
+**Scenarios.** Not a forecast, and never labelled as one. Tick a shock
+(energy prices, the exchange rate, wages, administered prices) and give:
+- its size, the month it starts and how long it takes to pass through;
+- a coefficient with its source, taken in one of three ways:
+  - stated with a source you name;
+  - the weight of chosen categories in the aggregate (the direct effect
+    only);
+  - the long-run coefficient of a pass-through regression from the Forecasts
+    page.
+
+The path is drawn in a fan built from the baseline rule's past errors. The
+assumption list sits directly under the chart and is part of the scenario. A
+scenario with any assumption unstated can be looked at but cannot be
+exported ([methodology/scenarios.md](methodology/scenarios.md)).
 
 **Property prices from HM Land Registry.** Upload a price paid file exactly
 as published (headerless; an extract for a district keeps within the upload
@@ -238,6 +274,11 @@ the honest statement of how much of the headline is method rather than
 price: six methods, two window lengths and six extension rules on one
 collection, with the spread in index points and in percentage points of
 the annualised rate.
+
+**Forecasts and Scenarios.** A forecast here is always read with its benchmark
+verdict and its backtest. A scenario is always read with its assumptions. A
+pass-through coefficient measures how two series have moved together, not
+what one does to the other. See the compiler's notes above.
 
 Take away: the Markdown or Word report with its method note, and the CSV
 publication table with disclosure control applied.

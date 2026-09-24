@@ -73,14 +73,21 @@ BASES = ("nominal", "real")
 #: an axis: how much a number would move under a different sample, and how
 #: much under a different defensible choice of method.
 BANDS = ("sampling uncertainty", "methodological sensitivity")
+#: Two kinds of projected figure. They may share an axis only when every
+#: projected artist is labelled with its own kind: a forecast's label says
+#: "forecast" and never "scenario"; a scenario's says "scenario" and never
+#: "forecast" except as "not a forecast".
+PROJECTIONS = ("forecast", "scenario")
 _UNIT_ATTR, _BASIS_ATTR, _BAND_ATTR = "_pricelab_unit", "_pricelab_basis", "_pricelab_band"
+_PROJECTION_ATTR = "_pricelab_projection"
 
 
 class ChartUnitError(ValueError):
     """A figure draws incompatible quantities on one axis."""
 
 
-def mark(artist: Any, unit: str, basis: str | None = None, band: str | None = None) -> Any:
+def mark(artist: Any, unit: str, basis: str | None = None, band: str | None = None,
+         projection: str | None = None) -> Any:
     """Record the unit (and, for money, nominal or real) an artist is drawn
     in, and -- for a spread -- which kind of spread it is. Returns the
     artist, so a call can wrap the plotting call. A list of lines, or a bar
@@ -91,6 +98,8 @@ def mark(artist: Any, unit: str, basis: str | None = None, band: str | None = No
         raise ChartUnitError(f"basis must be one of {BASES}, not {basis!r}")
     if band is not None and band not in BANDS:
         raise ChartUnitError(f"band must be one of {BANDS}, not {band!r}")
+    if projection is not None and projection not in PROJECTIONS:
+        raise ChartUnitError(f"projection must be one of {PROJECTIONS}, not {projection!r}")
     if isinstance(artist, (list, tuple)):
         targets = list(artist)
     elif hasattr(artist, "patches"):
@@ -101,7 +110,17 @@ def mark(artist: Any, unit: str, basis: str | None = None, band: str | None = No
         setattr(target, _UNIT_ATTR, unit)
         setattr(target, _BASIS_ATTR, basis)
         setattr(target, _BAND_ATTR, band)
+        setattr(target, _PROJECTION_ATTR, projection)
     return artist
+
+
+def labelled_as(label: str, kind: str) -> bool:
+    """Whether a label says it is `kind` and not the other kind of
+    projection. "not a forecast" is how a scenario says what it is not."""
+    text = label.lower()
+    if kind == "forecast":
+        return "forecast" in text and "scenario" not in text
+    return "scenario" in text and "forecast" not in text.replace("not a forecast", "")
 
 
 def _data_artists(ax: Axes) -> list[Any]:
@@ -111,6 +130,18 @@ def _data_artists(ax: Axes) -> list[Any]:
 def check_axes(ax: Axes) -> None:
     """Raise `ChartUnitError` if this axis mixes units, unlabelled bases, or
     a confidence interval with a sensitivity range."""
+    projected = [(a, getattr(a, _PROJECTION_ATTR, None)) for a in _data_artists(ax)]
+    kinds = {kind for _, kind in projected} - {None}
+    if len(kinds) > 1:
+        for artist, kind in projected:
+            if kind is None:
+                continue
+            label = str(artist.get_label())
+            if label.startswith("_") or not labelled_as(label, kind):
+                raise ChartUnitError(
+                    f"a forecast and a scenario share the axis {ax.get_title()!r}, and a {kind} "
+                    f"there is labelled {label!r}, which does not say it is a {kind}. A "
+                    "scenario is not a forecast; label each as what it is")
     bands = {getattr(a, _BAND_ATTR, None) for a in _data_artists(ax)} - {None}
     if len(bands) > 1:
         raise ChartUnitError(
@@ -507,8 +538,64 @@ def sensitivity_chart(result: Any, figsize: tuple[float, float] = (10, 5)) -> Fi
     ax.set_xlim(min(computed["headline"].min(), result.baseline) * 0.97,
                 max(computed["headline"].max(), result.baseline) * 1.02)
     ax.grid(axis="y", visible=False)
-    ax.set_title("Methodological sensitivity (not a confidence interval)", loc="left",
+    ax.set_title("Methodological sensitivity (not a confidence interval; a lower bound, one "
+                 "choice varied at a time)", loc="left", fontsize=11, color=INK, pad=10)
+    _footnote(fig, result.label)
+    return check_figure(fig)
+
+
+def forecast_chart(result: Any, history_periods: int = 60,
+                   figsize: tuple[float, float] = (10, 5)) -> Figure:
+    """The forecast with its model-implied interval and the interval its
+    backtest errors imply, after recent history. The title carries the
+    benchmark verdict; the footnote, the full label."""
+    fig, ax = _fig(figsize)
+    history = result.history.iloc[-history_periods:]
+    path = result.path
+    mark(ax.plot(history.index, history.to_numpy(), color=INK, lw=1.6, label="observed"),
+         "index_level")
+    mark(ax.fill_between(path.index, path["lower"], path["upper"], color=PRIMARY, alpha=0.18,
+                         lw=0, label=f"forecast: {result.spec.level:.0%} model-implied "
+                                     "interval"),
+         "index_level", projection="forecast")
+    mark(ax.plot(path.index, path["measured_lower"], color=ACCENT, lw=1, ls="--",
+                 label="forecast: interval implied by backtest errors"),
+         "index_level", projection="forecast")
+    mark(ax.plot(path.index, path["measured_upper"], color=ACCENT, lw=1, ls="--",
+                 label="_forecast measured upper"), "index_level", projection="forecast")
+    mark(ax.plot(path.index, path["point"], color=PRIMARY, lw=2,
+                 label=f"forecast: {result.specification}"), "index_level",
+         projection="forecast")
+    ax.set_ylabel("index level")
+    ax.set_title(f"Forecast, {result.specification}: {result.verdict}", loc="left",
                  fontsize=11, color=INK, pad=10)
+    ax.legend(frameon=False, fontsize=8, loc="upper left")
+    _footnote(fig, result.label)
+    return check_figure(fig)
+
+
+def scenario_chart(result: Any, history_periods: int = 60,
+                   figsize: tuple[float, float] = (10, 5)) -> Figure:
+    """The scenario path in its fan, beside the baseline rule, after recent
+    history. Titled and labelled as a scenario, not a forecast."""
+    fig, ax = _fig(figsize)
+    history = result.history.iloc[-history_periods:]
+    path = result.path
+    mark(ax.plot(history.index, history.to_numpy(), color=INK, lw=1.6, label="observed"),
+         "index_level")
+    for suffix, alpha, name in (("", 0.12, "95%"), ("_80", 0.18, "80%"), ("_50", 0.26, "50%")):
+        mark(ax.fill_between(path.index, path[f"lower{suffix}"], path[f"upper{suffix}"],
+                             color=ACCENT, alpha=alpha, lw=0, label=f"scenario fan, {name}"),
+             "index_level", projection="scenario")
+    mark(ax.plot(path.index, path["baseline"], color=MUTED, lw=1.2, ls="--",
+                 label="scenario baseline rule (no shocks)"), "index_level",
+         projection="scenario")
+    mark(ax.plot(path.index, path["point"], color=ACCENT, lw=2,
+                 label=f"scenario: {result.name}"), "index_level", projection="scenario")
+    ax.set_ylabel("index level")
+    ax.set_title(f"Scenario (not a forecast): {result.name}", loc="left", fontsize=11,
+                 color=INK, pad=10)
+    ax.legend(frameon=False, fontsize=8, loc="upper left")
     _footnote(fig, result.label)
     return check_figure(fig)
 

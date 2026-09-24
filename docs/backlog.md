@@ -998,9 +998,49 @@ over many links; Taylor linearisation to compare with the bootstrap;
 combinations of methodological choices (one is varied at a time); a
 multi-year price paid run for repeat sales.
 
+## Phase 9b - Forecasting and scenarios (done, 2026-09-24)
+
+**Task 0, carried items.** The sensitivity spread is labelled a lower bound
+wherever it appears (`sensitivity.LOWER_BOUND`: label, chart title, page).
+The imputed share of the aggregate sits beside the table
+(`sensitivity.imputed_share`, a column per row, and the page's metrics): the
+published run imputes nothing; the two settings that move the headline 17
+points fill the 10% of Dec 2025's aggregate that is Strawberries out of
+season.
+
+**Task 1, forecasting.** `engine/forecasting.py` provides ARIMA, SARIMAX, ETS,
+and pass-through and Phillips-curve regressions. Each is backtested from
+rolling origins against the random walk or the seasonal naive on the same
+window. "Beats" needs a Diebold-Mariano rejection. The model-implied interval
+is set against the measured error at every horizon. The regressions are
+labelled correlational.
+
+**Task 2, scenarios.** `engine/scenarios.py` applies shocks with stated size,
+timing, phase-in and a sourced coefficient to a stated baseline rule, and
+draws a fan from the rule's past errors. The assumption list is output.
+
+**Task 3, export discipline.** `engine/projection.missing_parts` and
+`reporting/projections.release`; `PROJECTION_EXPORTS`,
+`EXPORTS_WITHOUT_PROJECTIONS` and `PROJECTION_MODULES`; the tests scan for
+unlisted exports and modules and refuse every export path any missing part.
+
+**Registry.** `ProjectionRunORM` (migration 0008);
+`register_projection` / `reproduce_projection` check the backtest and path
+digests.
+
+**Deferred.**
+- The driver's own uncertainty in a regression's interval (the backtest
+  measures what omitting it costs).
+- Re-selecting the specification at every backtest origin.
+- Forecast combination.
+- Second-round effects and shock interactions in scenarios.
+- Coefficient uncertainty in the fan.
+- A real driver series for the bundled collection. It has none, so the
+  regressions were evaluated only on generated data with a known process.
+
 ## Deferred (not in the agreed scope; revisit if asked)
 
-Forecasting and scenario tooling; OIDC (would require hosting beyond
+OIDC (would require hosting beyond
 Streamlit Community Cloud); an in-app user-management page; CPA, NACE and HS
 classification reference data (no authoritative, machine-readable source
 verified yet -- the generic loader that would take one already exists); a

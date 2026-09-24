@@ -32,7 +32,13 @@ def test_migration_upgrades_head_cleanly_and_seeds_coicop(tmp_path, monkeypatch)
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
     assert {"users", "sessions", "audit_events", "index_runs", "classification_nodes",
-            "validation_overrides", "column_mappings", "quality_adjustments"} <= tables
+            "validation_overrides", "column_mappings", "quality_adjustments",
+            "outlier_decisions", "projection_runs"} <= tables
+
+    # 0008 (Phase 9b): forecasts and scenarios registered against a run.
+    projection_columns = {c["name"] for c in inspector.get_columns("projection_runs")}
+    assert {"projection_id", "kind", "run_id", "spec_json", "driver_json",
+            "backtest_digest", "path_digest"} <= projection_columns
 
     # 0005 (Phase 4): the quality adjustment ledger's approval record.
     qa_columns = {c["name"] for c in inspector.get_columns("quality_adjustments")}

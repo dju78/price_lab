@@ -133,7 +133,7 @@ def spread(collection) -> se.SensitivityResult:
 @needs_prices
 def test_the_sensitivity_spread_on_the_fixture_names_its_extremes(spread):
     """On the bundled collection, All items in Dec 2025 (Jan 2015 = 100) is
-    135.60 as published. Across 13 alternatives it runs from 118.12, with
+    135.60 as published. Across 12 alternatives it runs from 118.12, with
     overall-mean imputation, to 138.57, with the Carli formula: 20.45
     points. Imputation dominates: carrying prices forward or filling from
     the overall mean moves the headline by 17 points, the formula by 3, the
@@ -143,12 +143,45 @@ def test_the_sensitivity_spread_on_the_fixture_names_its_extremes(spread):
     assert spread.low[:2] == ("imputation method", "overall_mean")
     assert spread.high[:2] == ("elementary formula", "carli")
     assert spread.range_points == pytest.approx(20.45, abs=0.02)
+    assert len(spread.computed) == 12
     assert "not a confidence interval" in spread.label
     assert "(imputation method: overall_mean)" in spread.label
     assert "(elementary formula: carli)" in spread.label
     reasons = spread.table.loc[spread.table["status"] == "not applicable", "reason"]
     assert reasons.str.contains("quantities").any()
     assert reasons.str.contains("no replacement was valued").any()
+
+
+@needs_prices
+def test_the_spread_is_labelled_a_lower_bound_wherever_it_appears(spread):
+    """One choice is varied at a time, so interactions are excluded: the
+    label, the chart title and the page say the range is a lower bound."""
+    assert se.LOWER_BOUND in spread.label
+    assert "interactions between choices are excluded" in se.LOWER_BOUND
+    assert "true methodological range is wider" in se.LOWER_BOUND
+    title = charts.sensitivity_chart(spread).axes[0].get_title(loc="left")
+    assert "a lower bound, one choice varied at a time" in title
+    source = (REPO_ROOT / "pages" / "uncertainty.py").read_text("utf-8")
+    assert "se.LOWER_BOUND" in source
+
+
+@needs_prices
+def test_the_imputed_share_of_the_aggregate_is_reported_beside_the_table(spread):
+    """The published run imputes nothing; a tenth of the December 2025
+    aggregate (Strawberries, out of season) is simply missing. The two
+    imputation settings that move the headline by about seventeen points
+    fill exactly that tenth, 6.1% of the aggregate over the whole run."""
+    assert spread.imputed.final == 0.0 and spread.imputed.run == 0.0
+    assert spread.imputed.missing_final == pytest.approx(0.1)
+    rows = spread.table.set_index("setting")
+    for method in ("carry_forward", "overall_mean"):
+        assert rows.loc[method, "imputed_share_final"] == pytest.approx(0.1)
+        assert rows.loc[method, "imputed_share_run"] == pytest.approx(0.0609, abs=5e-4)
+        assert rows.loc[method, "difference_points"] < -16.5
+    assert rows.loc["dutot", "imputed_share_final"] == 0.0
+    statement = spread.imputation_statement
+    assert statement.startswith("Imputed share of the aggregate in the published run: 0.0%")
+    assert "the most any of them fills is 10.0% of the aggregate" in statement
 
 
 @needs_prices
@@ -281,6 +314,13 @@ def test_the_uncertainty_page_refuses_without_a_design_then_estimates_with_one(d
     assert not at.exception, at.exception
     sensitivity = at.session_state["un_sensitivity"]["result"]
     assert any(s.value == sensitivity.label for s in at.success)
+    assert any(se.LOWER_BOUND in c.value for c in at.caption)
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["Imputed share of the aggregate, whole run"] == (
+        f"{sensitivity.imputed.run:.1%}")
+    assert any(i.value == sensitivity.imputation_statement for i in at.info)
+    table = at.dataframe[-1].value
+    assert "imputed share of the aggregate (final period)" in table.columns
     headings = [m.value for m in at.markdown if m.value.startswith("####")]
     assert headings == ["#### Sampling uncertainty (a confidence interval)",
                         "#### Methodological sensitivity (not a confidence interval)"]
